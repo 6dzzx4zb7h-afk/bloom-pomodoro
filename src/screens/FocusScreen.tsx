@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import { PixelPal } from '../components/PixelPal';
-import { StatusBar } from '../components/StatusBar';
 import { SettingsSheet } from '../components/SettingsSheet';
 import type { useBloom } from '../store/useBloom';
 import type { TimerMode } from '../store/useBloom';
@@ -25,9 +24,6 @@ export function FocusScreen({ bloom }: { bloom: ReturnType<typeof useBloom> }) {
 
   return (
     <div className="screen focus-bg">
-      <div className="island" />
-      <StatusBar />
-
       <div className="greeting-row">
         <div>
           <div className="greeting">Hi, {state.settings.name}</div>

@@ -13,8 +13,6 @@
   --purple-2: #cdb8ec;
   --purple-3: #b79fe3;
   /* surfaces */
-  --bezel: #2c2533;
-  --island: #181420;
   --shadow-soft: 0 10px 20px -14px rgba(183, 159, 227, 0.8);
   --shadow-card: 0 8px 18px -12px rgba(183, 159, 227, 0.7);
 
@@ -41,11 +39,11 @@ body {
 }
 
 #root {
-  min-height: 100%;
+  min-height: 100vh;
+  min-height: 100dvh;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 24px;
 }
 
 canvas {
@@ -57,26 +55,35 @@ button {
   font-family: inherit;
 }
 
-/* ---------- phone frame ---------- */
+/* ---------- app shell (responsive) ---------- */
+/* The bezel wrapper is a no-op in layout; the phone element is the app surface:
+   full-bleed on small screens, a centered rounded card on larger ones. */
 .bezel {
-  width: 336px;
-  background: var(--bezel);
-  border-radius: 46px;
-  padding: 11px;
-  box-shadow:
-    0 26px 55px -20px rgba(110, 85, 119, 0.6),
-    inset 0 0 0 2px rgba(255, 255, 255, 0.45);
+  display: contents;
 }
 
 .phone {
-  width: 314px;
-  height: 662px;
-  border-radius: 38px;
+  width: min(100vw, 440px);
+  height: 100vh;
+  height: 100dvh;
   overflow: hidden;
   position: relative;
   display: flex;
   flex-direction: column;
   background: #fdf3fb;
+}
+
+@media (min-width: 500px) {
+  #root {
+    padding: 24px;
+  }
+  .phone {
+    height: min(100dvh - 48px, 920px);
+    border-radius: 40px;
+    box-shadow:
+      0 30px 60px -24px rgba(110, 85, 119, 0.5),
+      inset 0 0 0 1px rgba(255, 255, 255, 0.55);
+  }
 }
 
 .screen {
@@ -85,47 +92,7 @@ button {
   position: relative;
   display: flex;
   flex-direction: column;
-}
-
-.island {
-  position: absolute;
-  top: 13px;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 92px;
-  height: 26px;
-  background: var(--island);
-  border-radius: 16px;
-  z-index: 40;
-}
-
-.statusbar {
-  height: 46px;
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  padding: 0 24px 7px;
-  font: 600 13px var(--font-display);
-  color: var(--plum);
-  flex: none;
-}
-.battery {
-  width: 18px;
-  height: 10px;
-  border: 1.5px solid currentColor;
-  border-radius: 2px;
-  display: inline-block;
-  position: relative;
-}
-.battery::after {
-  content: '';
-  position: absolute;
-  left: 1.5px;
-  top: 1.5px;
-  bottom: 1.5px;
-  width: 10px;
-  background: currentColor;
-  border-radius: 1px;
+  padding-top: max(10px, env(safe-area-inset-top));
 }
 
 /* ---------- focus screen ---------- */

@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import { PixelPal } from '../components/PixelPal';
-import { StatusBar } from '../components/StatusBar';
 import type { useBloom } from '../store/useBloom';
 
 const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -28,9 +27,6 @@ export function TasksScreen({ bloom }: { bloom: ReturnType<typeof useBloom> }) {
 
   return (
     <div className="screen tasks-bg">
-      <div className="island" />
-      <StatusBar />
-
       <div className="head">
         <div className="head-title">Today's tasks</div>
         <div className="head-sub">{dateLabel}</div>

@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import { PixelPal } from './PixelPal';
-import { StatusBar } from './StatusBar';
 import type { useBloom } from '../store/useBloom';
 
 /**
@@ -19,9 +18,6 @@ export function Onboarding({ bloom }: { bloom: ReturnType<typeof useBloom> }) {
 
   return (
     <div className="screen onboard-bg">
-      <div className="island" />
-      <StatusBar />
-
       <div className="onboard">
         <div className="onboard-pal">
           <PixelPal sprite="bunny" mode="celebrate" scale={5} size={118} />

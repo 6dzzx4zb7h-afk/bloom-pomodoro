@@ -1,5 +1,4 @@
 import { PixelPal } from '../components/PixelPal';
-import { StatusBar } from '../components/StatusBar';
 import { FRIENDS } from '../data/friends';
 import type { useBloom } from '../store/useBloom';
 
@@ -13,9 +12,6 @@ export function CollectionScreen({ bloom }: { bloom: ReturnType<typeof useBloom>
 
   return (
     <div className="screen coll-bg">
-      <div className="island" />
-      <StatusBar />
-
       <div className="head">
         <div className="head-title">My little friends</div>
         <div className="head-sub">
