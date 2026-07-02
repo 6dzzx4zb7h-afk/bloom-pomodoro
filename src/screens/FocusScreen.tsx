@@ -123,6 +123,7 @@ export function FocusScreen({ bloom }: { bloom: ReturnType<typeof useBloom> }) {
       {showSettings && (
         <SettingsSheet
           settings={state.settings}
+          running={state.running}
           onPatch={actions.patchSettings}
           onClose={() => setShowSettings(false)}
         />

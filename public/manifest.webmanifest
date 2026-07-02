@@ -1,0 +1,16 @@
+{
+  "name": "Bloom — a cozy pomodoro",
+  "short_name": "Bloom",
+  "description": "A cozy pixel-pal pomodoro timer with calming background sounds and friends who level up as you focus.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#fdf3fb",
+  "theme_color": "#fdf3fb",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef } from 'react';
 import { friendByName } from '../data/friends';
 import type { AnimalKind } from '../engine/pixelpals';
+import { audioEngine, notify, type BgSound } from '../engine/audio';
 
 export type TimerMode = 'focus' | 'short' | 'long';
 
@@ -23,7 +24,10 @@ export interface Settings {
   /** What the app calls the user (chosen on first run, editable in settings). */
   name: string;
   durations: Durations;
+  /** Play the end-of-session ring (chime + notification). */
   sound: boolean;
+  /** Ambience played while a session runs. */
+  bgSound: BgSound;
   /** Automatically start the next timer after the celebrate animation. */
   autoStart: boolean;
   /** Name of the friend on duty (drives the focus-screen sprite). */
@@ -45,6 +49,8 @@ interface BloomState {
   tasks: Task[];
   /** The task pomodoros are credited to; falls back to first undone task. */
   activeTaskId: number | null;
+  /** Focus sessions completed with each friend on duty → drives their level. */
+  palXp: Record<string, number>;
   settings: Settings;
 }
 
@@ -52,6 +58,7 @@ const DEFAULT_SETTINGS: Settings = {
   name: '',
   durations: { focus: 1500, short: 300, long: 900 },
   sound: true,
+  bgSound: 'off',
   autoStart: false,
   pal: 'Mochi',
 };
@@ -73,6 +80,7 @@ const DEFAULT_STATE: BloomState = {
   justDone: false,
   tasks: DEFAULT_TASKS,
   activeTaskId: 1,
+  palXp: {},
   settings: DEFAULT_SETTINGS,
 };
 
@@ -99,6 +107,7 @@ interface PersistedShape {
   lastFocusDay: string | null;
   tasks: Task[];
   activeTaskId: number | null;
+  palXp: Record<string, number>;
   settings: Settings;
 }
 
@@ -120,10 +129,14 @@ function withDefaults(blob: Record<string, unknown>): PersistedShape {
   const bSettings = (b.settings as Partial<Settings> | undefined) ?? {};
   // Legacy v1 stored durations at the top level, not under `settings`.
   const legacyDurations = (b.durations as Partial<Durations> | undefined) ?? {};
+  const validBg: BgSound[] = ['off', 'calm', 'coffee', 'white'];
   const settings: Settings = {
     ...DEFAULT_SETTINGS,
     ...bSettings,
     name: typeof bSettings.name === 'string' ? bSettings.name : DEFAULT_SETTINGS.name,
+    bgSound: validBg.includes(bSettings.bgSound as BgSound)
+      ? (bSettings.bgSound as BgSound)
+      : DEFAULT_SETTINGS.bgSound,
     durations: {
       ...DEFAULT_SETTINGS.durations,
       ...legacyDurations,
@@ -137,6 +150,7 @@ function withDefaults(blob: Record<string, unknown>): PersistedShape {
     lastFocusDay: typeof b.lastFocusDay === 'string' ? (b.lastFocusDay as string) : null,
     tasks: Array.isArray(b.tasks) ? (b.tasks as Task[]) : DEFAULT_TASKS,
     activeTaskId: typeof b.activeTaskId === 'number' ? (b.activeTaskId as number) : null,
+    palXp: b.palXp && typeof b.palXp === 'object' ? (b.palXp as Record<string, number>) : {},
     settings,
   };
 }
@@ -181,6 +195,7 @@ function loadState(): BloomState {
     lastFocusDay: p.lastFocusDay,
     tasks: p.tasks,
     activeTaskId: p.activeTaskId,
+    palXp: p.palXp,
   };
 }
 
@@ -192,6 +207,7 @@ function persist(s: BloomState) {
     lastFocusDay: s.lastFocusDay,
     tasks: s.tasks,
     activeTaskId: s.activeTaskId,
+    palXp: s.palXp,
     settings: s.settings,
   };
   try {
@@ -213,29 +229,6 @@ function bumpStreak(prevStreak: number, lastFocusDay: string | null): number {
 export function resolveActiveTask(tasks: Task[], activeTaskId: number | null): Task | undefined {
   const chosen = tasks.find((t) => t.id === activeTaskId && !t.done);
   return chosen ?? tasks.find((t) => !t.done);
-}
-
-/** Soft three-note chime (C5–E5–G5) on session complete. Safe no-op without audio. */
-function chime() {
-  try {
-    const ac = new AudioContext();
-    [523.25, 659.25, 783.99].forEach((freq, i) => {
-      const osc = ac.createOscillator();
-      const gain = ac.createGain();
-      osc.type = 'sine';
-      osc.frequency.value = freq;
-      const t0 = ac.currentTime + i * 0.13;
-      gain.gain.setValueAtTime(0.0001, t0);
-      gain.gain.exponentialRampToValueAtTime(0.09, t0 + 0.03);
-      gain.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.6);
-      osc.connect(gain).connect(ac.destination);
-      osc.start(t0);
-      osc.stop(t0 + 0.65);
-    });
-    setTimeout(() => ac.close(), 1600);
-  } catch {
-    /* audio unavailable */
-  }
 }
 
 type Action =
@@ -302,6 +295,10 @@ function reducer(s: BloomState, a: Action): BloomState {
           activeTaskId = nowDone ? (tasks.find((t) => !t.done)?.id ?? null) : cur.id;
         }
       }
+      // Credit XP toward the on-duty friend's level.
+      const palXp = wasFocus
+        ? { ...s.palXp, [s.settings.pal]: (s.palXp[s.settings.pal] ?? 0) + 1 }
+        : s.palXp;
       return {
         ...s,
         running: false,
@@ -313,6 +310,7 @@ function reducer(s: BloomState, a: Action): BloomState {
         lastFocusDay,
         tasks,
         activeTaskId,
+        palXp,
       };
     }
     case 'clearDone': {
@@ -378,7 +376,7 @@ export function useBloom() {
   // Persist durable fields whenever they change.
   useEffect(() => {
     persist(state);
-  }, [state.sessions, state.streak, state.lastFocusDay, state.tasks, state.activeTaskId, state.settings]);
+  }, [state.sessions, state.streak, state.lastFocusDay, state.tasks, state.activeTaskId, state.palXp, state.settings]);
 
   // Wall-clock tick: recompute remaining ~4x/sec. Reads Date.now(), so it
   // stays accurate even when the tab is throttled in the background.
@@ -404,12 +402,40 @@ export function useBloom() {
   soundRef.current = state.settings.sound;
   useEffect(() => {
     if (!state.justDone) return;
-    if (soundRef.current) chime();
+    if (soundRef.current) {
+      audioEngine.playRing();
+      notify('🌸 Session done!', 'Nice work — time for a little break.');
+    }
     celRef.current = setTimeout(() => dispatch({ type: 'clearDone' }), 3600);
     return () => {
       if (celRef.current) clearTimeout(celRef.current);
     };
   }, [state.justDone]);
+
+  // Background ambience is owned here so it can never fight a settings preview.
+  const runningRef = useRef(state.running);
+  runningRef.current = state.running;
+
+  // Start ambience when a session starts, stop it when it ends/pauses.
+  useEffect(() => {
+    if (state.running && state.settings.bgSound !== 'off') {
+      audioEngine.setAmbience(state.settings.bgSound);
+    } else if (!state.running) {
+      audioEngine.stopAmbience();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.running]);
+
+  // Live-switch the ambience if the choice changes mid-session. When not
+  // running, previews (fired from the settings sheet) are left untouched.
+  useEffect(() => {
+    if (!runningRef.current) return;
+    if (state.settings.bgSound === 'off') audioEngine.stopAmbience();
+    else audioEngine.setAmbience(state.settings.bgSound);
+  }, [state.settings.bgSound]);
+
+  // Silence everything if the app unmounts.
+  useEffect(() => () => audioEngine.stopAmbience(), []);
 
   // Derived animal mood.
   const mood = useMemo<'idle' | 'work' | 'sleep' | 'celebrate'>(() => {
@@ -431,7 +457,11 @@ export function useBloom() {
 
   const actions = useMemo(
     () => ({
-      toggle: () => dispatch({ type: 'toggle' }),
+      toggle: () => {
+        // First press is a user gesture — unlock audio for ambience + ring.
+        audioEngine.resume();
+        dispatch({ type: 'toggle' });
+      },
       reset: () => dispatch({ type: 'reset' }),
       pick: (m: TimerMode) => dispatch({ type: 'pick', mode: m }),
       skip: () => dispatch({ type: 'skip' }),

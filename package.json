@@ -8,16 +8,24 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
-    "deploy": "npm run build && wrangler pages deploy dist --project-name=bloom-pomodoro"
+    "deploy": "npm run build && wrangler pages deploy dist --project-name=bloom-pomodoro",
+    "icons": "node scripts/gen-icons.mjs",
+    "cap:sync": "npm run build && cap sync android",
+    "apk": "npm run cap:sync && node scripts/build-apk.mjs assembleDebug",
+    "apk:release": "npm run cap:sync && node scripts/build-apk.mjs assembleRelease"
   },
   "dependencies": {
+    "@capacitor/android": "^7.6.7",
+    "@capacitor/core": "^7.6.7",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },
   "devDependencies": {
+    "@capacitor/cli": "^7.6.7",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.4",
+    "sharp": "^0.35.3",
     "typescript": "^5.6.3",
     "vite": "^5.4.11",
     "wrangler": "^4.0.0"
