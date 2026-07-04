@@ -4,10 +4,18 @@ interface Star {
   x: number; // 0..1 fraction of width
   y: number; // 0..1 fraction of height
   r: number;
-  phase: number;
-  speed: number;
   col: string;
   sparkle: boolean;
+  /** Resting brightness — most stars just sit here, faint. */
+  base: number;
+  /** Brightness at the top of a pulse. */
+  peak: number;
+  /** ms until this star's next pulse (while idle). */
+  wait: number;
+  /** ms into the current pulse, or -1 when idle. */
+  t: number;
+  /** Length of the current pulse in ms. */
+  dur: number;
 }
 
 interface Meteor {
@@ -48,14 +56,20 @@ export function NightSky() {
     fit();
     window.addEventListener('resize', fit);
 
-    const stars: Star[] = Array.from({ length: 64 }, () => ({
+    // Each star rests at a faint `base` glow and, on its own randomized
+    // timer, swells to `peak` and eases back down — so only a scattered few
+    // are ever twinkling at once, never the whole sky in sync.
+    const stars: Star[] = Array.from({ length: 110 }, () => ({
       x: Math.random(),
-      y: Math.random() * 0.92,
-      r: 0.6 + Math.random() * 1.2,
-      phase: Math.random() * Math.PI * 2,
-      speed: 0.4 + Math.random() * 1.1,
+      y: Math.random() * 0.94,
+      r: 0.5 + Math.random() * 1.2,
       col: STAR_COLORS[(Math.random() * STAR_COLORS.length) | 0],
-      sparkle: Math.random() < 0.16,
+      sparkle: Math.random() < 0.14,
+      base: 0.12 + Math.random() * 0.25,
+      peak: 0.7 + Math.random() * 0.3,
+      wait: Math.random() * 7000, // staggered first pulses
+      t: -1,
+      dur: 0,
     }));
 
     let meteors: Meteor[] = [];
@@ -96,18 +110,33 @@ export function NightSky() {
       drawMoon();
 
       // Twinkling stars — square pixels, on-brand with the sprite engine.
-      const t = now / 1000;
+      // Advance each star's own pulse timer; idle stars just glow faintly.
       for (const s of stars) {
-        const tw = 0.35 + 0.65 * (0.5 + 0.5 * Math.sin(s.phase + t * s.speed));
+        if (s.t < 0) {
+          s.wait -= dt;
+          if (s.wait <= 0) {
+            s.t = 0;
+            s.dur = 1200 + Math.random() * 1800;
+          }
+        } else {
+          s.t += dt;
+          if (s.t >= s.dur) {
+            s.t = -1;
+            s.wait = 1500 + Math.random() * 8000;
+          }
+        }
+        // Ease up to peak and back down over the pulse (half sine).
+        const lift = s.t >= 0 ? Math.sin(Math.PI * (s.t / s.dur)) : 0;
+        const alpha = s.base + (s.peak - s.base) * lift;
         const x = s.x * w;
         const y = s.y * h;
         const px = s.r * 2;
-        ctx.globalAlpha = tw;
+        ctx.globalAlpha = alpha;
         ctx.fillStyle = s.col;
         ctx.fillRect(x, y, px, px);
-        if (s.sparkle) {
-          // little + cross on the brighter stars
-          ctx.globalAlpha = tw * 0.55;
+        if (s.sparkle && lift > 0.25) {
+          // little + cross that grows in while this star is pulsing bright
+          ctx.globalAlpha = alpha * 0.55 * lift;
           ctx.fillRect(x - px, y, px * 3, px / 2);
           ctx.fillRect(x + px / 4, y - px, px / 2, px * 3);
         }
