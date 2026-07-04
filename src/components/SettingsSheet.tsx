@@ -142,6 +142,22 @@ export function SettingsSheet({ settings, running, onPatch, onClose }: SettingsS
         </div>
 
         <div className="set-row">
+          <span className="set-label">
+            Night sky
+            <span className="set-sub">cozy dark mode with stars &amp; meteors</span>
+          </span>
+          <button
+            className={`switch${settings.night ? ' on' : ''}`}
+            onClick={() => onPatch({ night: !settings.night })}
+            role="switch"
+            aria-checked={settings.night}
+            aria-label="Night sky theme"
+          >
+            <span className="knob" />
+          </button>
+        </div>
+
+        <div className="set-row">
           <span className="set-label">Auto-start next</span>
           <button
             className={`switch${settings.autoStart ? ' on' : ''}`}

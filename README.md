@@ -70,7 +70,10 @@ To pick up web changes later, just re-run `npm run apk` (it rebuilds and re-sync
     an option in Settings plays a short preview.
 - **Wall-clock accuracy:** the run stores an `endsAt` timestamp and recomputes remaining from
   `Date.now()`, so it stays accurate when the tab is backgrounded.
-- **Settings:** name, focus/short/long durations, ring toggle, background-sound picker, auto-start.
+- **Settings:** name, focus/short/long durations, ring toggle, background-sound picker, auto-start,
+  night sky.
+- **Night sky:** an optional dark theme with a live animated backdrop — crescent moon, twinkling
+  pixel stars, and the occasional meteor streaking down (Canvas 2D, `NightSky.tsx`).
 - **Tasks screen:** per-task pomodoro goals ("cherries"); tap a task to focus it, and the
   active task earns credit + auto-checks itself when the goal is reached. Add/remove tasks.
 - **Collection screen:** all six animal friends are **unlocked from the start**. Each **levels

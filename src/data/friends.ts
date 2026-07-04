@@ -15,9 +15,9 @@ export const FRIENDS: Friend[] = [
   { name: 'Mochi', sprite: 'bunny', tile: '#fdeef6', blurb: 'your first friend' },
   { name: 'Pudding', sprite: 'cat', tile: '#f3eefb', blurb: 'naps professionally' },
   { name: 'Biscuit', sprite: 'duck', tile: '#fff7e6', blurb: 'waddles with purpose' },
-  { name: 'Cloud', sprite: 'bunny', tile: '#eef4fd', blurb: 'soft and unbothered' },
-  { name: 'Maple', sprite: 'cat', tile: '#fdeef6', blurb: 'sweet but scratchy' },
-  { name: 'Sunny', sprite: 'duck', tile: '#fff7e6', blurb: 'morning person' },
+  { name: 'Luna', sprite: 'owl', tile: '#eef4fd', blurb: 'wise little night owl' },
+  { name: 'Snappy', sprite: 'crab', tile: '#ffecec', blurb: 'pinches with love' },
+  { name: 'Coral', sprite: 'octopus', tile: '#ffeee6', blurb: 'eight arms, all hugs' },
 ];
 
 export const MAX_LEVEL = 20;

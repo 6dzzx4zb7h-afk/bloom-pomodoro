@@ -1,8 +1,8 @@
 // Pixel-art animal sprites + a tiny animation engine.
 // Faithful TypeScript port of the design-handoff `pixelpals.js`.
-// Animals: bunny, cat, duck. Behaviours: idle, work, sleep, celebrate.
+// Animals: bunny, cat, duck, owl, crab, octopus. Behaviours: idle, work, sleep, celebrate.
 
-export type AnimalKind = 'bunny' | 'cat' | 'duck';
+export type AnimalKind = 'bunny' | 'cat' | 'duck' | 'owl' | 'crab' | 'octopus';
 export type Mode = 'idle' | 'work' | 'sleep' | 'celebrate';
 
 export const PALETTE: Record<string, string | null> = {
@@ -18,6 +18,10 @@ export const PALETTE: Record<string, string | null> = {
   y: '#ffe08a', // duck yellow
   b: '#ffae4d', // duck beak
   t: '#f4c452', // duck wing
+  h: '#cdd7ea', // owl cloud blue-grey
+  f: '#a8b8d8', // owl wing
+  a: '#ff8a8a', // crab rosy red
+  u: '#ffa98c', // octopus coral
 };
 
 // Full-body chibi sprites: ears/head on top, rounded body, little feet.
@@ -74,6 +78,52 @@ export const SPRITES: Record<AnimalKind, string[]> = {
     '..oyyyyyyyyo..',
     '..obbboobbbo..',
     '...ooo..ooo...',
+  ],
+  owl: [
+    '..oo......oo..',
+    '..oho....oho..',
+    '.oohhoooohhoo.',
+    '.ohhhhhhhhhho.',
+    '.oheehhhheeho.',
+    '.oheehhhheeho.',
+    '.ohhhhbbhhhho.',
+    '.ohchhhhhhcho.',
+    '.offhwwwwhffo.',
+    '.offhwwwwhffo.',
+    '.ofhhwwwwhhfo.',
+    '.ohhhwwwwhhho.',
+    '..ohhwwwwhho..',
+    '..ohhhhhhhho..',
+    '...obo..obo...',
+  ],
+  crab: [
+    '....o....o....',
+    '...oao..oao...',
+    '..ooaooooaoo..',
+    '..oaaaaaaaao..',
+    'oooaeeaaeeaooo',
+    'oaoaeeaaeeaoao',
+    'oaoacannacaoao',
+    'oooaaaaaaaaooo',
+    '..oaaaaaaaao..',
+    '..oaoaooaoao..',
+    '...o.o..o.o...',
+  ],
+  octopus: [
+    '....oooooo....',
+    '..oouuuuuuoo..',
+    '.ouuuuuuuuuuo.',
+    '.ouuuuuuuuuuo.',
+    '.ouueeuueeuuo.',
+    '.ouueeuueeuuo.',
+    '.oucuuuuuucuo.',
+    '.ouuuunnuuuuo.',
+    '..ouuuuuuuuo..',
+    '..ouuuuuuuuo..',
+    '..ouuouuouuo..',
+    'oouuoouuoouuoo',
+    'ouuo.ouuo.ouuo',
+    '.oo...oo...oo.',
   ],
 };
 

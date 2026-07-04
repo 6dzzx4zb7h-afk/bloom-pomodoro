@@ -1058,3 +1058,145 @@ button {
   opacity: 0;
   transition: opacity 0.15s;
 }
+
+/* ---------- night mode ----------
+   Toggled from Settings. Text colors all flow through the :root variables, so
+   remapping them here restyles most copy; the rest is per-surface overrides.
+   The animated stars/meteors live on the .night-sky canvas (NightSky.tsx),
+   which sits behind the screens — screens go transparent so it shows through. */
+body.night {
+  background: radial-gradient(circle at 30% 20%, #241c44, #1c1636 60%, #141026 100%);
+}
+.phone.night {
+  --plum: #ece4f7;
+  --soft: #a99bc8;
+  --soft2: #a394c4;
+  --soft3: #9686b8;
+  --shadow-soft: 0 10px 20px -14px rgba(8, 5, 20, 0.9);
+  --shadow-card: 0 8px 18px -12px rgba(8, 5, 20, 0.8);
+  background: linear-gradient(178deg, #1b1535 0%, #231b45 55%, #2b2154 100%);
+}
+.night-sky {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+.night .focus-bg,
+.night .tasks-bg,
+.night .coll-bg,
+.night .onboard-bg {
+  background: transparent;
+}
+.night .streak-chip,
+.night .gear-btn,
+.night .ctrl-round,
+.night .tabs-pill,
+.night .prog-tile,
+.night .task-row,
+.night .coll-card,
+.night .coll-footer {
+  background: #2e2557;
+  box-shadow: 0 8px 18px -12px rgba(8, 5, 20, 0.9);
+}
+.night .tabs {
+  background: rgba(46, 37, 87, 0.5);
+}
+.night .ring-disc {
+  background: radial-gradient(circle at 50% 38%, #352a64, #281f4e);
+}
+.night .ring-shadow {
+  background: radial-gradient(ellipse, rgba(8, 5, 20, 0.55), transparent 70%);
+}
+.night .now-chip {
+  background: rgba(46, 37, 87, 0.72);
+}
+.night .now-badge,
+.night .focus-flag,
+.night .goal-btn {
+  background: rgba(255, 156, 194, 0.16);
+}
+.night .sdot.off {
+  background: #453a78;
+}
+.night .sheet-backdrop {
+  background: rgba(8, 5, 20, 0.55);
+}
+.night .sheet {
+  background: #262047;
+  box-shadow: 0 -12px 30px -12px rgba(0, 0, 0, 0.6);
+}
+.night .sheet-grip {
+  background: #3f3570;
+}
+.night .step-btn,
+.night .add-plus,
+.night .lvl-badge {
+  background: #383060;
+  color: var(--purple-2);
+}
+.night .switch {
+  background: #3f3570;
+}
+.night .bg-opt {
+  background: #2e2557;
+  border-color: #3f3570;
+}
+.night .bg-opt.on {
+  border-color: var(--pink-2);
+  background: linear-gradient(150deg, #43305c, #3a2f66);
+}
+.night .name-input,
+.night .onboard-input {
+  background: #2e2557;
+  border-color: #3f3570;
+}
+.night .set-note {
+  background: rgba(255, 156, 194, 0.12);
+  color: #e3a8c4;
+}
+.night .onboard-pal {
+  background: radial-gradient(circle at 50% 40%, #362b66, #2a2152);
+  box-shadow: 0 18px 34px -18px rgba(8, 5, 20, 0.9);
+}
+.night .prog-card {
+  background: linear-gradient(150deg, rgba(255, 156, 194, 0.14), rgba(183, 159, 227, 0.14));
+}
+.night .prog-track {
+  background: rgba(16, 11, 34, 0.5);
+}
+.night .checkbox {
+  background: #2e2557;
+  border-color: #4a3f80;
+}
+.night .checkbox.done {
+  background: var(--pink);
+  border-color: var(--pink);
+}
+.night .cherry.off {
+  background: #2e2557;
+  border-color: #4a3f80;
+}
+.night .add-form {
+  border-color: #4a3f80;
+}
+.night .task-text.done {
+  color: #7c6fa3;
+}
+.night .task-del {
+  color: #5f5390;
+}
+.night .coll-tile:not(.q) {
+  filter: brightness(0.88) saturate(0.85);
+}
+.night .lvl-bar {
+  background: #383060;
+}
+.night .coll-heart {
+  background: linear-gradient(150deg, rgba(255, 156, 194, 0.2), rgba(183, 159, 227, 0.2));
+}
+.night .navbar {
+  background: rgba(30, 23, 58, 0.72);
+  border-top-color: rgba(120, 100, 180, 0.25);
+}

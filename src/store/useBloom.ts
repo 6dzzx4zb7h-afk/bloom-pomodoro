@@ -30,6 +30,8 @@ export interface Settings {
   bgSound: BgSound;
   /** Automatically start the next timer after the celebrate animation. */
   autoStart: boolean;
+  /** Night sky theme: dark palette + animated stars and meteors. */
+  night: boolean;
   /** Name of the friend on duty (drives the focus-screen sprite). */
   pal: string;
 }
@@ -60,6 +62,7 @@ const DEFAULT_SETTINGS: Settings = {
   sound: true,
   bgSound: 'off',
   autoStart: false,
+  night: false,
   pal: 'Mochi',
 };
 
