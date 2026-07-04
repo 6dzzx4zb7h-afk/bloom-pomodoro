@@ -14,9 +14,12 @@ export default function App() {
   const needsName = !bloom.state.settings.name.trim();
   const night = bloom.state.settings.night;
 
-  // The page backdrop around the phone frame follows the theme too.
+  // Keep the page backdrop and the browser/status-bar chrome in sync with the theme.
   useEffect(() => {
     document.body.classList.toggle('night', night);
+    document
+      .querySelector('meta[name="theme-color"]')
+      ?.setAttribute('content', night ? '#1b1535' : '#fdf3fb');
   }, [night]);
 
   return (

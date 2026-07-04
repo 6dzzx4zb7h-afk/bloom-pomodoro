@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<resources>
+<resources xmlns:tools="http://schemas.android.com/tools">
 
     <!-- Base application theme. -->
     <style name="AppTheme" parent="Theme.AppCompat.Light.DarkActionBar">
@@ -13,6 +13,12 @@
         <item name="windowActionBar">false</item>
         <item name="windowNoTitle">true</item>
         <item name="android:background">@null</item>
+        <!-- Tint the system bars to the app surface so there are no white/black
+             bands around the WebView; light flags keep the icons legible. -->
+        <item name="android:statusBarColor">#fdf3fb</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:navigationBarColor">#fdf3fb</item>
+        <item name="android:windowLightNavigationBar" tools:targetApi="27">true</item>
     </style>
 
 

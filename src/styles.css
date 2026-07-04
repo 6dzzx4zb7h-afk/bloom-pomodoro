@@ -34,16 +34,15 @@ body {
 body {
   font-family: var(--font-body);
   -webkit-font-smoothing: antialiased;
-  background: radial-gradient(circle at 30% 20%, #f6eefb, #ece3f6 60%, #e3d8f0 100%);
+  /* Match the app surface so safe areas / overscroll never flash a different color. */
+  background: #fdf3fb;
   color: var(--plum);
+  overscroll-behavior: none;
 }
 
 #root {
-  min-height: 100vh;
-  min-height: 100dvh;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  height: 100vh;
+  height: 100dvh;
 }
 
 canvas {
@@ -56,14 +55,14 @@ button {
 }
 
 /* ---------- app shell (responsive) ---------- */
-/* The bezel wrapper is a no-op in layout; the phone element is the app surface:
-   full-bleed on small screens, a centered rounded card on larger ones. */
+/* The bezel wrapper is a no-op in layout; the phone element is the app surface
+   and always fills the whole viewport — phones, tablets, and laptops alike. */
 .bezel {
   display: contents;
 }
 
 .phone {
-  width: min(100vw, 440px);
+  width: 100%;
   height: 100vh;
   height: 100dvh;
   overflow: hidden;
@@ -73,18 +72,6 @@ button {
   background: #fdf3fb;
 }
 
-@media (min-width: 500px) {
-  #root {
-    padding: 24px;
-  }
-  .phone {
-    height: min(100dvh - 48px, 920px);
-    border-radius: 40px;
-    box-shadow:
-      0 30px 60px -24px rgba(110, 85, 119, 0.5),
-      inset 0 0 0 1px rgba(255, 255, 255, 0.55);
-  }
-}
 
 .screen {
   flex: 1;
@@ -379,7 +366,7 @@ button {
   width: 100%;
   background: #fffbfe;
   border-radius: 26px 26px 0 0;
-  padding: 10px 20px 20px;
+  padding: 10px 20px calc(20px + env(safe-area-inset-bottom));
   box-shadow: 0 -12px 30px -12px rgba(110, 85, 119, 0.45);
   animation: sheet-up 0.25s cubic-bezier(0.3, 1.2, 0.5, 1);
 }
@@ -1065,7 +1052,7 @@ button {
    The animated stars/meteors live on the .night-sky canvas (NightSky.tsx),
    which sits behind the screens — screens go transparent so it shows through. */
 body.night {
-  background: radial-gradient(circle at 30% 20%, #241c44, #1c1636 60%, #141026 100%);
+  background: #1b1535;
 }
 .phone.night {
   --plum: #ece4f7;
@@ -1199,4 +1186,35 @@ body.night {
 .night .navbar {
   background: rgba(30, 23, 58, 0.72);
   border-top-color: rgba(120, 100, 180, 0.25);
+}
+
+/* ---------- wide screens ----------
+   The surface stays edge-to-edge, but content rows cap at a readable column
+   width so lists and chips don't stretch across a monitor. Kept last in the
+   file so it wins over the per-element shorthand margins above. */
+@media (min-width: 700px) {
+  .greeting-row,
+  .tabs,
+  .now-chip,
+  .head,
+  .prog-card,
+  .task-list,
+  .add-row,
+  .coll-grid,
+  .coll-footer,
+  .onboard,
+  .sheet {
+    width: 100%;
+    max-width: 560px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+  .now-chip {
+    margin-top: auto;
+    margin-bottom: 18px;
+  }
+  .navbar {
+    justify-content: center;
+    gap: 64px;
+  }
 }
