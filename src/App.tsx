@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { TabBar, type ScreenName } from './components/TabBar';
 import { NightSky } from './components/NightSky';
+import { DaySky } from './components/DaySky';
 import { Onboarding } from './components/Onboarding';
 import { FocusScreen } from './screens/FocusScreen';
 import { TasksScreen } from './screens/TasksScreen';
@@ -19,13 +20,13 @@ export default function App() {
     document.body.classList.toggle('night', night);
     document
       .querySelector('meta[name="theme-color"]')
-      ?.setAttribute('content', night ? '#1b1535' : '#fdf3fb');
+      ?.setAttribute('content', night ? '#1b1535' : '#79bff2');
   }, [night]);
 
   return (
     <div className="bezel">
       <div className={night ? 'phone night' : 'phone'}>
-        {night && <NightSky />}
+        {night ? <NightSky /> : <DaySky />}
         {needsName ? (
           <Onboarding bloom={bloom} />
         ) : (

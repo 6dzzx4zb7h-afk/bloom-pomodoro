@@ -35,7 +35,7 @@ body {
   font-family: var(--font-body);
   -webkit-font-smoothing: antialiased;
   /* Match the app surface so safe areas / overscroll never flash a different color. */
-  background: #fdf3fb;
+  background: #79bff2;
   color: var(--plum);
   overscroll-behavior: none;
 }
@@ -69,7 +69,10 @@ button {
   position: relative;
   display: flex;
   flex-direction: column;
-  background: #fdf3fb;
+  /* Day mode: a bright 10 a.m. sky. The animated sun/clouds/birds ride on the
+     .day-sky canvas above this gradient. Night mode swaps in its own gradient
+     via .phone.night below. */
+  background: linear-gradient(178deg, #79bff2 0%, #a7d6f6 46%, #d7effb 100%);
 }
 
 
@@ -83,8 +86,10 @@ button {
 }
 
 /* ---------- focus screen ---------- */
+/* Screens are transparent so the animated sky (day or night) shows through the
+   whole surface; the backdrop lives on .phone. */
 .focus-bg {
-  background: linear-gradient(172deg, #fdf3fb 0%, #f3edfb 55%, #eee7fb 100%);
+  background: transparent;
 }
 
 .greeting-row {
@@ -552,7 +557,7 @@ button {
 
 /* ---------- onboarding ---------- */
 .onboard-bg {
-  background: linear-gradient(172deg, #fdf3fb 0%, #f3edfb 55%, #eee7fb 100%);
+  background: transparent;
 }
 .onboard {
   flex: 1;
@@ -634,7 +639,7 @@ button {
 
 /* ---------- tasks screen ---------- */
 .tasks-bg {
-  background: linear-gradient(172deg, #fdf3fb, #efeafb);
+  background: transparent;
 }
 .head {
   padding: 6px 22px 0;
@@ -858,7 +863,7 @@ button {
 
 /* ---------- collection screen ---------- */
 .coll-bg {
-  background: linear-gradient(172deg, #f4edfb, #fdf3fb);
+  background: transparent;
 }
 .coll-grid {
   margin: 16px 18px 0;
@@ -1063,7 +1068,8 @@ body.night {
   --shadow-card: 0 8px 18px -12px rgba(8, 5, 20, 0.8);
   background: linear-gradient(178deg, #1b1535 0%, #231b45 55%, #2b2154 100%);
 }
-.night-sky {
+.night-sky,
+.day-sky {
   position: absolute;
   inset: 0;
   width: 100%;
@@ -1175,7 +1181,7 @@ body.night {
   color: #5f5390;
 }
 .night .coll-tile:not(.q) {
-  filter: brightness(0.88) saturate(0.85);
+  filter: brightness(0.6) saturate(0.85);
 }
 .night .lvl-bar {
   background: #383060;
