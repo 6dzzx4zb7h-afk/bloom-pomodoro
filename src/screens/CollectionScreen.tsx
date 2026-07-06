@@ -1,3 +1,4 @@
+import type { CSSProperties } from 'react';
 import { PixelPal } from '../components/PixelPal';
 import { FRIENDS, levelProgress, MAX_LEVEL } from '../data/friends';
 import type { useBloom } from '../store/useBloom';
@@ -31,7 +32,10 @@ export function CollectionScreen({ bloom }: { bloom: ReturnType<typeof useBloom>
             >
               {onDuty && <span className="duty-badge">on duty</span>}
               <span className="lvl-badge">Lv {prog.level}</span>
-              <div className="coll-tile" style={{ background: f.tile }}>
+              <div
+                className="coll-tile"
+                style={{ '--tile-day': f.tile, '--tile-night': f.tileNight } as CSSProperties}
+              >
                 <PixelPal sprite={f.sprite} mode="idle" scale={3} size={64} />
               </div>
               <div className="coll-name">{f.name}</div>

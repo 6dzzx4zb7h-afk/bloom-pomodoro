@@ -4,20 +4,23 @@ export interface Friend {
   /** Unique display name — also the value stored in settings.pal. */
   name: string;
   sprite: AnimalKind;
-  /** Card tile background. */
+  /** Card tile background (day theme). */
   tile: string;
+  /** Card tile background at night — a dusky, hue-matched indigo so tiles sit
+      in the night sky instead of being a filtered-down pastel. */
+  tileNight: string;
   blurb: string;
 }
 
 // Every friend is available from the start — pick whoever you like. They grow
 // levels as you complete focus sessions with them on duty (see palXp).
 export const FRIENDS: Friend[] = [
-  { name: 'Mochi', sprite: 'bunny', tile: '#fdeef6', blurb: 'your first friend' },
-  { name: 'Pudding', sprite: 'cat', tile: '#f3eefb', blurb: 'naps professionally' },
-  { name: 'Biscuit', sprite: 'duck', tile: '#fff7e6', blurb: 'waddles with purpose' },
-  { name: 'Luna', sprite: 'owl', tile: '#eef4fd', blurb: 'wise little night owl' },
-  { name: 'Snappy', sprite: 'crab', tile: '#ffecec', blurb: 'pinches with love' },
-  { name: 'Coral', sprite: 'octopus', tile: '#ffeee6', blurb: 'eight arms, all hugs' },
+  { name: 'Mochi', sprite: 'bunny', tile: '#fdeef6', tileNight: '#46315c', blurb: 'your first friend' },
+  { name: 'Pudding', sprite: 'cat', tile: '#f3eefb', tileNight: '#3b2f66', blurb: 'naps professionally' },
+  { name: 'Biscuit', sprite: 'duck', tile: '#fff7e6', tileNight: '#463b5a', blurb: 'waddles with purpose' },
+  { name: 'Luna', sprite: 'owl', tile: '#eef4fd', tileNight: '#323a6a', blurb: 'wise little night owl' },
+  { name: 'Snappy', sprite: 'crab', tile: '#ffecec', tileNight: '#4c3157', blurb: 'pinches with love' },
+  { name: 'Coral', sprite: 'octopus', tile: '#ffeee6', tileNight: '#4a3854', blurb: 'eight arms, all hugs' },
 ];
 
 export const MAX_LEVEL = 20;

@@ -14,6 +14,7 @@ export default function App() {
 
   const needsName = !bloom.state.settings.name.trim();
   const night = bloom.state.settings.night;
+  const mode = bloom.state.mode;
 
   // Keep the page backdrop and the browser/status-bar chrome in sync with the theme.
   useEffect(() => {
@@ -25,7 +26,14 @@ export default function App() {
 
   return (
     <div className="bezel">
-      <div className={night ? 'phone night' : 'phone'}>
+      <div className={`phone${night ? ' night' : ''} mode-${mode}`}>
+        {/* Per-mode sky gradients; the active one crossfades in behind the
+            animated sun/moon canvas. */}
+        <div className="sky-mood" aria-hidden="true">
+          <div className="sky-layer sky-focus" />
+          <div className="sky-layer sky-short" />
+          <div className="sky-layer sky-long" />
+        </div>
         {night ? <NightSky /> : <DaySky />}
         {needsName ? (
           <Onboarding bloom={bloom} />
