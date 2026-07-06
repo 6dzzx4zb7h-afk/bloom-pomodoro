@@ -262,15 +262,20 @@ export function makeAnimal(canvas: HTMLCanvasElement, opts: AnimalOptions = {}):
   let running = true;
 
   function spawnBurst() {
-    for (let i = 0; i < 14; i++) {
+    // Scale the burst to the canvas: tiny renders (speech bubbles, settings
+    // rows) get fewer, slower sparkles that stay near the pet instead of a
+    // confetti storm clipped by the square edges.
+    const room = Math.min(1, Math.min(cssW, cssH) / 130);
+    const count = Math.max(6, Math.round(14 * room));
+    for (let i = 0; i < count; i++) {
       const a = Math.random() * Math.PI - Math.PI / 2 - Math.PI / 4;
-      const sp = 30 + Math.random() * 55;
+      const sp = (30 + Math.random() * 55) * room;
       particles.push({
         type: Math.random() < 0.5 ? 'heart' : 'star',
         x: 0,
         y: -spriteH * 0.15,
         vx: Math.cos(a) * sp,
-        vy: Math.sin(a) * sp - 30,
+        vy: Math.sin(a) * sp - 30 * room,
         life: 0,
         max: 1.1 + Math.random() * 0.6,
         col: Math.random() < 0.5 ? '#ff9cc2' : '#ffd76b',
@@ -296,15 +301,20 @@ export function makeAnimal(canvas: HTMLCanvasElement, opts: AnimalOptions = {}):
     let eyesClosed = false;
     let happyEyes = false;
 
+    // Upward hops scale down to whatever headroom the canvas actually has, so
+    // small renders (speech bubbles, settings rows) never clip the pet's ears
+    // mid-jump. Large canvases have plenty of room and are unaffected.
+    const headroom = Math.max(0, cssH * 0.56 - spriteH / 2 - 1);
+
     if (mode === 'idle') {
       const bob = Math.sin(t * 2.2);
-      offsetY = -Math.abs(bob) * 4;
+      offsetY = -Math.abs(bob) * Math.min(4, headroom);
       sy = 1 - Math.max(0, -bob) * 0.05;
       sx = 1 + Math.max(0, -bob) * 0.05;
       eyesClosed = t % 3.4 > 3.26; // quick blink
     } else if (mode === 'work') {
       const bob = Math.sin(t * 6.5);
-      offsetY = -Math.abs(bob) * 2.4;
+      offsetY = -Math.abs(bob) * Math.min(2.4, headroom);
       skew = Math.sin(t * 6.5) * 0.04;
       eyesClosed = t % 4.2 > 4.08;
       if (now - lastSpawn > 520) {
@@ -323,11 +333,14 @@ export function makeAnimal(canvas: HTMLCanvasElement, opts: AnimalOptions = {}):
       }
     } else if (mode === 'celebrate') {
       const jump = Math.abs(Math.sin(t * 4));
-      offsetY = -jump * 13;
+      offsetY = -jump * Math.min(13, headroom);
       sy = 1 + jump * 0.06;
       sx = 1 - jump * 0.04;
       happyEyes = true;
-      if (now - lastSpawn > 360) {
+      // Small canvases also celebrate less often, so sparkles never crowd
+      // the little square they live in.
+      const room = Math.max(0.3, Math.min(1, Math.min(cssW, cssH) / 130));
+      if (now - lastSpawn > 360 / room) {
         lastSpawn = now;
         spawnBurst();
       }

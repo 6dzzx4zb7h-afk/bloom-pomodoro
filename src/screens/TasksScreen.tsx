@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { PixelPal } from '../components/PixelPal';
 import type { useBloom } from '../store/useBloom';
+import { computeInsights, KIND_NAMES, loadEvents } from '../store/companion';
 
 const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
@@ -17,6 +18,18 @@ export function TasksScreen({ bloom }: { bloom: ReturnType<typeof useBloom> }) {
 
   const now = new Date();
   const dateLabel = `${WEEKDAYS[now.getDay()]} · ${MONTHS[now.getMonth()]} ${now.getDate()}`;
+
+  // Focus Patterns: only rendered while Companion Mode is on. The data stays
+  // put when the mode is off — just hidden. Recomputed per visit; the log is
+  // small and local.
+  const companionOn = state.settings.companion.on;
+  const [patternsWindow, setPatternsWindow] = useState<'today' | 'week'>('week');
+  const insights = useMemo(
+    () =>
+      companionOn ? computeInsights(loadEvents(), Date.now(), patternsWindow === 'today' ? 1 : 7) : null,
+    [companionOn, patternsWindow],
+  );
+  const phaseWord = { early: 'early on', mid: 'mid-session', late: 'in the late stretch' } as const;
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -90,6 +103,61 @@ export function TasksScreen({ bloom }: { bloom: ReturnType<typeof useBloom> }) {
         })}
         {total === 0 && <div className="task-empty">nothing here yet — add something sweet below</div>}
       </div>
+
+      {insights && (
+        <div className="patterns-card">
+          <div className="patterns-head">
+            <div>
+              <div className="patterns-title">focus patterns</div>
+              <div className="patterns-sub">
+                {patternsWindow === 'today' ? 'today' : 'last 7 days'} · lives only on this device
+              </div>
+            </div>
+            <div className="patterns-toggle">
+              {(['today', 'week'] as const).map((w) => (
+                <button
+                  key={w}
+                  className={`patterns-chip${patternsWindow === w ? ' on' : ''}`}
+                  onClick={() => setPatternsWindow(w)}
+                  aria-pressed={patternsWindow === w}
+                >
+                  {w}
+                </button>
+              ))}
+            </div>
+          </div>
+          {insights.answers + insights.aways < 3 ? (
+            <div className="patterns-line">
+              not much to see yet — patterns will bloom as you focus ♡
+            </div>
+          ) : (
+            <>
+              <div className="patterns-line">
+                {insights.drifts === 0
+                  ? `all ${insights.answers} check-ins focused — smooth sailing`
+                  : `${insights.drifts} drift${insights.drifts === 1 ? '' : 's'} across ${insights.answers} check-ins`}
+                {insights.aways > 0 && ` · ${insights.aways} quiet tab-away${insights.aways === 1 ? '' : 's'}`}
+              </div>
+              {insights.dominant && (
+                <div className="patterns-line">mostly {KIND_NAMES[insights.dominant]}</div>
+              )}
+              {insights.phase && (
+                <div className="patterns-line">drifting clusters {phaseWord[insights.phase]}</div>
+              )}
+              {insights.bestTime && (
+                <div className="patterns-line">you're sharpest in the {insights.bestTime}</div>
+              )}
+              {insights.tip && <div className="patterns-tip">{insights.tip}</div>}
+              {insights.gentleNote && patternsWindow === 'week' && (
+                <div className="patterns-note">
+                  everyone's attention works differently. if focus struggles weigh on your daily
+                  life, a professional can help you understand it better ♡
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
 
       <div className="add-row">
         <form className="add-form" onSubmit={submit}>

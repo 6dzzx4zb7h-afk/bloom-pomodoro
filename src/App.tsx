@@ -3,13 +3,16 @@ import { TabBar, type ScreenName } from './components/TabBar';
 import { NightSky } from './components/NightSky';
 import { DaySky } from './components/DaySky';
 import { Onboarding } from './components/Onboarding';
+import { CompanionPrompt } from './components/CompanionPrompt';
 import { FocusScreen } from './screens/FocusScreen';
 import { TasksScreen } from './screens/TasksScreen';
 import { CollectionScreen } from './screens/CollectionScreen';
 import { useBloom } from './store/useBloom';
+import { useCompanion } from './store/useCompanion';
 
 export default function App() {
   const bloom = useBloom();
+  const companion = useCompanion(bloom);
   const [screen, setScreen] = useState<ScreenName>('focus');
 
   const needsName = !bloom.state.settings.name.trim();
@@ -39,10 +42,16 @@ export default function App() {
           <Onboarding bloom={bloom} />
         ) : (
           <>
-            {screen === 'focus' && <FocusScreen bloom={bloom} />}
+            {screen === 'focus' && <FocusScreen bloom={bloom} companion={companion} />}
             {screen === 'tasks' && <TasksScreen bloom={bloom} />}
             {screen === 'collection' && <CollectionScreen bloom={bloom} />}
             <TabBar active={screen} onChange={setScreen} />
+            {/* The pet's check-in bubble floats over whichever screen is open. */}
+            <CompanionPrompt
+              companion={companion}
+              palSprite={bloom.palSprite}
+              focusLabel={companion.intention || bloom.activeTask?.t || null}
+            />
           </>
         )}
       </div>

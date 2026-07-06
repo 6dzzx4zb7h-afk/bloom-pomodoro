@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useReducer, useRef } from 'react';
 import { friendByName } from '../data/friends';
 import type { AnimalKind } from '../engine/pixelpals';
 import { audioEngine, notify, type BgSound } from '../engine/audio';
+import { DEFAULT_COMPANION, type CompanionSettings } from './companion';
 
 export type TimerMode = 'focus' | 'short' | 'long';
 
@@ -34,6 +35,8 @@ export interface Settings {
   night: boolean;
   /** Name of the friend on duty (drives the focus-screen sprite). */
   pal: string;
+  /** Companion Mode: gentle check-ins + local focus-pattern insights. */
+  companion: CompanionSettings;
 }
 
 interface BloomState {
@@ -64,6 +67,7 @@ const DEFAULT_SETTINGS: Settings = {
   autoStart: false,
   night: false,
   pal: 'Mochi',
+  companion: DEFAULT_COMPANION,
 };
 
 const DEFAULT_TASKS: Task[] = [
@@ -145,6 +149,7 @@ function withDefaults(blob: Record<string, unknown>): PersistedShape {
       ...legacyDurations,
       ...(bSettings.durations ?? {}),
     },
+    companion: { ...DEFAULT_COMPANION, ...(bSettings.companion ?? {}) },
   };
   return {
     version: SCHEMA_VERSION,
@@ -362,6 +367,7 @@ function reducer(s: BloomState, a: Action): BloomState {
         ...s.settings,
         ...a.patch,
         durations: { ...s.settings.durations, ...(a.patch.durations || {}) },
+        companion: { ...s.settings.companion, ...(a.patch.companion || {}) },
       };
       // Duration edits apply immediately to a stopped timer; a running one
       // keeps its end time and picks up the new length next session.

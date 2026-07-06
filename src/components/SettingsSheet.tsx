@@ -1,6 +1,9 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { Settings, TimerMode } from '../store/useBloom';
 import { audioEngine, BG_SOUNDS, requestNotifyPermission, type BgSound } from '../engine/audio';
+import { AWAY_CHOICES, CHECKIN_CHOICES, clearEvents, loadEvents } from '../store/companion';
+import { friendByName } from '../data/friends';
+import { PixelPal } from './PixelPal';
 
 interface SettingsSheetProps {
   settings: Settings;
@@ -27,6 +30,34 @@ const DURATION_ROWS: DurationRowSpec[] = [
 export function SettingsSheet({ settings, running, onPatch, onClose }: SettingsSheetProps) {
   // 'unknown' until asked; used to nudge the user if they blocked notifications.
   const [notifyDenied, setNotifyDenied] = useState(false);
+  const companion = settings.companion;
+  // The pal gives a happy little wave when Companion Mode turns on.
+  const [waving, setWaving] = useState(false);
+  const waveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [eventCount, setEventCount] = useState(() => loadEvents().length);
+  const [clearedNote, setClearedNote] = useState(false);
+  useEffect(
+    () => () => {
+      if (waveTimer.current) clearTimeout(waveTimer.current);
+    },
+    [],
+  );
+
+  function toggleCompanion() {
+    const next = !companion.on;
+    onPatch({ companion: { ...companion, on: next } });
+    if (next) {
+      setWaving(true);
+      if (waveTimer.current) clearTimeout(waveTimer.current);
+      waveTimer.current = setTimeout(() => setWaving(false), 2200);
+    }
+  }
+
+  /** Step through a fixed list of choices (check-in minutes, away seconds). */
+  function stepChoice(choices: number[], cur: number, dir: 1 | -1): number {
+    const i = Math.max(0, choices.indexOf(cur));
+    return choices[Math.max(0, Math.min(choices.length - 1, i + dir))];
+  }
 
   function bump(key: TimerMode, dir: 1 | -1, spec: DurationRowSpec) {
     const mins = Math.round(settings.durations[key] / 60) + dir * spec.step;
@@ -169,6 +200,190 @@ export function SettingsSheet({ settings, running, onPatch, onClose }: SettingsS
             <span className="knob" />
           </button>
         </div>
+
+        <div className="set-row">
+          <span className="set-label">
+            <span className="companion-label">
+              Companion mode
+              {waving && (
+                <PixelPal
+                  sprite={friendByName(settings.pal).sprite}
+                  mode="celebrate"
+                  scale={2}
+                  size={44}
+                  className="companion-wave"
+                />
+              )}
+            </span>
+            <span className="set-sub">
+              your pet gently checks in and helps you understand your focus patterns
+            </span>
+          </span>
+          <button
+            className={`switch${companion.on ? ' on' : ''}`}
+            onClick={toggleCompanion}
+            role="switch"
+            aria-checked={companion.on}
+            aria-label="Companion mode"
+          >
+            <span className="knob" />
+          </button>
+        </div>
+
+        {companion.on && (
+          <div className="companion-subs">
+            <div className="set-row">
+              <span className="set-label">Check in every</span>
+              <div className="stepper">
+                <button
+                  className="step-btn"
+                  onClick={() =>
+                    onPatch({
+                      companion: {
+                        ...companion,
+                        checkinMins: stepChoice(CHECKIN_CHOICES, companion.checkinMins, -1),
+                      },
+                    })
+                  }
+                  disabled={companion.checkinMins <= CHECKIN_CHOICES[0]}
+                  aria-label="Decrease check-in interval"
+                >
+                  &minus;
+                </button>
+                <span className="step-val">{companion.checkinMins} min</span>
+                <button
+                  className="step-btn"
+                  onClick={() =>
+                    onPatch({
+                      companion: {
+                        ...companion,
+                        checkinMins: stepChoice(CHECKIN_CHOICES, companion.checkinMins, 1),
+                      },
+                    })
+                  }
+                  disabled={companion.checkinMins >= CHECKIN_CHOICES[CHECKIN_CHOICES.length - 1]}
+                  aria-label="Increase check-in interval"
+                >
+                  +
+                </button>
+              </div>
+            </div>
+
+            <div className="set-row">
+              <span className="set-label">
+                Notice tab switches
+                <span className="set-sub">a soft hello when you come back</span>
+              </span>
+              <button
+                className={`switch${companion.tabDetect ? ' on' : ''}`}
+                onClick={() => onPatch({ companion: { ...companion, tabDetect: !companion.tabDetect } })}
+                role="switch"
+                aria-checked={companion.tabDetect}
+                aria-label="Notice tab switches"
+              >
+                <span className="knob" />
+              </button>
+            </div>
+
+            {companion.tabDetect && (
+              <div className="set-row">
+                <span className="set-label">Away counts after</span>
+                <div className="stepper">
+                  <button
+                    className="step-btn"
+                    onClick={() =>
+                      onPatch({
+                        companion: {
+                          ...companion,
+                          awaySecs: stepChoice(AWAY_CHOICES, companion.awaySecs, -1),
+                        },
+                      })
+                    }
+                    disabled={companion.awaySecs <= AWAY_CHOICES[0]}
+                    aria-label="Decrease away threshold"
+                  >
+                    &minus;
+                  </button>
+                  <span className="step-val">{companion.awaySecs} s</span>
+                  <button
+                    className="step-btn"
+                    onClick={() =>
+                      onPatch({
+                        companion: {
+                          ...companion,
+                          awaySecs: stepChoice(AWAY_CHOICES, companion.awaySecs, 1),
+                        },
+                      })
+                    }
+                    disabled={companion.awaySecs >= AWAY_CHOICES[AWAY_CHOICES.length - 1]}
+                    aria-label="Increase away threshold"
+                  >
+                    +
+                  </button>
+                </div>
+              </div>
+            )}
+
+            <div className="set-row">
+              <span className="set-label">
+                Quiet mode
+                <span className="set-sub">log patterns silently, never ask</span>
+              </span>
+              <button
+                className={`switch${companion.quiet ? ' on' : ''}`}
+                onClick={() => onPatch({ companion: { ...companion, quiet: !companion.quiet } })}
+                role="switch"
+                aria-checked={companion.quiet}
+                aria-label="Quiet mode"
+              >
+                <span className="knob" />
+              </button>
+            </div>
+
+            <div className="set-row">
+              <span className="set-label">
+                Session intention
+                <span className="set-sub">one small “what will you do?” before you start</span>
+              </span>
+              <button
+                className={`switch${companion.intention ? ' on' : ''}`}
+                onClick={() =>
+                  onPatch({ companion: { ...companion, intention: !companion.intention } })
+                }
+                role="switch"
+                aria-checked={companion.intention}
+                aria-label="Session intention"
+              >
+                <span className="knob" />
+              </button>
+            </div>
+          </div>
+        )}
+
+        {(eventCount > 0 || clearedNote) && (
+          <div className="set-row">
+            <span className="set-label">
+              Focus data
+              <span className="set-sub">
+                {clearedNote
+                  ? 'cleared ♡'
+                  : `${eventCount} moment${eventCount === 1 ? '' : 's'} · stays on this device`}
+              </span>
+            </span>
+            {!clearedNote && (
+              <button
+                className="mini-btn"
+                onClick={() => {
+                  clearEvents();
+                  setEventCount(0);
+                  setClearedNote(true);
+                }}
+              >
+                clear my focus data
+              </button>
+            )}
+          </div>
+        )}
 
         <button
           className="sheet-done"

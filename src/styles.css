@@ -1230,6 +1230,274 @@ button {
     radial-gradient(1px 1px at 40% 68%, rgba(230, 220, 255, 0.55), transparent 100%);
 }
 
+/* ---------- companion mode ---------- */
+/* The pet's speech bubble: floats above the bottom nav on any screen. Soft,
+   small, one-tap; auto-dismiss handled by the hook. */
+.companion-pop {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: calc(88px + env(safe-area-inset-bottom));
+  width: min(330px, calc(100% - 32px));
+  background: rgba(255, 255, 255, 0.94);
+  border: 1.5px solid rgba(199, 159, 230, 0.4);
+  border-radius: 20px;
+  padding: 12px 14px;
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  box-shadow: 0 14px 30px -14px rgba(110, 85, 119, 0.5);
+  z-index: 55;
+  animation: pop-up 0.3s cubic-bezier(0.3, 1.3, 0.5, 1);
+}
+@keyframes pop-up {
+  from {
+    transform: translate(-50%, 14px);
+    opacity: 0;
+  }
+  to {
+    transform: translate(-50%, 0);
+    opacity: 1;
+  }
+}
+.pop-pal {
+  flex: none;
+  margin-top: 2px;
+}
+.pop-body {
+  flex: 1;
+  min-width: 0;
+}
+.pop-text {
+  font: 600 14px var(--font-display);
+  color: var(--plum);
+  margin: 3px 0 8px;
+}
+.pop-soft {
+  font: 600 11px var(--font-body);
+  color: var(--soft2);
+}
+.pop-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.pop-btn {
+  border: none;
+  border-radius: 12px;
+  padding: 7px 12px;
+  background: #f4eafb;
+  color: var(--plum);
+  font: 700 12px var(--font-display);
+  cursor: pointer;
+  transition: transform 0.1s ease;
+}
+.pop-btn:active {
+  transform: scale(0.95);
+}
+.pop-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.pop-btn.primary {
+  background: linear-gradient(150deg, var(--play-grad-a), var(--play-grad-b));
+  color: #fff;
+}
+.pop-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.pop-opt {
+  border: none;
+  border-radius: 11px;
+  padding: 8px 11px;
+  background: #f7effc;
+  color: var(--plum);
+  font: 600 12px var(--font-body);
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s, transform 0.1s ease;
+}
+.pop-opt:hover {
+  background: #f1e2fa;
+}
+.pop-opt:active {
+  transform: scale(0.98);
+}
+.pop-dismiss {
+  margin-top: 7px;
+  border: none;
+  background: transparent;
+  color: var(--soft2);
+  font: 700 11px var(--font-display);
+  cursor: pointer;
+  padding: 2px 4px;
+}
+.pop-tip {
+  font: 600 12px var(--font-body);
+  color: var(--soft);
+  line-height: 1.45;
+  margin-bottom: 8px;
+}
+.pop-jot {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.pop-jot-input {
+  flex: 1;
+  min-width: 0;
+  border: 2px solid #eaddf5;
+  border-radius: 11px;
+  padding: 6px 10px;
+  background: #fff;
+  outline: none;
+  font: 600 12px var(--font-body);
+  color: var(--plum);
+}
+.pop-jot-input:focus {
+  border-color: var(--pink-2);
+}
+.pop-jot-input::placeholder {
+  color: var(--soft3);
+}
+
+/* Pre-session intention: an airy line under the controls, faint echo while
+   the session runs. */
+.intention-input {
+  margin: 12px auto 0;
+  width: min(280px, calc(100% - 44px));
+  display: block;
+  border: 2px dashed rgba(199, 159, 230, 0.5);
+  border-radius: 14px;
+  padding: 9px 13px;
+  background: rgba(255, 255, 255, 0.55);
+  outline: none;
+  font: 600 12.5px var(--font-body);
+  color: var(--plum);
+  text-align: center;
+  transition: border-color 0.15s, background 0.15s;
+  flex: none;
+}
+.intention-input:focus {
+  border-color: var(--pink-2);
+  background: rgba(255, 255, 255, 0.8);
+}
+.intention-input::placeholder {
+  color: var(--text-faint);
+}
+.intention-line {
+  margin-top: 7px;
+  font: 600 12px var(--font-body);
+  color: var(--text-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding: 0 30px;
+}
+
+/* Weekly Focus Patterns card (Tasks screen, Companion Mode only). */
+.patterns-card {
+  margin: 10px 18px 0;
+  background: rgba(255, 255, 255, 0.75);
+  border-radius: 18px;
+  padding: 12px 15px;
+  flex: none;
+}
+.patterns-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+.patterns-title {
+  font: 700 13.5px var(--font-display);
+  color: var(--plum);
+}
+.patterns-sub {
+  font: 600 10.5px var(--font-body);
+  color: var(--soft3);
+  margin-bottom: 7px;
+}
+.patterns-toggle {
+  display: flex;
+  gap: 4px;
+  flex: none;
+}
+.patterns-chip {
+  border: none;
+  border-radius: 10px;
+  padding: 5px 10px;
+  background: rgba(199, 159, 230, 0.14);
+  color: var(--soft2);
+  font: 700 10.5px var(--font-display);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.patterns-chip.on {
+  background: linear-gradient(150deg, #ffb0d4, #c79fe6);
+  color: #fff;
+}
+.patterns-line {
+  font: 600 12px var(--font-body);
+  color: var(--soft);
+  line-height: 1.5;
+}
+.patterns-tip {
+  margin-top: 7px;
+  padding: 8px 11px;
+  border-radius: 12px;
+  background: #fbf3fb;
+  color: #97729c;
+  font: 600 11.5px var(--font-body);
+  line-height: 1.4;
+}
+.patterns-note {
+  margin-top: 7px;
+  padding: 8px 11px;
+  border-radius: 12px;
+  background: #f0f4fd;
+  color: #7381ad;
+  font: 600 11.5px var(--font-body);
+  line-height: 1.4;
+}
+
+/* Settings: companion sub-rows sit in a softly tinted inset block. */
+.companion-subs {
+  margin: 2px 0 4px;
+  padding: 2px 12px;
+  border-radius: 14px;
+  background: rgba(199, 159, 230, 0.1);
+}
+.companion-label {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+/* The wave floats beside the label so the row never shifts when it appears. */
+.companion-wave {
+  position: absolute;
+  left: 100%;
+  top: 50%;
+  transform: translateY(-50%);
+  margin-left: 8px;
+  pointer-events: none;
+}
+.mini-btn {
+  border: none;
+  border-radius: 11px;
+  padding: 7px 11px;
+  background: #f4eafb;
+  color: var(--purple);
+  font: 700 11.5px var(--font-display);
+  cursor: pointer;
+  transition: transform 0.1s ease;
+}
+.mini-btn:active {
+  transform: scale(0.95);
+}
+
 /* ---------- night mode ----------
    Toggled from Settings. Text colors all flow through the :root variables, so
    remapping them here restyles most copy; the rest is per-surface overrides.
@@ -1386,6 +1654,52 @@ body.night {
 .night .navbar {
   background: rgba(30, 23, 58, 0.72);
   border-top-color: rgba(120, 100, 180, 0.25);
+}
+.night .companion-pop {
+  background: rgba(46, 37, 87, 0.96);
+  border-color: rgba(120, 100, 180, 0.35);
+  box-shadow: 0 14px 30px -14px rgba(8, 5, 20, 0.9);
+}
+.night .pop-btn {
+  background: #383060;
+}
+.night .pop-opt {
+  background: #352c5e;
+}
+.night .pop-opt:hover {
+  background: #3d346c;
+}
+.night .pop-jot-input {
+  background: #2e2557;
+  border-color: #3f3570;
+}
+.night .intention-input {
+  background: rgba(46, 37, 87, 0.55);
+  border-color: rgba(120, 100, 180, 0.45);
+}
+.night .intention-input:focus {
+  background: rgba(46, 37, 87, 0.8);
+}
+.night .patterns-card {
+  background: rgba(46, 37, 87, 0.72);
+}
+.night .patterns-chip {
+  background: rgba(16, 11, 34, 0.45);
+}
+.night .patterns-tip {
+  background: rgba(255, 156, 194, 0.12);
+  color: #e3a8c4;
+}
+.night .patterns-note {
+  background: rgba(132, 160, 230, 0.14);
+  color: #a9b8e6;
+}
+.night .companion-subs {
+  background: rgba(16, 11, 34, 0.35);
+}
+.night .mini-btn {
+  background: #383060;
+  color: var(--purple-2);
 }
 
 /* ---------- wide screens ----------

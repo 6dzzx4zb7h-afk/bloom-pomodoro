@@ -3,14 +3,25 @@ import { PixelPal } from '../components/PixelPal';
 import { SettingsSheet } from '../components/SettingsSheet';
 import type { useBloom } from '../store/useBloom';
 import type { TimerMode } from '../store/useBloom';
+import type { Companion } from '../store/useCompanion';
 
 const RING_R = 92;
 const RING_C = 2 * Math.PI * RING_R;
 const MODE_IDX: Record<TimerMode, number> = { focus: 0, short: 1, long: 2 };
 
-export function FocusScreen({ bloom }: { bloom: ReturnType<typeof useBloom> }) {
+export function FocusScreen({
+  bloom,
+  companion,
+}: {
+  bloom: ReturnType<typeof useBloom>;
+  companion: Companion;
+}) {
   const { state, mood, statusLabel, palSprite, activeTask, actions, mmss } = bloom;
   const [showSettings, setShowSettings] = useState(false);
+
+  // Pre-session intention: optional, skippable, only in Companion Mode.
+  const wantsIntention =
+    companion.enabled && companion.conf.intention && state.mode === 'focus' && !state.justDone;
 
   const total = state.settings.durations[state.mode] || 1;
   const ringOffset = RING_C * (1 - state.remaining / total);
@@ -86,6 +97,12 @@ export function FocusScreen({ bloom }: { bloom: ReturnType<typeof useBloom> }) {
 
       <div className="readout">
         <div className="readout-time">{mmss(state.remaining)}</div>
+        {wantsIntention && state.running && companion.intention && (
+          <div className="intention-line">✦ {companion.intention}</div>
+        )}
+        {companion.summary && !(state.running && state.mode === 'focus') && (
+          <div className="intention-line">{companion.summary}</div>
+        )}
       </div>
 
       <div className="controls">
@@ -106,6 +123,16 @@ export function FocusScreen({ bloom }: { bloom: ReturnType<typeof useBloom> }) {
           &#187;
         </button>
       </div>
+
+      {wantsIntention && !state.running && (
+        <input
+          className="intention-input"
+          value={companion.intention}
+          onChange={(e) => companion.setIntention(e.target.value.slice(0, 60))}
+          placeholder="what will you do this session? (optional)"
+          aria-label="Session intention"
+        />
+      )}
 
       <div className="now-chip">
         <span className="now-badge">&#10003;</span>
