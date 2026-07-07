@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import type { Settings, TimerMode } from '../store/useBloom';
+import type { DurationMode, Settings } from '../store/useBloom';
 import { audioEngine, BG_SOUNDS, requestNotifyPermission, type BgSound } from '../engine/audio';
 import { AWAY_CHOICES, CHECKIN_CHOICES, clearEvents, loadEvents } from '../store/companion';
 import { friendByName } from '../data/friends';
@@ -14,7 +14,7 @@ interface SettingsSheetProps {
 }
 
 interface DurationRowSpec {
-  key: TimerMode;
+  key: DurationMode;
   label: string;
   step: number; // minutes
   min: number;
@@ -59,7 +59,7 @@ export function SettingsSheet({ settings, running, onPatch, onClose }: SettingsS
     return choices[Math.max(0, Math.min(choices.length - 1, i + dir))];
   }
 
-  function bump(key: TimerMode, dir: 1 | -1, spec: DurationRowSpec) {
+  function bump(key: DurationMode, dir: 1 | -1, spec: DurationRowSpec) {
     const mins = Math.round(settings.durations[key] / 60) + dir * spec.step;
     const clamped = Math.max(spec.min, Math.min(spec.max, mins));
     onPatch({ durations: { ...settings.durations, [key]: clamped * 60 } });
@@ -196,6 +196,43 @@ export function SettingsSheet({ settings, running, onPatch, onClose }: SettingsS
             role="switch"
             aria-checked={settings.autoStart}
             aria-label="Auto-start next timer"
+          >
+            <span className="knob" />
+          </button>
+        </div>
+
+        <div className="set-row">
+          <span className="set-label">
+            Flow timer
+            <span className="set-sub">
+              a count-up stopwatch tab — ride the focus as long as it flows, no ticking deadline
+            </span>
+          </span>
+          <button
+            className={`switch${settings.flow ? ' on' : ''}`}
+            onClick={() => onPatch({ flow: !settings.flow })}
+            role="switch"
+            aria-checked={settings.flow}
+            aria-label="Flow timer"
+          >
+            <span className="knob" />
+          </button>
+        </div>
+
+        <div className="set-row">
+          <span className="set-label">
+            Goals &amp; deadlines
+            <span className="set-sub">
+              plan a semester, exam or any deadline — log parts as you finish and see the pace
+              that lands it
+            </span>
+          </span>
+          <button
+            className={`switch${settings.planner ? ' on' : ''}`}
+            onClick={() => onPatch({ planner: !settings.planner })}
+            role="switch"
+            aria-checked={settings.planner}
+            aria-label="Goals and deadlines"
           >
             <span className="knob" />
           </button>

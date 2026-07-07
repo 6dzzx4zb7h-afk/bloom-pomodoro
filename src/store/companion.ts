@@ -163,6 +163,19 @@ function timeBucket(ts: number): string {
   return 'nights';
 }
 
+/** Per-bucket focused/drift tallies over a set of events. */
+function bucketStats(events: CompanionEvent[]): Map<string, { f: number; d: number }> {
+  const buckets = new Map<string, { f: number; d: number }>();
+  for (const e of events) {
+    if (e.kind !== 'focused' && !isDriftEvent(e)) continue;
+    const b = buckets.get(timeBucket(e.ts)) ?? { f: 0, d: 0 };
+    if (e.kind === 'focused') b.f++;
+    else b.d++;
+    buckets.set(timeBucket(e.ts), b);
+  }
+  return buckets;
+}
+
 export const isDriftEvent = (e: CompanionEvent) => (DRIFT_KINDS as string[]).includes(e.kind);
 const isDrift = isDriftEvent;
 
@@ -195,13 +208,7 @@ export function computeInsights(
 
   // Best time of day by focused ratio, only for buckets with real samples.
   let bestTime: string | null = null;
-  const buckets = new Map<string, { f: number; d: number }>();
-  for (const e of [...focused, ...drifts]) {
-    const b = buckets.get(timeBucket(e.ts)) ?? { f: 0, d: 0 };
-    if (e.kind === 'focused') b.f++;
-    else b.d++;
-    buckets.set(timeBucket(e.ts), b);
-  }
+  const buckets = bucketStats(week);
   let bestRatio = 0;
   for (const [name, b] of buckets) {
     const total = b.f + b.d;
@@ -236,4 +243,136 @@ export function computeInsights(
     tip,
     gentleNote,
   };
+}
+
+/* ------------------------------------------------------------------ *
+ * Attention recipe
+ *
+ * The personal layer on top of the raw patterns: a small set of concrete,
+ * this-is-you recommendations built from the same local event log. Where the
+ * patterns card says what happened, the recipe says what to try — tuned to
+ * the person's own session length, drift style, and clock.
+ * ------------------------------------------------------------------ */
+
+export interface RecipeItem {
+  /** Tiny pictogram for the row. */
+  emoji: string;
+  text: string;
+}
+
+/** Signals (answers + aways) needed before the recipe says anything. */
+export const RECIPE_MIN_SIGNALS = 5;
+
+/** How each drift style is best met — richer than the in-session micro-tips. */
+const RECIPE_STRATEGY: Record<DriftKind, { emoji: string; text: string }> = {
+  rabbit: {
+    emoji: '🕳️',
+    text: 'rabbit holes are your main pull — keep a "later list" beside you and park links there unopened; visit them in one batch after the timer.',
+  },
+  external: {
+    emoji: '🔕',
+    text: 'interruptions are your main pull — do-not-disturb during sessions, and tell people "back in a bit"; almost everything waits happily.',
+  },
+  urge: {
+    emoji: '🌊',
+    text: 'check-urges are your main pull — put the phone out of reach, and when an urge hits, surf it for two minutes; most fade on their own.',
+  },
+  wander: {
+    emoji: '💭',
+    text: 'mind-wandering is your main pull — write one tiny intention before each session and re-read the last line whenever you notice drifting.',
+  },
+  restless: {
+    emoji: '🐇',
+    text: 'restlessness is your main pull — move every break (stretch, shake-out, a lap of the room) so the wiggles are spent before you sit back down.',
+  },
+};
+
+/**
+ * Build the personal attention recipe from the event log. Returns [] until
+ * there are at least RECIPE_MIN_SIGNALS signals in the window; callers show a
+ * "still learning you" line instead. Capped at 4 rows so it stays a recipe,
+ * not a lecture.
+ */
+export function computeAttentionPlan(
+  events: CompanionEvent[],
+  focusLenMins: number,
+  now = Date.now(),
+  windowDays = 28,
+): RecipeItem[] {
+  const window = events.filter((e) => now - e.ts <= windowDays * 86400000);
+  const drifts = window.filter(isDriftEvent);
+  const focused = window.filter((e) => e.kind === 'focused');
+  const aways = window.filter((e) => e.kind === 'away');
+  if (focused.length + drifts.length + aways.length < RECIPE_MIN_SIGNALS) return [];
+
+  const items: RecipeItem[] = [];
+  const answers = focused.length + drifts.length;
+  const driftRate = answers > 0 ? drifts.length / answers : 0;
+
+  // 1) Session length, fit to where attention actually bends.
+  if (drifts.length >= 3) {
+    const late = drifts.filter((d) => phaseOf(d.min, d.len) === 'late');
+    if (late.length > drifts.length / 2 && focusLenMins >= 20) {
+      const shorter = Math.max(15, focusLenMins - 5);
+      items.push({
+        emoji: '⏱️',
+        text: `your focus tends to fade near the end — try ${shorter}-minute sessions for a week; ending strong beats lasting long.`,
+      });
+    } else if (drifts.filter((d) => phaseOf(d.min, d.len) === 'early').length > drifts.length / 2) {
+      items.push({
+        emoji: '🚀',
+        text: 'drifts cluster right after you start — a 30-second warm-up (clear desk, one intention, water) helps you land in the session.',
+      });
+    }
+  } else if (answers >= 8 && driftRate < 0.15 && focusLenMins <= 30) {
+    items.push({
+      emoji: '📈',
+      text: `you hold focus really well — you could stretch sessions to ${focusLenMins + 5} minutes and sink into deeper work.`,
+    });
+  }
+
+  // 2) The clock: guard the strong hours, spare the weak ones.
+  const buckets = bucketStats(window);
+  let best: { name: string; ratio: number } | null = null;
+  let worst: { name: string; ratio: number } | null = null;
+  for (const [name, b] of buckets) {
+    const total = b.f + b.d;
+    if (total < 3 || b.f === 0) {
+      if (total >= 3 && b.f === 0) worst = { name, ratio: 0 };
+      continue;
+    }
+    const ratio = b.f / total;
+    if (!best || ratio > best.ratio) best = { name, ratio };
+    if (!worst || ratio < worst.ratio) worst = { name, ratio };
+  }
+  if (best && best.ratio >= 0.6) {
+    items.push({
+      emoji: '🌤️',
+      text: `${best.name} are your golden hours — give them your hardest task, before anything else gets a turn.`,
+    });
+  }
+  if (worst && best && worst.name !== best.name && worst.ratio <= 0.45) {
+    items.push({
+      emoji: '🌙',
+      text: `${worst.name} run foggier for you — save easy wins (tidying notes, small errands) for then instead of the big stuff.`,
+    });
+  }
+
+  // 3) Their dominant drift style, met with a matching strategy.
+  if (drifts.length >= 3) {
+    const counts = new Map<DriftKind, number>();
+    for (const d of drifts) counts.set(d.kind as DriftKind, (counts.get(d.kind as DriftKind) ?? 0) + 1);
+    const dominant = [...counts.entries()].sort((a, b) => b[1] - a[1])[0][0];
+    items.push(RECIPE_STRATEGY[dominant]);
+  }
+
+  // 4) Quiet tab-aways: the drift that never gets asked about.
+  if (aways.length >= 3 && aways.length >= answers * 0.5) {
+    items.push({
+      emoji: '🖥️',
+      text: 'the tab pulls you away a lot — try fullscreen or a separate desktop for sessions so elsewhere is a real trip, not one flick.',
+    });
+  }
+
+  return items.slice(0, 4);
 }

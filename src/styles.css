@@ -322,6 +322,15 @@ button {
 .ctrl-skip {
   font: 700 17px var(--font-display);
 }
+/* Flow mode: skip's seat becomes the finish check — end the run, bank the blooms. */
+.ctrl-finish {
+  font: 700 19px var(--font-display);
+  color: var(--pink-3);
+}
+.ctrl-finish:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
 .ctrl-play {
   width: 74px;
   height: 74px;
@@ -427,6 +436,16 @@ button {
   padding: 10px 20px calc(20px + env(safe-area-inset-bottom));
   box-shadow: 0 -12px 30px -12px rgba(110, 85, 119, 0.45);
   animation: sheet-up 0.25s cubic-bezier(0.3, 1.2, 0.5, 1);
+  /* The sheet can outgrow a phone screen (companion sub-settings open, etc.),
+     so it scrolls within itself — bottom-anchored, top always reachable. */
+  max-height: calc(100vh - 34px);
+  max-height: calc(100dvh - 34px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+}
+.sheet::-webkit-scrollbar {
+  display: none;
 }
 @keyframes sheet-up {
   from {
@@ -454,16 +473,22 @@ button {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 14px;
   padding: 9px 0;
 }
+/* The label owns the flexible space; controls (switch, stepper, input) keep
+   their size no matter how long a sub-label wraps. */
 .set-label {
   font: 600 14px var(--font-body);
   color: var(--plum);
+  flex: 1;
+  min-width: 0;
 }
 .stepper {
   display: flex;
   align-items: center;
   gap: 8px;
+  flex: none;
 }
 .step-btn {
   width: 28px;
@@ -493,9 +518,12 @@ button {
 .switch {
   width: 46px;
   height: 27px;
+  flex: none;
   border: none;
   border-radius: 14px;
-  background: #e9dcf3;
+  /* A touch deeper than the sheet so the off-state track reads as a pill. */
+  background: #e3d3f0;
+  box-shadow: inset 0 0 0 1.5px rgba(110, 85, 119, 0.07);
   position: relative;
   cursor: pointer;
   transition: background 0.18s;
@@ -591,6 +619,7 @@ button {
 
 .name-input {
   width: 130px;
+  flex: none;
   border: 2px solid #eaddf5;
   border-radius: 12px;
   padding: 7px 11px;
@@ -1127,7 +1156,7 @@ button {
 /* ---------- sky moods ----------
    One gradient layer per timer mode sits at the very back of .phone (below
    the animated sun/moon canvas); the active mode's layer fades in over 2.5s
-   for a dreamy crossfade. Colors come from the --day-*/--night-* variables. */
+   for a dreamy crossfade. Colors come from the --day- / --night- variables. */
 .sky-mood {
   position: absolute;
   inset: 0;
@@ -1397,9 +1426,10 @@ button {
   padding: 0 30px;
 }
 
-/* Weekly Focus Patterns card (Tasks screen, Companion Mode only). */
+/* Weekly Focus Patterns card (Tasks screen, Companion Mode only). Lives
+   inside the scrolling .task-list, which already provides side margins. */
 .patterns-card {
-  margin: 10px 18px 0;
+  margin: 6px 0 0;
   background: rgba(255, 255, 255, 0.75);
   border-radius: 18px;
   padding: 12px 15px;
@@ -1485,6 +1515,7 @@ button {
   pointer-events: none;
 }
 .mini-btn {
+  flex: none;
   border: none;
   border-radius: 11px;
   padding: 7px 11px;
@@ -1496,6 +1527,168 @@ button {
 }
 .mini-btn:active {
   transform: scale(0.95);
+}
+
+/* ---------- attention recipe (Tasks screen, Companion Mode only) ---------- */
+/* Rides on .patterns-card for the shell; rows are emoji + one concrete try. */
+.recipe-card {
+  background: linear-gradient(150deg, rgba(255, 230, 242, 0.82), rgba(238, 228, 251, 0.82));
+}
+.recipe-item {
+  display: flex;
+  gap: 9px;
+  align-items: flex-start;
+  padding: 6px 0 2px;
+}
+.recipe-emoji {
+  flex: none;
+  font-size: 15px;
+  line-height: 1.3;
+}
+.recipe-text {
+  font: 600 12px var(--font-body);
+  color: var(--soft);
+  line-height: 1.5;
+}
+
+/* ---------- goals & deadlines screen ---------- */
+.goal-card {
+  background: #fff;
+  border-radius: 16px;
+  padding: 12px 14px;
+  box-shadow: 0 8px 18px -12px rgba(183, 159, 227, 0.7);
+  flex: none;
+}
+.goal-top {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+.goal-title {
+  font: 600 15px var(--font-body);
+  color: var(--plum);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.goal-when {
+  font: 600 11px var(--font-body);
+  color: var(--soft3);
+}
+.goal-chip {
+  flex: none;
+  padding: 3px 9px;
+  border-radius: 9px;
+  background: #f4eafb;
+  color: var(--purple);
+  font: 700 10.5px var(--font-display);
+  margin-top: 1px;
+}
+.goal-chip.done {
+  background: #fde4ef;
+  color: var(--pink-3);
+}
+.goal-chip.overdue {
+  background: #f3ecf4;
+  color: var(--soft2);
+}
+.goal-mid {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-top: 9px;
+}
+.goal-track {
+  flex: 1;
+  height: 8px;
+  background: #f1e8f8;
+  border-radius: 6px;
+  overflow: hidden;
+}
+.goal-fill {
+  height: 100%;
+  border-radius: 6px;
+  background: linear-gradient(90deg, #ffb0d4, #c79fe6);
+  transition: width 0.3s;
+}
+.goal-fill.overdue {
+  background: #d9cce4;
+}
+.goal-count {
+  font: 700 12px var(--font-display);
+  color: var(--plum);
+  min-width: 44px;
+  text-align: right;
+}
+.goal-log {
+  display: flex;
+  gap: 5px;
+}
+.goal-pace {
+  margin-top: 8px;
+  font: 600 11.5px var(--font-body);
+  color: var(--soft);
+  line-height: 1.45;
+}
+.goal-pace.active {
+  padding: 7px 10px;
+  border-radius: 10px;
+  background: #fbf3fc;
+}
+.goal-pace.done {
+  color: var(--pink-3);
+}
+/* The add form: name stretches; date + parts stay compact. */
+.goal-add {
+  flex-wrap: wrap;
+  row-gap: 7px;
+}
+.goal-date,
+.goal-parts {
+  flex: none;
+  border: 2px solid #eaddf5;
+  border-radius: 10px;
+  padding: 6px 8px;
+  background: #fff;
+  outline: none;
+  font: 600 12px var(--font-display);
+  color: var(--plum);
+  transition: border-color 0.15s;
+}
+.goal-date:focus,
+.goal-parts:focus {
+  border-color: var(--pink-2);
+}
+.goal-date {
+  width: 128px;
+}
+.goal-parts {
+  width: 52px;
+  text-align: center;
+}
+.goal-go {
+  flex: none;
+  border: none;
+  border-radius: 10px;
+  padding: 7px 13px;
+  background: linear-gradient(150deg, #ffb0d4, #c79fe6);
+  color: #fff;
+  font: 700 12px var(--font-display);
+  cursor: pointer;
+  transition: transform 0.1s ease, opacity 0.15s;
+}
+.goal-go:active {
+  transform: scale(0.95);
+}
+.goal-go:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.goal-hint {
+  margin-top: 6px;
+  text-align: center;
+  font: 600 10.5px var(--font-body);
+  color: var(--text-faint);
 }
 
 /* ---------- night mode ----------
@@ -1701,6 +1894,43 @@ body.night {
   background: #383060;
   color: var(--purple-2);
 }
+.night .ctrl-finish {
+  color: var(--pink-2);
+}
+.night .recipe-card {
+  background: linear-gradient(150deg, rgba(255, 156, 194, 0.16), rgba(183, 159, 227, 0.16));
+}
+.night .goal-card {
+  background: #2e2557;
+  box-shadow: 0 8px 18px -12px rgba(8, 5, 20, 0.9);
+}
+.night .goal-chip {
+  background: #383060;
+  color: var(--purple-2);
+}
+.night .goal-chip.done {
+  background: rgba(255, 156, 194, 0.16);
+  color: var(--pink-2);
+}
+.night .goal-chip.overdue {
+  background: rgba(16, 11, 34, 0.45);
+  color: var(--soft2);
+}
+.night .goal-track {
+  background: rgba(16, 11, 34, 0.5);
+}
+.night .goal-fill.overdue {
+  background: #4a3f80;
+}
+.night .goal-pace.active {
+  background: rgba(16, 11, 34, 0.35);
+}
+.night .goal-date,
+.night .goal-parts {
+  background: #2e2557;
+  border-color: #3f3570;
+  color-scheme: dark;
+}
 
 /* ---------- wide screens ----------
    The surface stays edge-to-edge, but content rows cap at a readable column
@@ -1717,7 +1947,8 @@ body.night {
   .coll-grid,
   .coll-footer,
   .onboard,
-  .sheet {
+  .sheet,
+  .patterns-card {
     width: 100%;
     max-width: 560px;
     margin-left: auto;

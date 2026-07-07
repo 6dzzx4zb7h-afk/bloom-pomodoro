@@ -71,7 +71,24 @@ To pick up web changes later, just re-run `npm run apk` (it rebuilds and re-sync
 - **Wall-clock accuracy:** the run stores an `endsAt` timestamp and recomputes remaining from
   `Date.now()`, so it stays accurate when the tab is backgrounded.
 - **Settings:** name, focus/short/long durations, ring toggle, background-sound picker, auto-start,
-  night sky.
+  night sky, flow timer, goals & deadlines, companion mode.
+- **Companion Mode (opt-in):** the pet gently checks in during focus sessions ("still with me?"),
+  notices tab-aways, and offers a two-tap drift triage (rabbit hole / interruption / urge /
+  wandering / restlessness) with a matching micro-tip. Everything logs to a small local event
+  store and feeds the **focus patterns** card on the Tasks screen.
+- **Attention recipe:** a personal "how to enhance *your* attention" card built from the last
+  4 weeks of companion data — session length tuned to where focus actually fades, golden/foggy
+  hours of the day, a strategy matched to the dominant drift style, and a tab-away countermeasure.
+  No two people get the same recipe, and it only speaks once it has enough signal.
+- **Flow timer (opt-in):** a count-up stopwatch tab beside Focus/Short/Long for people who'd
+  rather ride momentum than race a countdown. It survives reloads (a stopwatch keeps counting),
+  pauses when you switch modes, and **finish (✓)** banks the elapsed time as pomodoro-equivalents
+  ("blooms") — crediting sessions, streak, task cherries, and friend XP just like classic sessions.
+- **Goals & deadlines (opt-in):** a planner tab for a whole semester — each goal is a deadline
+  plus "how many parts" (lectures, chapters, problem sets) and how many are done, so work always
+  points at an objective. Cards show progress and the **pace that lands the deadline** ("about 2
+  a day / 4 a week"); suggestions go quiet for overdue or clearly unreachable goals instead of
+  nagging.
 - **Night sky:** an optional dark theme with a live animated backdrop — crescent moon, twinkling
   pixel stars, and the occasional meteor streaking down (Canvas 2D, `NightSky.tsx`).
 - **Tasks screen:** per-task pomodoro goals ("cherries"); tap a task to focus it, and the
@@ -95,13 +112,18 @@ src/
   components/
     PixelPal.tsx             # React wrapper around the engine
     Onboarding.tsx           # first-run name gate
-    SettingsSheet.tsx        # settings bottom sheet (durations, ring, background sound)
-    TabBar.tsx               # bottom navigation
+    SettingsSheet.tsx        # settings bottom sheet (durations, ring, background sound, features)
+    CompanionPrompt.tsx      # the pet's check-in speech bubble + drift triage
+    TabBar.tsx               # bottom navigation (Goals tab appears when the planner is on)
   screens/
-    FocusScreen.tsx
-    TasksScreen.tsx
+    FocusScreen.tsx          # countdown modes + the opt-in flow stopwatch
+    TasksScreen.tsx          # tasks + focus patterns + the attention recipe
+    GoalsScreen.tsx          # opt-in deadline planner with pace insights
     CollectionScreen.tsx     # all friends, each with a level + XP bar
   store/useBloom.ts          # state, wall-clock timer, audio wiring, versioned persistence
+  store/companion.ts         # companion event log, insights + attention-recipe math
+  store/useCompanion.ts      # live check-in scheduling / tab-away detection
+  store/goals.ts             # goal types + deadline pace math
   styles.css                 # design tokens + screen styles
 scripts/gen-icons.mjs        # generates web + Android launcher icons (sharp)
 android/                     # Capacitor native Android project

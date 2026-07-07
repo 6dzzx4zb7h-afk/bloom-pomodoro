@@ -56,6 +56,9 @@ export function useCompanion(bloom: Bloom) {
   /** Seconds elapsed in the current session. */
   const elapsed = useCallback(() => {
     const s = ref.current.state;
+    // Flow counts up, so `remaining` already is the elapsed time. (Companion
+    // check-ins only arm for classic focus, but keep the math honest anyway.)
+    if (s.mode === 'flow') return Math.max(0, s.remaining);
     return Math.max(0, s.settings.durations[s.mode] - s.remaining);
   }, []);
 

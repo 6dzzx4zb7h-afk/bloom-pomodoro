@@ -7,7 +7,12 @@ import type { Companion } from '../store/useCompanion';
 
 const RING_R = 92;
 const RING_C = 2 * Math.PI * RING_R;
-const MODE_IDX: Record<TimerMode, number> = { focus: 0, short: 1, long: 2 };
+const MODE_LABEL: Record<TimerMode, string> = {
+  focus: 'Focus',
+  flow: 'Flow',
+  short: 'Short',
+  long: 'Long',
+};
 
 export function FocusScreen({
   bloom,
@@ -16,16 +21,28 @@ export function FocusScreen({
   bloom: ReturnType<typeof useBloom>;
   companion: Companion;
 }) {
-  const { state, mood, statusLabel, palSprite, activeTask, actions, mmss } = bloom;
+  const { state, mood, statusLabel, palSprite, activeTask, actions, mmss, clock } = bloom;
   const [showSettings, setShowSettings] = useState(false);
 
   // Pre-session intention: optional, skippable, only in Companion Mode.
   const wantsIntention =
     companion.enabled && companion.conf.intention && state.mode === 'focus' && !state.justDone;
 
-  const total = state.settings.durations[state.mode] || 1;
-  const ringOffset = RING_C * (1 - state.remaining / total);
-  const idx = MODE_IDX[state.mode];
+  const isFlow = state.mode === 'flow';
+  const focusLen = state.settings.durations.focus || 1;
+  // Flow: `remaining` holds elapsed seconds and the ring fills once per
+  // focus-length, lap after lap — the stopwatch's quiet nod to the pomodoro.
+  const total = state.mode === 'flow' ? focusLen : state.settings.durations[state.mode] || 1;
+  const ringFrac = isFlow ? (state.remaining % focusLen) / focusLen : state.remaining / total;
+  const ringOffset = RING_C * (1 - ringFrac);
+  // Whole focus-lengths already on the clock — what "finish" would bank.
+  const laps = isFlow ? Math.floor(state.remaining / focusLen) : 0;
+
+  const modes: TimerMode[] = state.settings.flow
+    ? ['focus', 'flow', 'short', 'long']
+    : ['focus', 'short', 'long'];
+  const idx = Math.max(0, modes.indexOf(state.mode));
+  const pillW = `calc((100% - 8px) / ${modes.length})`;
 
   // Session dots: progress through the current cycle of 4. All four stay lit
   // through the celebrate + long-break stretch, then reset for the next cycle.
@@ -53,17 +70,21 @@ export function FocusScreen({
       </div>
 
       <div className="tabs">
-        <div className="tabs-pill" style={{ transform: `translateX(${idx * 100}%)` }} />
+        <div
+          className="tabs-pill"
+          style={{ width: pillW, transform: `translateX(${idx * 100}%)` }}
+        />
         <div className="tabs-inner">
-          <button className="tab-btn" aria-pressed={state.mode === 'focus'} onClick={() => actions.pick('focus')}>
-            Focus
-          </button>
-          <button className="tab-btn" aria-pressed={state.mode === 'short'} onClick={() => actions.pick('short')}>
-            Short
-          </button>
-          <button className="tab-btn" aria-pressed={state.mode === 'long'} onClick={() => actions.pick('long')}>
-            Long
-          </button>
+          {modes.map((m) => (
+            <button
+              key={m}
+              className="tab-btn"
+              aria-pressed={state.mode === m}
+              onClick={() => actions.pick(m)}
+            >
+              {MODE_LABEL[m]}
+            </button>
+          ))}
         </div>
       </div>
 
@@ -96,7 +117,16 @@ export function FocusScreen({
       </div>
 
       <div className="readout">
-        <div className="readout-time">{mmss(state.remaining)}</div>
+        <div className="readout-time">{isFlow ? clock(state.remaining) : mmss(state.remaining)}</div>
+        {isFlow && !state.justDone && (
+          <div className="intention-line">
+            {laps > 0
+              ? `${laps} bloom${laps === 1 ? '' : 's'} on the clock — finish to bank ${laps === 1 ? 'it' : 'them'}`
+              : state.running
+                ? 'counting up — stop whenever it stops flowing'
+                : 'a stopwatch instead of a countdown — just press play'}
+          </div>
+        )}
         {wantsIntention && state.running && companion.intention && (
           <div className="intention-line">✦ {companion.intention}</div>
         )}
@@ -119,9 +149,21 @@ export function FocusScreen({
             <span className="play-tri" />
           )}
         </button>
-        <button className="ctrl-round ctrl-skip" onClick={actions.skip} aria-label="Skip">
-          &#187;
-        </button>
+        {isFlow ? (
+          <button
+            className="ctrl-round ctrl-finish"
+            onClick={actions.finishFlow}
+            disabled={state.remaining < 1 && !state.running}
+            aria-label="Finish flow session"
+            title="finish & bank this session"
+          >
+            &#10003;
+          </button>
+        ) : (
+          <button className="ctrl-round ctrl-skip" onClick={actions.skip} aria-label="Skip">
+            &#187;
+          </button>
+        )}
       </div>
 
       {wantsIntention && !state.running && (

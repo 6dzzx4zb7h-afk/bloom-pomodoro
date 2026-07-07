@@ -3,8 +3,12 @@ import { friendByName } from '../data/friends';
 import type { AnimalKind } from '../engine/pixelpals';
 import { audioEngine, notify, type BgSound } from '../engine/audio';
 import { DEFAULT_COMPANION, type CompanionSettings } from './companion';
+import { GOAL_TARGET_MAX, type Goal } from './goals';
 
-export type TimerMode = 'focus' | 'short' | 'long';
+/** 'flow' is the opt-in count-up stopwatch; the rest count down. */
+export type TimerMode = 'focus' | 'short' | 'long' | 'flow';
+/** The countdown modes — the only ones with a configured length. */
+export type DurationMode = 'focus' | 'short' | 'long';
 
 export interface Task {
   id: number;
@@ -15,11 +19,7 @@ export interface Task {
 }
 
 /** All values in seconds. */
-export interface Durations {
-  focus: number;
-  short: number;
-  long: number;
-}
+export type Durations = Record<DurationMode, number>;
 
 export interface Settings {
   /** What the app calls the user (chosen on first run, editable in settings). */
@@ -37,6 +37,10 @@ export interface Settings {
   pal: string;
   /** Companion Mode: gentle check-ins + local focus-pattern insights. */
   companion: CompanionSettings;
+  /** Flow timer: an opt-in count-up stopwatch tab beside the pomodoro modes. */
+  flow: boolean;
+  /** Goals & deadlines: the opt-in semester/exam planner tab. */
+  planner: boolean;
 }
 
 interface BloomState {
@@ -56,6 +60,12 @@ interface BloomState {
   activeTaskId: number | null;
   /** Focus sessions completed with each friend on duty → drives their level. */
   palXp: Record<string, number>;
+  /** Deadline planner entries (only shown when settings.planner is on). */
+  goals: Goal[];
+  /** Flow stopwatch: epoch ms the current run started at; null when paused. */
+  flowStart: number | null;
+  /** Flow stopwatch: seconds banked across pauses. */
+  flowAcc: number;
   settings: Settings;
 }
 
@@ -68,6 +78,8 @@ const DEFAULT_SETTINGS: Settings = {
   night: false,
   pal: 'Mochi',
   companion: DEFAULT_COMPANION,
+  flow: false,
+  planner: false,
 };
 
 const DEFAULT_TASKS: Task[] = [
@@ -88,6 +100,9 @@ const DEFAULT_STATE: BloomState = {
   tasks: DEFAULT_TASKS,
   activeTaskId: 1,
   palXp: {},
+  goals: [],
+  flowStart: null,
+  flowAcc: 0,
   settings: DEFAULT_SETTINGS,
 };
 
@@ -115,6 +130,9 @@ interface PersistedShape {
   tasks: Task[];
   activeTaskId: number | null;
   palXp: Record<string, number>;
+  goals: Goal[];
+  /** Flow stopwatch survives reloads — a stopwatch keeps counting while away. */
+  flow: { startedAt: number | null; acc: number; running: boolean };
   settings: Settings;
 }
 
@@ -151,6 +169,21 @@ function withDefaults(blob: Record<string, unknown>): PersistedShape {
     },
     companion: { ...DEFAULT_COMPANION, ...(bSettings.companion ?? {}) },
   };
+  const goals = (Array.isArray(b.goals) ? (b.goals as Goal[]) : []).filter(
+    (g) =>
+      g &&
+      typeof g.id === 'number' &&
+      typeof g.title === 'string' &&
+      typeof g.due === 'string' &&
+      typeof g.target === 'number' &&
+      typeof g.done === 'number',
+  );
+  const rawFlow = (b.flow as Partial<PersistedShape['flow']> | undefined) ?? {};
+  const flow = {
+    startedAt: typeof rawFlow.startedAt === 'number' ? rawFlow.startedAt : null,
+    acc: typeof rawFlow.acc === 'number' && Number.isFinite(rawFlow.acc) ? Math.max(0, rawFlow.acc) : 0,
+    running: rawFlow.running === true,
+  };
   return {
     version: SCHEMA_VERSION,
     sessions: typeof b.sessions === 'number' && Number.isFinite(b.sessions) ? (b.sessions as number) : 0,
@@ -159,6 +192,8 @@ function withDefaults(blob: Record<string, unknown>): PersistedShape {
     tasks: Array.isArray(b.tasks) ? (b.tasks as Task[]) : DEFAULT_TASKS,
     activeTaskId: typeof b.activeTaskId === 'number' ? (b.activeTaskId as number) : null,
     palXp: b.palXp && typeof b.palXp === 'object' ? (b.palXp as Record<string, number>) : {},
+    goals,
+    flow,
     settings,
   };
 }
@@ -188,13 +223,16 @@ function readPersisted(): PersistedShape | null {
   return null;
 }
 
+/** A flow run restored past this is treated as forgotten, not still going. */
+const FLOW_RESTORE_CAP_S = 4 * 3600;
+
 function loadState(): BloomState {
   const p = readPersisted();
   if (!p) return DEFAULT_STATE;
   // A streak is only alive if the last focus session was today or yesterday.
   const alive =
     p.lastFocusDay === dayStr() || p.lastFocusDay === dayStr(new Date(Date.now() - 86400000));
-  return {
+  const base: BloomState = {
     ...DEFAULT_STATE,
     settings: p.settings,
     remaining: p.settings.durations.focus,
@@ -204,7 +242,31 @@ function loadState(): BloomState {
     tasks: p.tasks,
     activeTaskId: p.activeTaskId,
     palXp: p.palXp,
+    goals: p.goals,
+    flowAcc: p.flow.acc,
   };
+  // A flow run that was live when the app closed keeps counting (that's what
+  // a stopwatch does) — unless it's been so long it was clearly abandoned, in
+  // which case it comes back paused, banked at the cap.
+  if (p.settings.flow && p.flow.running && p.flow.startedAt != null) {
+    const elapsed = p.flow.acc + (Date.now() - p.flow.startedAt) / 1000;
+    if (elapsed < FLOW_RESTORE_CAP_S) {
+      return {
+        ...base,
+        mode: 'flow',
+        running: true,
+        flowStart: p.flow.startedAt,
+        remaining: Math.floor(elapsed),
+      };
+    }
+    return {
+      ...base,
+      mode: 'flow',
+      flowAcc: FLOW_RESTORE_CAP_S,
+      remaining: FLOW_RESTORE_CAP_S,
+    };
+  }
+  return base;
 }
 
 function persist(s: BloomState) {
@@ -216,6 +278,8 @@ function persist(s: BloomState) {
     tasks: s.tasks,
     activeTaskId: s.activeTaskId,
     palXp: s.palXp,
+    goals: s.goals,
+    flow: { startedAt: s.flowStart, acc: s.flowAcc, running: s.running && s.mode === 'flow' },
     settings: s.settings,
   };
   try {
@@ -239,6 +303,15 @@ export function resolveActiveTask(tasks: Task[], activeTaskId: number | null): T
   return chosen ?? tasks.find((t) => !t.done);
 }
 
+/** Seconds on the flow stopwatch right now (banked + the live run, if any). */
+function flowElapsed(s: BloomState, now = Date.now()): number {
+  const live = s.running && s.flowStart != null ? (now - s.flowStart) / 1000 : 0;
+  return Math.max(0, s.flowAcc + live);
+}
+
+/** A finished flow banks at most this many pomodoro-equivalents. */
+const FLOW_CREDIT_CAP = 12;
+
 type Action =
   | { type: 'tick' }
   | { type: 'toggle' }
@@ -246,18 +319,29 @@ type Action =
   | { type: 'pick'; mode: TimerMode }
   | { type: 'skip' }
   | { type: 'complete' }
+  | { type: 'finishFlow' }
   | { type: 'clearDone' }
   | { type: 'toggleTask'; id: number }
   | { type: 'addTask'; text: string; goal: number }
   | { type: 'removeTask'; id: number }
   | { type: 'setActiveTask'; id: number }
+  | { type: 'addGoal'; title: string; due: string; target: number }
+  | { type: 'removeGoal'; id: number }
+  | { type: 'logGoal'; id: number; delta: number }
   | { type: 'patchSettings'; patch: Partial<Settings> };
 
 function reducer(s: BloomState, a: Action): BloomState {
   const dur = s.settings.durations;
   switch (a.type) {
     case 'tick': {
-      if (!s.running || s.endsAt == null) return s;
+      if (!s.running) return s;
+      // Flow counts up: `remaining` holds elapsed seconds, and there is no
+      // completion — the session ends when the user says so.
+      if (s.mode === 'flow') {
+        const elapsed = Math.floor(flowElapsed(s));
+        return elapsed === s.remaining ? s : { ...s, remaining: elapsed };
+      }
+      if (s.endsAt == null) return s;
       // ceil, not round: the session only completes once the full time elapsed.
       const remaining = Math.max(0, Math.ceil((s.endsAt - Date.now()) / 1000));
       if (remaining <= 0) return reducer(s, { type: 'complete' });
@@ -265,6 +349,13 @@ function reducer(s: BloomState, a: Action): BloomState {
       return { ...s, remaining };
     }
     case 'toggle': {
+      if (s.mode === 'flow') {
+        if (s.running) {
+          const acc = flowElapsed(s);
+          return { ...s, running: false, flowStart: null, flowAcc: acc, remaining: Math.floor(acc), justDone: false };
+        }
+        return { ...s, running: true, flowStart: Date.now(), remaining: Math.floor(s.flowAcc), justDone: false };
+      }
       if (s.running) {
         const remaining = s.endsAt
           ? Math.max(0, Math.ceil((s.endsAt - Date.now()) / 1000))
@@ -274,15 +365,74 @@ function reducer(s: BloomState, a: Action): BloomState {
       const rem = s.remaining > 0 ? s.remaining : dur[s.mode];
       return { ...s, running: true, endsAt: Date.now() + rem * 1000, remaining: rem, justDone: false };
     }
-    case 'reset':
+    case 'reset': {
+      if (s.mode === 'flow') {
+        return { ...s, running: false, flowStart: null, flowAcc: 0, remaining: 0, justDone: false };
+      }
       return { ...s, running: false, endsAt: null, justDone: false, remaining: dur[s.mode] };
-    case 'pick':
-      return { ...s, mode: a.mode, running: false, endsAt: null, justDone: false, remaining: dur[a.mode] };
+    }
+    case 'pick': {
+      if (a.mode === 'flow') {
+        // Never wipe a live stopwatch by re-tapping its tab.
+        if (s.mode === 'flow') return s;
+        return { ...s, mode: 'flow', running: false, endsAt: null, justDone: false, remaining: Math.floor(s.flowAcc) };
+      }
+      // Leaving flow banks the elapsed time; the stopwatch waits, paused.
+      const base =
+        s.mode === 'flow' && s.running
+          ? { ...s, running: false, flowStart: null, flowAcc: flowElapsed(s) }
+          : s;
+      return { ...base, mode: a.mode, running: false, endsAt: null, justDone: false, remaining: dur[a.mode] };
+    }
     case 'skip': {
+      if (s.mode === 'flow') return s; // flow has finish, not skip
       const next: TimerMode = s.mode === 'focus' ? 'short' : 'focus';
       return reducer(s, { type: 'pick', mode: next });
     }
+    case 'finishFlow': {
+      if (s.mode !== 'flow') return s;
+      const elapsed = flowElapsed(s);
+      const focusLen = Math.max(60, dur.focus);
+      // Nearest focus-length wins: half a session or more banks the first
+      // bloom. Capped so a stopwatch left running can't mint a day of XP.
+      const credited = Math.min(FLOW_CREDIT_CAP, Math.round(elapsed / focusLen));
+      if (credited < 1) {
+        // Too short to bank — zero out quietly, no celebration.
+        return { ...s, running: false, flowStart: null, flowAcc: 0, remaining: 0, justDone: false };
+      }
+      const streak = bumpStreak(s.streak, s.lastFocusDay);
+      // Credit pomodoros one by one so they cascade across tasks exactly like
+      // finished focus sessions do.
+      let tasks = s.tasks;
+      let activeTaskId = s.activeTaskId;
+      for (let i = 0; i < credited; i++) {
+        const cur = resolveActiveTask(tasks, activeTaskId);
+        if (!cur) break;
+        const nowDone = cur.pomos + 1 >= cur.goal;
+        tasks = tasks.map((t) =>
+          t.id === cur.id
+            ? { ...t, pomos: Math.min(t.pomos + 1, t.goal), done: nowDone }
+            : t,
+        );
+        activeTaskId = nowDone ? (tasks.find((t) => !t.done)?.id ?? null) : cur.id;
+      }
+      return {
+        ...s,
+        running: false,
+        flowStart: null,
+        flowAcc: 0,
+        remaining: 0,
+        justDone: true,
+        sessions: s.sessions + credited,
+        streak,
+        lastFocusDay: dayStr(),
+        tasks,
+        activeTaskId,
+        palXp: { ...s.palXp, [s.settings.pal]: (s.palXp[s.settings.pal] ?? 0) + credited },
+      };
+    }
     case 'complete': {
+      if (s.mode === 'flow') return s; // flow ends via finishFlow only
       const wasFocus = s.mode === 'focus';
       const sessions = s.sessions + (wasFocus ? 1 : 0);
       const streak = wasFocus ? bumpStreak(s.streak, s.lastFocusDay) : s.streak;
@@ -322,6 +472,11 @@ function reducer(s: BloomState, a: Action): BloomState {
       };
     }
     case 'clearDone': {
+      // A finished flow session just settles back to an idle stopwatch —
+      // whether to break (and for how long) stays the user's call.
+      if (s.mode === 'flow') {
+        return { ...s, justDone: false, running: false, endsAt: null, remaining: 0 };
+      }
       // After the celebrate animation: advance to the next mode, and keep the
       // flow going automatically if auto-start is on.
       const wasFocus = s.mode === 'focus';
@@ -362,6 +517,24 @@ function reducer(s: BloomState, a: Action): BloomState {
       if (!t || t.done) return s;
       return { ...s, activeTaskId: a.id };
     }
+    case 'addGoal': {
+      const title = a.title.trim().slice(0, 60);
+      if (!title || !/^\d{4}-\d{2}-\d{2}$/.test(a.due)) return s;
+      const target = Math.max(1, Math.min(GOAL_TARGET_MAX, Math.round(a.target) || 1));
+      const id = s.goals.reduce((m, g) => Math.max(m, g.id), 0) + 1;
+      return {
+        ...s,
+        goals: [...s.goals, { id, title, due: a.due, target, done: 0, createdAt: Date.now() }],
+      };
+    }
+    case 'removeGoal':
+      return { ...s, goals: s.goals.filter((g) => g.id !== a.id) };
+    case 'logGoal': {
+      const goals = s.goals.map((g) =>
+        g.id === a.id ? { ...g, done: Math.max(0, Math.min(g.target, g.done + a.delta)) } : g,
+      );
+      return { ...s, goals };
+    }
     case 'patchSettings': {
       const settings: Settings = {
         ...s.settings,
@@ -369,9 +542,25 @@ function reducer(s: BloomState, a: Action): BloomState {
         durations: { ...s.settings.durations, ...(a.patch.durations || {}) },
         companion: { ...s.settings.companion, ...(a.patch.companion || {}) },
       };
+      // Switching the flow timer off while standing in it: land back on a
+      // fresh focus timer instead of a tab that no longer exists.
+      if (a.patch.flow === false && s.mode === 'flow') {
+        return {
+          ...s,
+          settings,
+          mode: 'focus',
+          running: false,
+          endsAt: null,
+          justDone: false,
+          remaining: settings.durations.focus,
+          flowStart: null,
+          flowAcc: 0,
+        };
+      }
       // Duration edits apply immediately to a stopped timer; a running one
       // keeps its end time and picks up the new length next session.
-      const remaining = !s.running && !s.justDone ? settings.durations[s.mode] : s.remaining;
+      const remaining =
+        s.mode !== 'flow' && !s.running && !s.justDone ? settings.durations[s.mode] : s.remaining;
       return { ...s, settings, remaining };
     }
     default:
@@ -382,10 +571,12 @@ function reducer(s: BloomState, a: Action): BloomState {
 export function useBloom() {
   const [state, dispatch] = useReducer(reducer, undefined, loadState);
 
-  // Persist durable fields whenever they change.
+  // Persist durable fields whenever they change. Flow start/pause lands here
+  // too (running/mode/flowStart), so a live stopwatch survives a reload; the
+  // per-second tick only touches `remaining`, which is not persisted.
   useEffect(() => {
     persist(state);
-  }, [state.sessions, state.streak, state.lastFocusDay, state.tasks, state.activeTaskId, state.palXp, state.settings]);
+  }, [state.sessions, state.streak, state.lastFocusDay, state.tasks, state.activeTaskId, state.palXp, state.goals, state.flowStart, state.flowAcc, state.running, state.mode, state.settings]);
 
   // Wall-clock tick: recompute remaining ~4x/sec. Reads Date.now(), so it
   // stays accurate even when the tab is throttled in the background.
@@ -413,12 +604,17 @@ export function useBloom() {
     if (!state.justDone) return;
     if (soundRef.current) {
       audioEngine.playRing();
-      notify('🌸 Session done!', 'Nice work — time for a little break.');
+      if (state.mode === 'flow') {
+        notify('🌸 Flow banked!', 'Lovely stretch of focus — treat yourself to a real break.');
+      } else {
+        notify('🌸 Session done!', 'Nice work — time for a little break.');
+      }
     }
     celRef.current = setTimeout(() => dispatch({ type: 'clearDone' }), 3600);
     return () => {
       if (celRef.current) clearTimeout(celRef.current);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.justDone]);
 
   // Background ambience is owned here so it can never fight a settings preview.
@@ -450,15 +646,17 @@ export function useBloom() {
   const mood = useMemo<'idle' | 'work' | 'sleep' | 'celebrate'>(() => {
     if (state.justDone) return 'celebrate';
     if (!state.running) return 'idle';
-    return state.mode === 'focus' ? 'work' : 'sleep';
+    return state.mode === 'focus' || state.mode === 'flow' ? 'work' : 'sleep';
   }, [state.justDone, state.running, state.mode]);
 
   const statusLabel = state.justDone
     ? 'yay — session done!'
     : state.running
-      ? state.mode === 'focus'
-        ? 'focusing…'
-        : 'resting…'
+      ? state.mode === 'flow'
+        ? 'in the flow…'
+        : state.mode === 'focus'
+          ? 'focusing…'
+          : 'resting…'
       : 'ready when you are';
 
   const palSprite: AnimalKind = friendByName(state.settings.pal).sprite;
@@ -478,6 +676,11 @@ export function useBloom() {
       addTask: (text: string, goal = 1) => dispatch({ type: 'addTask', text, goal }),
       removeTask: (id: number) => dispatch({ type: 'removeTask', id }),
       setActiveTask: (id: number) => dispatch({ type: 'setActiveTask', id }),
+      finishFlow: () => dispatch({ type: 'finishFlow' }),
+      addGoal: (title: string, due: string, target: number) =>
+        dispatch({ type: 'addGoal', title, due, target }),
+      removeGoal: (id: number) => dispatch({ type: 'removeGoal', id }),
+      logGoal: (id: number, delta: number) => dispatch({ type: 'logGoal', id, delta }),
       patchSettings: (patch: Partial<Settings>) => dispatch({ type: 'patchSettings', patch }),
     }),
     [],
@@ -489,17 +692,29 @@ export function useBloom() {
     return `${m}:${String(x).padStart(2, '0')}`;
   }, []);
 
+  // Stopwatch display: mm:ss under an hour, h:mm:ss beyond it.
+  const clock = useCallback(
+    (sec: number) => {
+      if (sec < 3600) return mmss(sec);
+      const h = Math.floor(sec / 3600);
+      const m = Math.floor((sec % 3600) / 60);
+      return `${h}:${String(m).padStart(2, '0')}:${String(sec % 60).padStart(2, '0')}`;
+    },
+    [mmss],
+  );
+
   // Keep the tab title useful while the timer runs.
   useEffect(() => {
     if (state.justDone) {
       document.title = '🌸 session done! — Bloom';
     } else if (state.running) {
-      const what = state.mode === 'focus' ? 'focus' : 'break';
-      document.title = `${mmss(state.remaining)} ${what} — Bloom`;
+      const what = state.mode === 'flow' ? 'flow' : state.mode === 'focus' ? 'focus' : 'break';
+      const time = state.mode === 'flow' ? clock(state.remaining) : mmss(state.remaining);
+      document.title = `${time} ${what} — Bloom`;
     } else {
       document.title = 'Bloom · a cozy pomodoro';
     }
-  }, [state.remaining, state.running, state.mode, state.justDone, mmss]);
+  }, [state.remaining, state.running, state.mode, state.justDone, mmss, clock]);
 
-  return { state, mood, statusLabel, palSprite, activeTask, actions, mmss };
+  return { state, mood, statusLabel, palSprite, activeTask, actions, mmss, clock };
 }

@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 
-export type ScreenName = 'focus' | 'tasks' | 'collection';
+export type ScreenName = 'focus' | 'tasks' | 'goals' | 'collection';
 
 /* Inline SVG icons so colors flow through CSS variables and render the same
    on every device. Outlines ride on `currentColor` (the nav button's color);
@@ -73,6 +73,23 @@ function HeartIcon() {
   );
 }
 
+/** Goals: a little pennant flag on a pole — deadlines to march toward. */
+function FlagIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        d="M7 3.5 L7 20.5"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+      />
+      <path d="M7 4.5 L17.5 7.5 L7 10.5 Z" fill="var(--nav-icon-b)" />
+      <circle cx="7" cy="3.5" r="1.6" fill="var(--nav-icon-a)" />
+    </svg>
+  );
+}
+
 const TABS: { name: ScreenName; icon: ReactNode; label: string }[] = [
   {
     name: 'focus',
@@ -85,19 +102,23 @@ const TABS: { name: ScreenName; icon: ReactNode; label: string }[] = [
     label: 'Focus',
   },
   { name: 'tasks', icon: <PencilIcon />, label: 'Tasks' },
+  { name: 'goals', icon: <FlagIcon />, label: 'Goals' },
   { name: 'collection', icon: <HeartIcon />, label: 'Friends' },
 ];
 
 export function TabBar({
   active,
   onChange,
+  showGoals,
 }: {
   active: ScreenName;
   onChange: (s: ScreenName) => void;
+  /** Goals is opt-in (Settings → Goals & deadlines). */
+  showGoals: boolean;
 }) {
   return (
     <nav className="navbar">
-      {TABS.map((tab) => (
+      {TABS.filter((t) => t.name !== 'goals' || showGoals).map((tab) => (
         <button
           key={tab.name}
           className={`nav-btn${active === tab.name ? ' active' : ''}`}

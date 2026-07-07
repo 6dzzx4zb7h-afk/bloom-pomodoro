@@ -1,7 +1,13 @@
 import { useMemo, useState } from 'react';
 import { PixelPal } from '../components/PixelPal';
 import type { useBloom } from '../store/useBloom';
-import { computeInsights, KIND_NAMES, loadEvents } from '../store/companion';
+import {
+  computeAttentionPlan,
+  computeInsights,
+  KIND_NAMES,
+  loadEvents,
+  RECIPE_MIN_SIGNALS,
+} from '../store/companion';
 
 const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
@@ -30,6 +36,14 @@ export function TasksScreen({ bloom }: { bloom: ReturnType<typeof useBloom> }) {
     [companionOn, patternsWindow],
   );
   const phaseWord = { early: 'early on', mid: 'mid-session', late: 'in the late stretch' } as const;
+
+  // Attention recipe: the personal what-to-try layer, built from a wider
+  // window (4 weeks) so it shifts slowly and never scolds about one rough day.
+  const focusLenMins = Math.max(1, Math.round(state.settings.durations.focus / 60));
+  const recipe = useMemo(
+    () => (companionOn ? computeAttentionPlan(loadEvents(), focusLenMins) : []),
+    [companionOn, focusLenMins],
+  );
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -102,62 +116,84 @@ export function TasksScreen({ bloom }: { bloom: ReturnType<typeof useBloom> }) {
           );
         })}
         {total === 0 && <div className="task-empty">nothing here yet — add something sweet below</div>}
-      </div>
 
-      {insights && (
-        <div className="patterns-card">
-          <div className="patterns-head">
-            <div>
-              <div className="patterns-title">focus patterns</div>
-              <div className="patterns-sub">
-                {patternsWindow === 'today' ? 'today' : 'last 7 days'} · lives only on this device
-              </div>
-            </div>
-            <div className="patterns-toggle">
-              {(['today', 'week'] as const).map((w) => (
-                <button
-                  key={w}
-                  className={`patterns-chip${patternsWindow === w ? ' on' : ''}`}
-                  onClick={() => setPatternsWindow(w)}
-                  aria-pressed={patternsWindow === w}
-                >
-                  {w}
-                </button>
-              ))}
-            </div>
-          </div>
-          {insights.answers + insights.aways < 3 ? (
-            <div className="patterns-line">
-              not much to see yet — patterns will bloom as you focus ♡
-            </div>
-          ) : (
-            <>
-              <div className="patterns-line">
-                {insights.drifts === 0
-                  ? `all ${insights.answers} check-ins focused — smooth sailing`
-                  : `${insights.drifts} drift${insights.drifts === 1 ? '' : 's'} across ${insights.answers} check-ins`}
-                {insights.aways > 0 && ` · ${insights.aways} quiet tab-away${insights.aways === 1 ? '' : 's'}`}
-              </div>
-              {insights.dominant && (
-                <div className="patterns-line">mostly {KIND_NAMES[insights.dominant]}</div>
-              )}
-              {insights.phase && (
-                <div className="patterns-line">drifting clusters {phaseWord[insights.phase]}</div>
-              )}
-              {insights.bestTime && (
-                <div className="patterns-line">you're sharpest in the {insights.bestTime}</div>
-              )}
-              {insights.tip && <div className="patterns-tip">{insights.tip}</div>}
-              {insights.gentleNote && patternsWindow === 'week' && (
-                <div className="patterns-note">
-                  everyone's attention works differently. if focus struggles weigh on your daily
-                  life, a professional can help you understand it better ♡
+        {insights && (
+          <div className="patterns-card">
+            <div className="patterns-head">
+              <div>
+                <div className="patterns-title">focus patterns</div>
+                <div className="patterns-sub">
+                  {patternsWindow === 'today' ? 'today' : 'last 7 days'} · lives only on this device
                 </div>
-              )}
-            </>
-          )}
-        </div>
-      )}
+              </div>
+              <div className="patterns-toggle">
+                {(['today', 'week'] as const).map((w) => (
+                  <button
+                    key={w}
+                    className={`patterns-chip${patternsWindow === w ? ' on' : ''}`}
+                    onClick={() => setPatternsWindow(w)}
+                    aria-pressed={patternsWindow === w}
+                  >
+                    {w}
+                  </button>
+                ))}
+              </div>
+            </div>
+            {insights.answers + insights.aways < 3 ? (
+              <div className="patterns-line">
+                not much to see yet — patterns will bloom as you focus ♡
+              </div>
+            ) : (
+              <>
+                <div className="patterns-line">
+                  {insights.drifts === 0
+                    ? `all ${insights.answers} check-ins focused — smooth sailing`
+                    : `${insights.drifts} drift${insights.drifts === 1 ? '' : 's'} across ${insights.answers} check-ins`}
+                  {insights.aways > 0 && ` · ${insights.aways} quiet tab-away${insights.aways === 1 ? '' : 's'}`}
+                </div>
+                {insights.dominant && (
+                  <div className="patterns-line">mostly {KIND_NAMES[insights.dominant]}</div>
+                )}
+                {insights.phase && (
+                  <div className="patterns-line">drifting clusters {phaseWord[insights.phase]}</div>
+                )}
+                {insights.bestTime && (
+                  <div className="patterns-line">you're sharpest in the {insights.bestTime}</div>
+                )}
+                {insights.tip && <div className="patterns-tip">{insights.tip}</div>}
+                {insights.gentleNote && patternsWindow === 'week' && (
+                  <div className="patterns-note">
+                    everyone's attention works differently. if focus struggles weigh on your daily
+                    life, a professional can help you understand it better ♡
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        )}
+  
+        {companionOn && (
+          <div className="patterns-card recipe-card">
+            <div className="patterns-title">{state.settings.name}'s attention recipe</div>
+            <div className="patterns-sub">made from your own last weeks — no two recipes alike</div>
+            {recipe.length === 0 ? (
+              <div className="patterns-line">
+                still learning how your attention works — answer a few check-ins ({RECIPE_MIN_SIGNALS}
+                + moments) and a recipe made just for you appears here ♡
+              </div>
+            ) : (
+              recipe.map((item, i) => (
+                <div className="recipe-item" key={i}>
+                  <span className="recipe-emoji" aria-hidden="true">
+                    {item.emoji}
+                  </span>
+                  <span className="recipe-text">{item.text}</span>
+                </div>
+              ))
+            )}
+          </div>
+        )}
+      </div>
 
       <div className="add-row">
         <form className="add-form" onSubmit={submit}>
