@@ -202,10 +202,12 @@ export function computeInsights(
     else b.d++;
     buckets.set(timeBucket(e.ts), b);
   }
-  let bestRatio = -1;
+  let bestRatio = 0;
   for (const [name, b] of buckets) {
     const total = b.f + b.d;
     if (total < 3) continue;
+    // "sharpest" needs at least one focused answer — a bucket that's all
+    // drifts shouldn't win by default.
     const ratio = b.f / total;
     if (ratio > bestRatio) {
       bestRatio = ratio;

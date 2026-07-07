@@ -263,10 +263,11 @@ export function makeAnimal(canvas: HTMLCanvasElement, opts: AnimalOptions = {}):
 
   function spawnBurst() {
     // Scale the burst to the canvas: tiny renders (speech bubbles, settings
-    // rows) get fewer, slower sparkles that stay near the pet instead of a
-    // confetti storm clipped by the square edges.
+    // rows) get a few slow sparkles that stay near the pet instead of a
+    // confetti storm clipped by the square edges. Quadratic falloff — a
+    // 64px canvas gets ~3 sparkles, the 130px+ ring keeps its full burst.
     const room = Math.min(1, Math.min(cssW, cssH) / 130);
-    const count = Math.max(6, Math.round(14 * room));
+    const count = Math.max(3, Math.round(14 * room * room));
     for (let i = 0; i < count; i++) {
       const a = Math.random() * Math.PI - Math.PI / 2 - Math.PI / 4;
       const sp = (30 + Math.random() * 55) * room;
@@ -340,7 +341,7 @@ export function makeAnimal(canvas: HTMLCanvasElement, opts: AnimalOptions = {}):
       // Small canvases also celebrate less often, so sparkles never crowd
       // the little square they live in.
       const room = Math.max(0.3, Math.min(1, Math.min(cssW, cssH) / 130));
-      if (now - lastSpawn > 360 / room) {
+      if (now - lastSpawn > 360 / (room * room)) {
         lastSpawn = now;
         spawnBurst();
       }
