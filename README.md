@@ -6,6 +6,8 @@ while the timer runs, **naps** on breaks, **bounces/blinks** when idle, and thro
 
 **Live:** https://bloom-pomodoro.pages.dev
 
+**Evidence base:** every feature decision traces back to [docs/science.md](docs/science.md), the corrected "Science of Focus for Bloom" report.
+
 Built with **Vite + React + TypeScript** — the pixel-pal engine is Canvas 2D, and every
 animal is procedurally drawn from sprite data (no runtime asset files).
 
