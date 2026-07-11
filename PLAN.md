@@ -57,7 +57,7 @@ Rules of thumb:
 - **Done when:** File exists, renders cleanly in a markdown preview, every anchor listed above resolves, and the "Do NOT build" table is present verbatim.
 - **Depends on:** nothing.
 
-### - [ ] 0.2 Distill a voice + guardrails guide as `docs/voice.md`
+### - [x] 0.2 Distill a voice + guardrails guide as `docs/voice.md`
 
 - **Goal:** A one-page writing guide every later copy step must follow: warm kawaii pet voice; suggests, never guilts; concrete examples of allowed vs. banned phrasings (banned: "you broke your streak", "science proves 25/5 is optimal", "your pet is sad because you failed"; allowed: "That happened. Smallest next step?"). Include the Do-NOT-build list as copy rules.
 - **Science:** §Do not build (punitive streaks, extrinsic-control undermining intrinsic motivation — Deci et al. 1999, d ≈ −0.28 to −0.40); §Recovering — self-forgiveness row (Wohl 2010); §Measurement — supportive accountability row (Mohr 2011: benevolent, process-oriented, not controlling).
