@@ -5,6 +5,7 @@ import {
   loadEvents,
   phaseOf,
   tipFor,
+  updateEvent,
   type DriftKind,
   type Phase,
 } from './companion';
@@ -13,13 +14,13 @@ import type { useBloom } from './useBloom';
 type Bloom = ReturnType<typeof useBloom>;
 
 export type CompanionPromptState =
-  | { type: 'checkin'; min: number }
-  | { type: 'away'; min: number }
-  | { type: 'triage'; min: number; src: 'checkin' | 'return' }
+  | { type: 'checkin'; min: number; shownAt: number; sessionId?: string }
+  | { type: 'away'; min: number; shownAt: number }
+  | { type: 'triage'; min: number; shownAt: number; src: 'checkin' | 'return' }
+  | { type: 'onset'; min: number; shownAt: number; kind: DriftKind; eventId?: string }
   | { type: 'tip'; kind: DriftKind; phase: Phase; text: string }
   | null;
 
-const CHECKIN_AUTODISMISS_MS = 5000;
 const TIP_AUTODISMISS_MS = 12000;
 
 /**
@@ -28,8 +29,10 @@ const TIP_AUTODISMISS_MS = 12000;
  * CompanionPrompt draws whatever `prompt` says.
  *
  * Tone contract: prompts only ever appear while the user is present and a
- * focus session is running; nothing interrupts them while away; an ignored
- * check-in is an answer ("not now") and suppresses the next one.
+ * focus session is running; nothing interrupts them while away. The check-in
+ * waits patiently (small, non-blocking) until answered while the user is
+ * present (PLAN 1.5a); pause, session end, or going away withdraws it as an
+ * unanswered 'skip', which still suppresses the next one.
  */
 export function useCompanion(bloom: Bloom) {
   const { state } = bloom;
@@ -72,11 +75,35 @@ export function useCompanion(bloom: Bloom) {
     setPrompt(null);
   }, []);
 
+  /** Id of the focus session currently underway, if any (PLAN 1.3). */
+  const activeSessionId = useCallback(() => ref.current.state.openFocus?.id, []);
+
   /* ---------------- check-in schedule ---------------- */
 
   const nextAtRef = useRef(Infinity); // elapsed-seconds mark of the next check-in
   const skipNextRef = useRef(false); // set when a check-in was ignored
   const awayStartRef = useRef<number | null>(null); // set while tab/window is away
+
+  /**
+   * A withdrawn-unanswered check-in is an answer ("not now"): log it as
+   * 'skip' and keep the never-two-in-a-row rule (PLAN 1.5a). The sessionId
+   * captured at show time keeps the link even when the session just ended.
+   */
+  const logSkip = useCallback(
+    (p: { min: number; shownAt: number; sessionId?: string }) => {
+      appendEvent({
+        ts: Date.now(),
+        shownAt: p.shownAt,
+        min: p.min,
+        len: sessionLenMins(),
+        kind: 'skip',
+        src: 'checkin',
+        sessionId: p.sessionId,
+      });
+      skipNextRef.current = true;
+    },
+    [sessionLenMins],
+  );
 
   useEffect(() => {
     if (!active || conf.quiet) {
@@ -106,23 +133,34 @@ export function useCompanion(bloom: Bloom) {
         return;
       }
       const min = Math.floor(elapsed() / 60);
-      setPrompt({ type: 'checkin', min });
+      // No auto-dismiss (PLAN 1.5a): the prompt stays, small and
+      // non-blocking, until answered — or is withdrawn as 'skip' by
+      // pause/end/tab-away below.
       clearDismiss();
-      dismissTimer.current = setTimeout(() => {
-        // Ignored: counts as "not now", never nag twice in a row.
-        appendEvent({
-          ts: Date.now(),
-          min,
-          len: sessionLenMins(),
-          kind: 'skip',
-          src: 'checkin',
-        });
-        skipNextRef.current = true;
-        setPrompt(null);
-      }, CHECKIN_AUTODISMISS_MS);
+      setPrompt({ type: 'checkin', min, shownAt: Date.now(), sessionId: activeSessionId() });
     }, 1000);
     return () => clearInterval(iv);
-  }, [active, conf.quiet, conf.checkinMins, elapsed, sessionLenMins]);
+  }, [active, conf.quiet, conf.checkinMins, elapsed, sessionLenMins, activeSessionId]);
+
+  // Going away (hidden tab or blurred window) withdraws an unanswered
+  // check-in as a skip — independent of the tabDetect toggle (PLAN 1.5a).
+  useEffect(() => {
+    const withdraw = () => {
+      const p = ref.current.prompt;
+      if (p?.type !== 'checkin') return;
+      logSkip(p);
+      setPrompt(null);
+    };
+    const onVis = () => {
+      if (document.hidden) withdraw();
+    };
+    document.addEventListener('visibilitychange', onVis);
+    window.addEventListener('blur', withdraw);
+    return () => {
+      document.removeEventListener('visibilitychange', onVis);
+      window.removeEventListener('blur', withdraw);
+    };
+  }, [logSkip]);
 
   /* ---------------- tab-away detection ---------------- */
 
@@ -141,9 +179,19 @@ export function useCompanion(bloom: Bloom) {
       if (awaySecs < ref.current.conf.awaySecs) return;
       const min = Math.floor(elapsed() / 60);
       if (ref.current.conf.quiet) {
-        appendEvent({ ts: Date.now(), min, len: sessionLenMins(), kind: 'away', src: 'return' });
+        // A silent tab-away is a drift too: stamp and link it (PLAN 1.3).
+        const sessionId = activeSessionId();
+        const ev = appendEvent({
+          ts: Date.now(),
+          min,
+          len: sessionLenMins(),
+          kind: 'away',
+          src: 'return',
+          sessionId,
+        });
+        if (sessionId && ev.id) bloom.actions.linkDriftEvent(ev.id, sessionId);
       } else if (!ref.current.prompt) {
-        setPrompt({ type: 'away', min });
+        setPrompt({ type: 'away', min, shownAt: Date.now() });
       }
     };
     const onVis = () => (document.hidden ? goneAway() : cameBack());
@@ -155,7 +203,7 @@ export function useCompanion(bloom: Bloom) {
       window.removeEventListener('blur', goneAway);
       window.removeEventListener('focus', cameBack);
     };
-  }, [conf.on, conf.tabDetect, elapsed, sessionLenMins]);
+  }, [conf.on, conf.tabDetect, elapsed, sessionLenMins, activeSessionId, bloom.actions]);
 
   /* ---------------- end-of-session summary ---------------- */
 
@@ -187,13 +235,17 @@ export function useCompanion(bloom: Bloom) {
   /* ---------------- lifecycle tidying ---------------- */
 
   // Pausing or ending a session withdraws time-sensitive prompts (a tip may
-  // stay — it's a keepsake, not a question). Session end clears the intention.
+  // stay — it's a keepsake, not a question). A check-in that was still
+  // waiting logs as an unanswered 'skip' (PLAN 1.5a). Session end clears the
+  // intention.
   useEffect(() => {
     if (!focusRunning) {
-      setPrompt((p) => (p && p.type !== 'tip' ? null : p));
+      const p = ref.current.prompt;
+      if (p?.type === 'checkin') logSkip(p);
+      setPrompt((q) => (q && q.type !== 'tip' ? null : q));
       clearDismiss();
     }
-  }, [focusRunning]);
+  }, [focusRunning, logSkip]);
 
   useEffect(() => {
     if (state.justDone || state.mode !== 'focus') setIntention('');
@@ -211,10 +263,12 @@ export function useCompanion(bloom: Bloom) {
         if (p?.type === 'checkin') {
           appendEvent({
             ts: Date.now(),
+            shownAt: p.shownAt,
             min: p.min,
             len: sessionLenMins(),
             kind: 'focused',
             src: 'checkin',
+            sessionId: activeSessionId(),
           });
         }
         skipNextRef.current = false;
@@ -225,19 +279,64 @@ export function useCompanion(bloom: Bloom) {
       /** "i drifted" — open the two-tap triage. */
       drifted: () => {
         const p = ref.current.prompt;
-        if (!p || p.type === 'triage' || p.type === 'tip') return;
+        if (p?.type !== 'checkin' && p?.type !== 'away') return;
         clearDismiss();
         skipNextRef.current = false;
-        setPrompt({ type: 'triage', min: p.min, src: p.type === 'away' ? 'return' : 'checkin' });
+        setPrompt({
+          type: 'triage',
+          min: p.min,
+          shownAt: p.shownAt,
+          src: p.type === 'away' ? 'return' : 'checkin',
+        });
       },
       /** Second tap: what kind of drift it was. */
       pick: (kind: DriftKind) => {
         const p = ref.current.prompt;
         if (p?.type !== 'triage') return;
         const len = sessionLenMins();
-        appendEvent({ ts: Date.now(), min: p.min, len, kind, src: p.src });
-        const phase = phaseOf(p.min, len);
-        setPrompt({ type: 'tip', kind, phase, text: tipFor(kind, phase) });
+        // Stamp the drift with the running session and link it back onto the
+        // session's driftEventIds (PLAN 1.3). Out-of-session drifts (none
+        // today — triage only opens while a focus session runs) would simply
+        // carry no sessionId and stay unlinked.
+        const sessionId = activeSessionId();
+        const ev = appendEvent({
+          ts: Date.now(),
+          shownAt: p.shownAt,
+          min: p.min,
+          len,
+          kind,
+          src: p.src,
+          sessionId,
+        });
+        if (sessionId && ev.id) bloom.actions.linkDriftEvent(ev.id, sessionId);
+        // The drift is safely logged; the optional "since when?" step (PLAN
+        // 1.5c) only patches an estimate onto it, so skipping loses nothing.
+        clearDismiss();
+        setPrompt({ type: 'onset', min: p.min, shownAt: p.shownAt, kind, eventId: ev.id });
+      },
+      /**
+       * Optional third tap: the user's own guess of when the drift began,
+       * given as "minutes ago" (null = no guess). Clamped so the estimate
+       * never lands before the last focused answer in this session — or
+       * before minute 0 — and never after the check-in itself (PLAN 1.5c).
+       */
+      estOnset: (minsAgo: number | null) => {
+        const p = ref.current.prompt;
+        if (p?.type !== 'onset') return;
+        const len = sessionLenMins();
+        let onset: number | null = null;
+        if (minsAgo != null) {
+          const sid = activeSessionId();
+          const floor = sid
+            ? loadEvents()
+                .filter((e) => e.sessionId === sid && e.kind === 'focused')
+                .reduce((m, e) => Math.max(m, e.min), 0)
+            : 0;
+          onset = Math.min(p.min, Math.max(floor, p.min - Math.max(0, Math.round(minsAgo))));
+          if (p.eventId) updateEvent(p.eventId, { estOnsetMin: onset });
+        }
+        const phase = phaseOf(onset ?? p.min, len);
+        setPrompt({ type: 'tip', kind: p.kind, phase, text: tipFor(p.kind, phase) });
         clearDismiss();
         dismissTimer.current = setTimeout(() => setPrompt(null), TIP_AUTODISMISS_MS);
       },
@@ -247,7 +346,7 @@ export function useCompanion(bloom: Bloom) {
       },
       close,
     }),
-    [bloom.actions, close, sessionLenMins],
+    [bloom.actions, close, sessionLenMins, activeSessionId],
   );
 
   return {

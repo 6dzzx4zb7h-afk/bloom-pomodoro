@@ -46,10 +46,33 @@ export type DriftKind = 'rabbit' | 'external' | 'urge' | 'wander' | 'restless';
 export const DRIFT_KINDS: DriftKind[] = ['rabbit', 'external', 'urge', 'wander', 'restless'];
 
 export interface CompanionEvent {
-  /** Epoch ms. */
+  /**
+   * Unique id, stamped on append (PLAN 1.3). Optional because events logged
+   * before linking existed have none — they stay valid, just unlinkable.
+   */
+  id?: string;
+  /**
+   * The session (SessionRecord/OpenSession id) this event happened inside,
+   * if one was running. Old events and out-of-session events have none.
+   */
+  sessionId?: string;
+  /** Epoch ms of the *answer* (or of logging, for silent/skip events). */
   ts: number;
-  /** Minute into the focus session when it happened. */
+  /**
+   * Epoch ms the prompt appeared (PLAN 1.5). Together with `ts` this makes
+   * time-to-answer analyzable. Optional: events logged before 1.5 (and silent
+   * events with no prompt) have none.
+   */
+  shownAt?: number;
+  /** Minute into the focus session when it happened (anchored to shownAt). */
   min: number;
+  /**
+   * User-estimated minute-into-session the drift *began* (PLAN 1.5) — a
+   * self-reported guess, clamped to [last focused answer, min]. Drift onset,
+   * not detection time, is the meaningful signal; stats prefer this over
+   * `min` when present. Optional: only answered "since when?" steps have it.
+   */
+  estOnsetMin?: number;
   /** Session length in minutes (so phases stay meaningful across lengths). */
   len: number;
   /** Drift kind, or: focused answer / silent tab-away / ignored check-in. */
@@ -88,15 +111,49 @@ export function loadEvents(): CompanionEvent[] {
   }
 }
 
-export function appendEvent(e: CompanionEvent) {
-  const cutoff = e.ts - MAX_AGE_DAYS * 86400000;
-  const events = [...loadEvents().filter((x) => x.ts >= cutoff), e].slice(-MAX_EVENTS);
+let eventCounter = 0;
+
+/** Unique-enough id for a local, single-user log (same style as session ids). */
+export function newEventId(now = Date.now()): string {
+  eventCounter = (eventCounter + 1) % 1000;
+  return `e-${now.toString(36)}-${eventCounter.toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+}
+
+/** Append one event, stamping an id if it has none. Returns the stored event. */
+export function appendEvent(e: CompanionEvent): CompanionEvent {
+  const ev: CompanionEvent = { ...e, id: e.id ?? newEventId(e.ts) };
+  const cutoff = ev.ts - MAX_AGE_DAYS * 86400000;
+  const events = [...loadEvents().filter((x) => x.ts >= cutoff), ev].slice(-MAX_EVENTS);
+  try {
+    localStorage.setItem(LOG_KEY, JSON.stringify({ version: 1, events }));
+  } catch {
+    /* storage unavailable — companion runs without memory */
+  }
+  return ev;
+}
+
+/**
+ * Patch an already-stored event by id (PLAN 1.5) — used by the optional
+ * "since when?" step, which lands after the drift itself was appended so an
+ * unanswered step never loses the drift. No-op if the id isn't in the log.
+ */
+export function updateEvent(id: string, patch: Partial<CompanionEvent>): void {
+  const events = loadEvents();
+  const i = events.findIndex((e) => e.id === id);
+  if (i === -1) return;
+  events[i] = { ...events[i], ...patch };
   try {
     localStorage.setItem(LOG_KEY, JSON.stringify({ version: 1, events }));
   } catch {
     /* storage unavailable — companion runs without memory */
   }
 }
+
+/**
+ * The best available minute-into-session for when a drift *began*: the user's
+ * own estimate when they gave one, else the detection minute (PLAN 1.5).
+ */
+export const driftOnsetMin = (e: CompanionEvent): number => e.estOnsetMin ?? e.min;
 
 export function clearEvents() {
   try {
@@ -201,7 +258,7 @@ export function computeInsights(
   let phase: Phase | null = null;
   if (drifts.length >= 3) {
     const byPhase = { early: 0, mid: 0, late: 0 };
-    for (const d of drifts) byPhase[phaseOf(d.min, d.len)]++;
+    for (const d of drifts) byPhase[phaseOf(driftOnsetMin(d), d.len)]++;
     const top = (Object.entries(byPhase) as [Phase, number][]).sort((a, b) => b[1] - a[1])[0];
     if (top[1] > drifts.length / 2) phase = top[0];
   }
@@ -311,14 +368,17 @@ export function computeAttentionPlan(
 
   // 1) Session length, fit to where attention actually bends.
   if (drifts.length >= 3) {
-    const late = drifts.filter((d) => phaseOf(d.min, d.len) === 'late');
+    const late = drifts.filter((d) => phaseOf(driftOnsetMin(d), d.len) === 'late');
     if (late.length > drifts.length / 2 && focusLenMins >= 20) {
       const shorter = Math.max(15, focusLenMins - 5);
       items.push({
         emoji: '⏱️',
         text: `your focus tends to fade near the end — try ${shorter}-minute sessions for a week; ending strong beats lasting long.`,
       });
-    } else if (drifts.filter((d) => phaseOf(d.min, d.len) === 'early').length > drifts.length / 2) {
+    } else if (
+      drifts.filter((d) => phaseOf(driftOnsetMin(d), d.len) === 'early').length >
+      drifts.length / 2
+    ) {
       items.push({
         emoji: '🚀',
         text: 'drifts cluster right after you start — a 30-second warm-up (clear desk, one intention, water) helps you land in the session.',

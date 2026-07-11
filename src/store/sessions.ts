@@ -9,9 +9,10 @@
  * self-report (docs/science.md#measurement: monitoring works best when the
  * behavior is actually recorded — Harkin et al. 2016).
  *
- * Nothing writes records yet; the timer lifecycle starts logging in a later
- * step. This module only defines the shape, the cap, and the load-time
- * sanitizer so existing users migrate onto an empty log safely.
+ * Records are written by the timer lifecycle in useBloom.ts: an `OpenSession`
+ * is created when a session starts running and finalized into a
+ * `SessionRecord` when it completes or is abandoned. A session that was live
+ * when the app closed is finalized as 'interrupted' by the boot-time sweep.
  */
 
 /** 'tiny' is the future 2–5 minute starter; breaks are never recorded. */
@@ -98,4 +99,120 @@ function isValidRecord(r: unknown): r is SessionRecord {
 export function sanitizeSessionRecords(raw: unknown): SessionRecord[] {
   if (!Array.isArray(raw)) return [];
   return raw.filter(isValidRecord).slice(-SESSION_LOG_CAP);
+}
+
+/**
+ * A session that has started but not yet ended. Persisted so a force-closed
+ * session can be finalized as 'interrupted' on next boot.
+ */
+export interface OpenSession {
+  id: string;
+  /** Epoch ms. */
+  startedAt: number;
+  mode: SessionMode;
+  /** Configured length in minutes; null for flow. */
+  plannedMin: number | null;
+  /** Local hour (0–23) the session started. */
+  startHour: number;
+  /** Task the session will be credited to, if any. */
+  taskId?: number;
+  /**
+   * Countdown bookkeeping for the boot-time sweep — meaningful for focus
+   * sessions only (flow keeps its own clock in the persisted flow state).
+   */
+  endsAt: number | null;
+  /** Remaining seconds at the last pause (focus only). */
+  remainingSec: number;
+  running: boolean;
+  /** Companion drift events triaged while this session runs (PLAN 1.3). */
+  driftEventIds: string[];
+}
+
+/** Start bookkeeping for a session that just began running. */
+export function newOpenSession(
+  mode: SessionMode,
+  plannedMin: number | null,
+  taskId: number | undefined,
+  now = Date.now(),
+): OpenSession {
+  return {
+    id: newSessionId(now),
+    startedAt: now,
+    mode,
+    plannedMin,
+    startHour: new Date(now).getHours(),
+    taskId,
+    endsAt: null,
+    remainingSec: plannedMin != null ? plannedMin * 60 : 0,
+    running: true,
+    driftEventIds: [],
+  };
+}
+
+/** Close an open session into a permanent record. Pure. */
+export function finalizeSession(
+  open: OpenSession,
+  outcome: SessionOutcome,
+  actualMin: number,
+  endedAt = Date.now(),
+): SessionRecord {
+  return {
+    id: open.id,
+    startedAt: open.startedAt,
+    endedAt,
+    mode: open.mode,
+    plannedMin: open.plannedMin,
+    actualMin: Math.max(0, Math.round(actualMin * 10) / 10),
+    outcome,
+    startHour: open.startHour,
+    taskId: open.taskId,
+    driftEventIds: [...(open.driftEventIds ?? [])],
+  };
+}
+
+/**
+ * Boot-time sweep for a session that was live when the app closed. A focus
+ * countdown doesn't survive a reload, so its open record is finalized as
+ * 'interrupted'. Flow is exempt: the stopwatch deliberately keeps counting
+ * across reloads, so its record stays open until finish/reset. Returns the
+ * finalized record, or null when the open session should stay open.
+ */
+export function sweepStaleOpenSession(open: OpenSession, now = Date.now()): SessionRecord | null {
+  if (open.mode === 'flow') return null;
+  const plannedSec = (open.plannedMin ?? 0) * 60;
+  // Best estimate of the time actually focused: we can't know exactly when
+  // the app closed, so a run whose end time already passed counts as its
+  // full length, and one caught mid-countdown counts wall-clock time so far.
+  const remainingSec =
+    open.running && open.endsAt != null ? Math.max(0, (open.endsAt - now) / 1000) : open.remainingSec;
+  const actualMin = Math.max(0, Math.min(plannedSec, plannedSec - remainingSec)) / 60;
+  const endedAt = open.running && open.endsAt != null ? Math.min(now, open.endsAt) : now;
+  return finalizeSession(open, 'interrupted', actualMin, endedAt);
+}
+
+/** Load-time guard for the persisted open-session slots. */
+export function sanitizeOpenSession(raw: unknown): OpenSession | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const x = raw as Record<string, unknown>;
+  const ok =
+    typeof x.id === 'string' &&
+    typeof x.startedAt === 'number' &&
+    Number.isFinite(x.startedAt) &&
+    MODES.includes(x.mode as SessionMode) &&
+    (x.plannedMin === null || (typeof x.plannedMin === 'number' && Number.isFinite(x.plannedMin))) &&
+    typeof x.startHour === 'number' &&
+    x.startHour >= 0 &&
+    x.startHour <= 23 &&
+    (x.taskId === undefined || typeof x.taskId === 'number') &&
+    (x.endsAt === null || (typeof x.endsAt === 'number' && Number.isFinite(x.endsAt))) &&
+    typeof x.remainingSec === 'number' &&
+    Number.isFinite(x.remainingSec) &&
+    typeof x.running === 'boolean';
+  if (!ok) return null;
+  // Normalize the drift-id list rather than reject: a missing or malformed
+  // list (pre-1.3 blob) just means no linked drifts.
+  const driftEventIds = Array.isArray(x.driftEventIds)
+    ? (x.driftEventIds as unknown[]).filter((d): d is string => typeof d === 'string')
+    : [];
+  return { ...(raw as OpenSession), driftEventIds };
 }

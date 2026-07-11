@@ -21,6 +21,7 @@ export function CompanionPrompt({ companion, palSprite, focusLabel }: CompanionP
   const { prompt, actions } = companion;
   const [jotText, setJotText] = useState('');
   const [jotted, setJotted] = useState(false);
+  const [customOnset, setCustomOnset] = useState<string | null>(null); // null = chips shown
 
   if (!prompt) return null;
 
@@ -38,6 +39,11 @@ export function CompanionPrompt({ companion, palSprite, focusLabel }: CompanionP
     setJotText('');
     setJotted(false);
     actions.close();
+  }
+
+  function answerOnset(minsAgo: number | null) {
+    setCustomOnset(null);
+    actions.estOnset(minsAgo);
   }
 
   return (
@@ -91,6 +97,64 @@ export function CompanionPrompt({ companion, palSprite, focusLabel }: CompanionP
               ))}
             </div>
             <button className="pop-dismiss" onClick={actions.close}>
+              skip
+            </button>
+          </>
+        )}
+
+        {prompt.type === 'onset' && (
+          <>
+            {/* PLACEHOLDER_COPY — final wording lands in the copy pass.
+                Onset is self-reported: keep it framed as a guess, never
+                fake precision (PLAN 1.5c). */}
+            <div className="pop-text">
+              since when, roughly? <span className="pop-soft">a guess is fine</span>
+            </div>
+            {customOnset === null ? (
+              <div className="pop-actions">
+                <button className="pop-btn" onClick={() => answerOnset(0)}>
+                  just now
+                </button>
+                <button className="pop-btn" onClick={() => answerOnset(5)}>
+                  ~5 min
+                </button>
+                <button className="pop-btn" onClick={() => answerOnset(10)}>
+                  ~10 min
+                </button>
+                <button className="pop-btn" onClick={() => setCustomOnset('')}>
+                  custom
+                </button>
+              </div>
+            ) : (
+              <form
+                className="pop-jot"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  const n = Number(customOnset);
+                  if (Number.isFinite(n) && customOnset !== '') answerOnset(n);
+                }}
+              >
+                <input
+                  className="pop-jot-input"
+                  type="number"
+                  min={0}
+                  max={999}
+                  inputMode="numeric"
+                  value={customOnset}
+                  onChange={(e) => setCustomOnset(e.target.value)}
+                  placeholder="minutes ago…"
+                  aria-label="About how many minutes ago the drift started"
+                />
+                <button
+                  type="submit"
+                  className="pop-btn"
+                  disabled={customOnset === '' || !Number.isFinite(Number(customOnset))}
+                >
+                  ok
+                </button>
+              </form>
+            )}
+            <button className="pop-dismiss" onClick={() => answerOnset(null)}>
               skip
             </button>
           </>

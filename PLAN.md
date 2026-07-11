@@ -79,7 +79,7 @@ Rules of thumb:
 - **Done when:** Fresh app and migrated app both boot with the slice present; a manual localStorage inspection shows the new version; no existing keys lost.
 - **Depends on:** nothing (can run parallel to Phase 0).
 
-### - [ ] 1.2 Write records from the timer lifecycle
+### - [x] 1.2 Write records from the timer lifecycle
 
 - **Goal:** FocusScreen/timer store creates a record at session start and finalizes it on complete/abandon (app close mid-session finalizes as `interrupted` on next boot via a stale-open-record sweep). Flow timer records `mode:'flow'` with `plannedMin` null-equivalent.
 - **Science:** Same as 1.1 — recording must be automatic, not self-report, to be reliable.
@@ -87,7 +87,7 @@ Rules of thumb:
 - **Done when:** Completing, abandoning, and force-closing mid-session each produce exactly one correctly-shaped record (verify via devtools).
 - **Depends on:** 1.1.
 
-### - [ ] 1.3 Link Companion drift events to the active session
+### - [x] 1.3 Link Companion drift events to the active session
 
 - **Goal:** When Companion Mode logs a drift/tab-away, stamp it with the active `sessionId`; append the event id to the session's `driftEventIds`. Backfill is impossible — migration just leaves old events unlinked and code treats `sessionId` as optional.
 - **Science:** §Staying — mind-wandering row (Zanesco et al. 2024: wandering increases over time-on-task; the report says track *when in the session* drifts occur — early/mid/late — which you already tag; this step ties that tag to session outcomes).
@@ -95,12 +95,20 @@ Rules of thumb:
 - **Done when:** A drift triaged during a session appears in that session's `driftEventIds`; drifts outside sessions remain valid with no sessionId.
 - **Depends on:** 1.2.
 
-### - [ ] 1.4 Pure stats selectors + unit tests
+### - [x] 1.4 Pure stats selectors + unit tests
 
 - **Goal:** `src/store/sessionStats.ts` with pure functions over records: `completionRateByPlannedLength()`, `completionRateByStartHour()`, `driftPhaseDistribution()`, `medianMinutesToFirstDrift()`, `abandonStreakInfo()` (recent consecutive abandons — feeds 3.5), plus a `hasEnoughSignal(n)` guard mirroring the one in `computeAttentionPlan()`. Vitest coverage with synthetic fixtures.
 - **Science:** §Measurement — feedback row (Krukowski 2024: keep feedback simple and low-frequency → a small set of well-tested stats, not a metrics zoo).
 - **Files:** `src/store/sessionStats.ts` (new), `src/store/sessionStats.test.ts` (new).
 - **Done when:** All selectors covered by tests including empty/low-data cases; `npm test` green.
+- **Depends on:** 1.3.
+
+### - [x] 1.5 Patient check-ins + user-estimated drift onset
+
+- **Goal:** Three changes to Companion check-ins (`useCompanion.ts`). **(a)** Stop auto-dismissing the check-in after 5 s (`CHECKIN_AUTODISMISS_MS`): while the session is running and the user is present, the prompt stays visible (small, non-blocking) until answered. It still withdraws on pause/end/tab-away; a session that ends with it unanswered logs `kind:'skip'` as today, and the "never show two in a row after a skip" rule is kept. **(b)** Record both timestamps on events: `shownAt` (popup time) and `ts` (answer time — answered events already stamp this; keep it) so time-to-answer is analyzable. Keep `min` anchored to shownAt for phase analysis. **(c)** When the user answers "I drifted", after the kind-triage add one optional "since when?" step (chips: *just now · ~5 min · ~10 min · custom*), stored as `estOnsetMin`. Clamp: the estimated onset can never be earlier than the most recent event answered `focused` in this session (or session start if none) — the user's judgment decides *within* that window. Stats selectors (1.4) and insights (2.x) prefer `estOnsetMin` when present, falling back to `min`.
+- **Science:** §Measurement — progress monitoring row (recording must be trustworthy: an unanswered 5-second flash under-records real drifts as `skip`); §Staying — mind-wandering row (drift *onset*, not detection time, is the meaningful signal). Onset is inherently self-report — label it an estimate in copy, never fake precision.
+- **Files:** `src/store/useCompanion.ts`, `src/store/companion.ts` (event shape; old events without the new fields must still parse), `src/components/CompanionPrompt.tsx`, `src/store/sessionStats.ts`.
+- **Done when:** Check-in persists until answered while user is present; pause/end/away still withdraws it; drift-onset estimate is clamped to [last focused answer, now]; time-to-answer is derivable from stored events; legacy events load unchanged.
 - **Depends on:** 1.3.
 
 ---
@@ -349,11 +357,98 @@ Rules of thumb:
 
 ---
 
+## Phase 8 — Remediation from the external delivery review (July 2026)
+
+> An external review audited the shipped app. The findings below were verified against this codebase and are real. Steps are independent of Phases 1–7 unless noted; each is one session.
+
+### - [ ] 8.1 Real submit button on the task add row
+
+- **Goal:** The `+` in the add form is a decorative `<span>` (`TasksScreen.tsx` ~line 200); adding relies on implicit keyboard submit, so touch/mouse users have no visible way to add. Make it a labelled `<button type="submit">`, disabled when the input is blank, with a brief added acknowledgement.
+- **Files:** `src/screens/TasksScreen.tsx`, `src/styles.css`.
+- **Done when:** Tapping + adds the task; blank input disables it; keyboard submit still works.
+
+### - [ ] 8.2 Safe deletes + goal editing
+
+- **Goal:** Task and goal deletion is instant with no confirmation, undo, or recovery, and goals can't be edited after creation (fixing a typo requires deletion). Add an undo toast for deletes; require confirmation only when a goal carries meaningful progress; add an edit action for goal title/date/parts.
+- **Files:** `src/screens/TasksScreen.tsx`, `src/screens/GoalsScreen.tsx`, store actions.
+- **Done when:** Delete → undo restores intact (id, progress); goal with progress asks first; goals editable in place.
+
+### - [ ] 8.3 Deadline labels roll over correctly
+
+- **Goal:** "due today/tomorrow/overdue" is computed only at render, so an app left open across midnight shows stale status. Recompute at the next local midnight and on `visibilitychange`/foreground.
+- **Files:** `src/screens/GoalsScreen.tsx`, `src/store/goals.ts` (goalPace).
+- **Done when:** Faking a date rollover (or a timer test) updates labels without remount.
+
+### - [ ] 8.4 Accessible dialog primitive + Settings restructure
+
+- **Goal:** Settings/Companion overlays use `role="dialog"` without `aria-modal`, focus trap, Escape handling, or focus restoration, and the only close control is at the bottom of a long sheet (offscreen at mobile heights). Build one reusable sheet/dialog primitive (aria-modal, initial focus, trap, Escape, restore focus, persistent top close). Group the Settings sheet into collapsible sections (identity · timer · sound · theme · planner · companion · data).
+- **Files:** new `src/components/Sheet.tsx`, `src/components/SettingsSheet.tsx`, `CompanionPrompt` overlays.
+- **Done when:** Escape closes; focus is trapped and restored; a close control is always visible; keyboard-only pass succeeds.
+
+### - [ ] 8.5 Semantic structure and named controls
+
+- **Goal:** Screens are generic divs — no `main`, no headings; custom task checkboxes expose `role="checkbox"` with no accessible name; the task-select title area is a clickable div with no role/keyboard support; inputs rely on placeholders. Add landmarks and h1/h2 per screen, give checkboxes names containing the task title, make task-select a real button with selected state, add visible labels + inline validation to task/goal forms.
+- **Files:** all screens, `TasksScreen.tsx`, `GoalsScreen.tsx`, `TabBar.tsx`.
+- **Done when:** Screen-reader pass announces screen titles, task names on checkboxes, and selection state; no unlabeled form fields.
+
+### - [ ] 8.6 Focus-visible system
+
+- **Goal:** styles.css removes outlines in six places and most controls define only hover/active states, so keyboard focus is invisible. Add a high-contrast `:focus-visible` token applied to every interactive element; remove all `outline: none` without a replacement.
+- **Files:** `src/styles.css`.
+- **Done when:** Tabbing through every screen shows a visible focus ring everywhere; grep for `outline: none` returns only lines paired with a focus-visible style.
+
+### - [ ] 8.7 Reduced motion + animation scheduler
+
+- **Goal:** Sky canvases redraw every frame, each PixelPal runs its own 50 ms interval (six at once on Friends), and nothing honors `prefers-reduced-motion`. Share one scheduler, pause when hidden/obscured, drop decorative frame rates, and freeze decorative animation under reduced motion.
+- **Files:** `DaySky.tsx`, `NightSky.tsx`, `PixelPal.tsx`, new shared scheduler module.
+- **Done when:** With reduced motion on, skies/pals are static; hidden tab → zero animation work; Friends screen CPU visibly drops.
+
+### - [ ] 8.8 Touch targets and small-screen layouts
+
+- **Goal:** Settings (34 px), steppers (28 px), switches, and delete controls fall below 44×44 px guidance; the goal add form crams name + date + parts + button into one row at 390 px; the Focus screen has no height-based variant and the shell hides overflow (short phones/landscape clip content). Enlarge hit areas (padding, not icon size), make the goal form two rows on mobile, add compact-height breakpoints that shrink the timer ring before hiding anything.
+- **Files:** `src/styles.css`, `GoalsScreen.tsx`, `FocusScreen.tsx`.
+- **Done when:** All targets ≥44 px effective; goal form usable at 390 px; Focus fits a 568 px-tall viewport without clipping controls.
+
+### - [ ] 8.9 Readability over the animated sky
+
+- **Goal:** Low-contrast lavender text sits directly on the moving sky and becomes illegible as clouds pass; several essential labels are 10.5–12.5 px. Put instructional text on stable translucent surfaces or darken it to verified contrast; raise supporting text to a practical minimum (~13 px), reserving smaller type for nonessential metadata.
+- **Files:** `src/styles.css`, affected screens.
+- **Done when:** Contrast spot-checks pass at the lightest sky moment in both themes; no essential text below the minimum.
+
+### - [ ] 8.10 Self-host the fonts (offline constraint violation — fix now, don't wait for 7.2)
+
+- **Goal:** `index.html` loads Fredoka and Nunito from Google Fonts, violating hard constraint #1 (offline-first, no remote fonts) today. Bundle the woff2 files in the repo, `@font-face` them locally, remove the preconnect/link tags.
+- **Files:** `index.html`, `src/styles.css` or a fonts CSS module, `public/fonts/`.
+- **Done when:** Production build renders correct typography with DevTools network fully blocked; no `fonts.googleapis` anywhere (grep).
+- **Depends on:** nothing; makes 7.2 pass on this point.
+
+### - [ ] 8.11 Persisted-data validation + storage-error surfacing
+
+- **Goal:** Tasks are cast straight from storage, goals only partially validated (ranges/createdAt unchecked), and storage read/write failures are silently swallowed. Validate and normalize the full persisted schema on load; on unrecoverable corruption or write failure, show one calm, recoverable warning instead of silent data loss.
+- **Files:** `src/store/useBloom.ts`, store slices.
+- **Done when:** Hand-corrupted localStorage boots to a sane state with a visible notice; valid data is untouched; complements (not replaces) 7.1's migration tests.
+
+### - [ ] 8.12 (Optional) Credit goal progress from real work
+
+- **Goal:** Goal progress is only adjusted manually with +/−, disconnected from tasks and focus sessions, so users maintain two progress systems. Session records already carry `goalId` (1.1). Let a task or focus session be linked to a goal, and offer — transparently, with the manual override kept — to advance the goal when linked work completes. Label aggregate progress honestly (parts across goals aren't equal work).
+- **Files:** `src/store/goals.ts`, `src/store/sessions.ts`, `GoalsScreen.tsx`, `TasksScreen.tsx`.
+- **Done when:** Completing a linked session/task offers or applies a goal tick per user setting; manual +/− still works; nothing auto-moves without the user having opted in.
+- **Depends on:** 1.2.
+
+### - [ ] 8.13 (Optional, low) Onboarding + engineering polish
+
+- **Goal:** Bundle of small accepted findings: (a) replace the three realistic seeded starter tasks ("Finish history essay"…) with a clearly-marked, dismissible guided example or a true empty state with a strong call-to-action; (b) begin extracting timer/task/goal reducers from the ~700-line `useBloom.ts` and splitting `styles.css` by feature — do this opportunistically as other steps touch those areas, not as a big-bang refactor.
+- **Files:** `src/store/useBloom.ts`, `src/styles.css`, `Onboarding.tsx`.
+- **Done when:** New users see honest example content; no regression in migrations or visuals.
+
+---
+
 ## Step dependency sketch
 
 ```
 0.1 → 0.2
 1.1 → 1.2 → 1.3 → 1.4
+        1.3 → 1.5
 1.4 → 2.1 → 2.2 → 2.3
         2.2 → 2.4
 Phase 3: 3.1 → 3.2 → 3.5   |  3.3, 3.4 after 1.2
@@ -361,6 +456,7 @@ Phase 4: 4.1 ← (1.4, 2.4)  |  4.2 ← 2.1  |  4.3 ← 0.2  |  4.4 ← 2.4  |  
 Phase 5: 5.1 ← 1.3 → 5.2 ← 4.2 → 5.3     |  5.4 ← 0.2
 Phase 6: 6.1 ← (0.1, 2.2) → 6.2 → 6.3 ← 2.4 → 6.4 ← 0.2
 Phase 7: after everything above
+Phase 8: independent, any time  |  8.10 before 7.2  |  8.12 ← 1.2
 ```
 
 ## What this plan deliberately does NOT include (per §Do not build)

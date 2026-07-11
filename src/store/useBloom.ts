@@ -4,7 +4,16 @@ import type { AnimalKind } from '../engine/pixelpals';
 import { audioEngine, notify, type BgSound } from '../engine/audio';
 import { DEFAULT_COMPANION, type CompanionSettings } from './companion';
 import { GOAL_TARGET_MAX, type Goal } from './goals';
-import { sanitizeSessionRecords, type SessionRecord } from './sessions';
+import {
+  appendSessionRecord,
+  finalizeSession,
+  newOpenSession,
+  sanitizeOpenSession,
+  sanitizeSessionRecords,
+  sweepStaleOpenSession,
+  type OpenSession,
+  type SessionRecord,
+} from './sessions';
 
 /** 'flow' is the opt-in count-up stopwatch; the rest count down. */
 export type TimerMode = 'focus' | 'short' | 'long' | 'flow';
@@ -69,6 +78,14 @@ interface BloomState {
   flowAcc: number;
   /** Per-session log (capped ring buffer) — the raw data behind insights. */
   sessionRecords: SessionRecord[];
+  /** The focus countdown currently underway, if any (finalized on end). */
+  openFocus: OpenSession | null;
+  /**
+   * The flow stopwatch's open record, if any. Lives in its own slot because
+   * a paused stopwatch survives mode switches — it can sit banked in the
+   * background while focus sessions run.
+   */
+  openFlow: OpenSession | null;
   settings: Settings;
 }
 
@@ -107,6 +124,8 @@ const DEFAULT_STATE: BloomState = {
   flowStart: null,
   flowAcc: 0,
   sessionRecords: [],
+  openFocus: null,
+  openFlow: null,
   settings: DEFAULT_SETTINGS,
 };
 
@@ -124,7 +143,7 @@ const DEFAULT_STATE: BloomState = {
 const STORAGE_KEY = 'bloom-state';
 /** Older keys we still read from once, newest first. */
 const LEGACY_KEYS = ['bloom-state-v2', 'bloom-state-v1'];
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 5;
 
 interface PersistedShape {
   version: number;
@@ -139,6 +158,9 @@ interface PersistedShape {
   flow: { startedAt: number | null; acc: number; running: boolean };
   /** Per-session records, newest last, capped in sessions.ts. */
   sessionRecords: SessionRecord[];
+  /** Open-session slots — swept into `interrupted` records on boot (focus). */
+  openFocus: OpenSession | null;
+  openFlow: OpenSession | null;
   settings: Settings;
 }
 
@@ -153,6 +175,29 @@ const MIGRATIONS: Array<(blob: Record<string, unknown>) => Record<string, unknow
   // v1 -> v2: per-session records (PLAN 1.1). Existing users start with an
   // empty log; every other field passes through untouched.
   (blob) => ({ ...blob, sessionRecords: [] }),
+  // v2 -> v3: open-session bookkeeping (PLAN 1.2). The live session survives
+  // in storage so a force-closed one can be finalized as 'interrupted' on
+  // next boot. Existing users simply have nothing open.
+  (blob) => ({ ...blob, openFocus: null, openFlow: null }),
+  // v3 -> v4: drift-event linking (PLAN 1.3). Open sessions now carry the
+  // companion drift-event ids logged while they run. Persisted open slots
+  // start with an empty list; companion events logged before this version
+  // simply stay unlinked (their sessionId is optional).
+  (blob) => ({
+    ...blob,
+    openFocus: blob.openFocus
+      ? { ...(blob.openFocus as Record<string, unknown>), driftEventIds: [] }
+      : null,
+    openFlow: blob.openFlow
+      ? { ...(blob.openFlow as Record<string, unknown>), driftEventIds: [] }
+      : null,
+  }),
+  // v4 -> v5: patient check-ins + estimated drift onset (PLAN 1.5). The new
+  // fields (`shownAt`, `estOnsetMin`) live on companion events, which persist
+  // under their own key and are optional — old events parse unchanged, so
+  // this blob needs no transformation. Bumped anyway so every persisted-shape
+  // change has a version (constraint #2) and 7.1 gets a fixture per version.
+  (blob) => blob,
 ];
 
 function dayStr(d = new Date()): string {
@@ -205,8 +250,16 @@ function withDefaults(blob: Record<string, unknown>): PersistedShape {
     goals,
     flow,
     sessionRecords: sanitizeSessionRecords(b.sessionRecords),
+    openFocus: keepOpenSession(b.openFocus, 'focus'),
+    openFlow: keepOpenSession(b.openFlow, 'flow'),
     settings,
   };
+}
+
+/** An open-session slot only counts if it parses and sits in the right slot. */
+function keepOpenSession(raw: unknown, mode: 'focus' | 'flow'): OpenSession | null {
+  const open = sanitizeOpenSession(raw);
+  return open && open.mode === mode ? open : null;
 }
 
 function migrate(blob: Record<string, unknown>): PersistedShape {
@@ -243,6 +296,11 @@ function loadState(): BloomState {
   // A streak is only alive if the last focus session was today or yesterday.
   const alive =
     p.lastFocusDay === dayStr() || p.lastFocusDay === dayStr(new Date(Date.now() - 86400000));
+  // Stale-open-record sweep: a focus countdown that was live when the app
+  // closed can't resume, so its record is finalized as 'interrupted'. The
+  // flow stopwatch deliberately survives reloads, so its record stays open.
+  const swept = p.openFocus ? sweepStaleOpenSession(p.openFocus) : null;
+  const sessionRecords = swept ? appendSessionRecord(p.sessionRecords, swept) : p.sessionRecords;
   const base: BloomState = {
     ...DEFAULT_STATE,
     settings: p.settings,
@@ -255,7 +313,9 @@ function loadState(): BloomState {
     palXp: p.palXp,
     goals: p.goals,
     flowAcc: p.flow.acc,
-    sessionRecords: p.sessionRecords,
+    sessionRecords,
+    openFocus: null,
+    openFlow: p.openFlow,
   };
   // A flow run that was live when the app closed keeps counting (that's what
   // a stopwatch does) — unless it's been so long it was clearly abandoned, in
@@ -293,6 +353,8 @@ function persist(s: BloomState) {
     goals: s.goals,
     flow: { startedAt: s.flowStart, acc: s.flowAcc, running: s.running && s.mode === 'flow' },
     sessionRecords: s.sessionRecords,
+    openFocus: s.openFocus,
+    openFlow: s.openFlow,
     settings: s.settings,
   };
   try {
@@ -325,6 +387,14 @@ function flowElapsed(s: BloomState, now = Date.now()): number {
 /** A finished flow banks at most this many pomodoro-equivalents. */
 const FLOW_CREDIT_CAP = 12;
 
+/** Minutes the open focus countdown has actually run (paused time excluded). */
+function focusElapsedMin(s: BloomState, now = Date.now()): number {
+  const plannedSec = (s.openFocus?.plannedMin ?? 0) * 60;
+  const remaining =
+    s.running && s.endsAt != null ? Math.max(0, (s.endsAt - now) / 1000) : s.remaining;
+  return Math.max(0, (plannedSec - remaining) / 60);
+}
+
 type Action =
   | { type: 'tick' }
   | { type: 'toggle' }
@@ -341,6 +411,7 @@ type Action =
   | { type: 'addGoal'; title: string; due: string; target: number }
   | { type: 'removeGoal'; id: number }
   | { type: 'logGoal'; id: number; delta: number }
+  | { type: 'linkDrift'; eventId: string; sessionId: string }
   | { type: 'patchSettings'; patch: Partial<Settings> };
 
 function reducer(s: BloomState, a: Action): BloomState {
@@ -367,35 +438,80 @@ function reducer(s: BloomState, a: Action): BloomState {
           const acc = flowElapsed(s);
           return { ...s, running: false, flowStart: null, flowAcc: acc, remaining: Math.floor(acc), justDone: false };
         }
-        return { ...s, running: true, flowStart: Date.now(), remaining: Math.floor(s.flowAcc), justDone: false };
+        // First press of a fresh stopwatch opens its session record; a
+        // resume just keeps the existing one.
+        const openFlow =
+          s.openFlow ?? newOpenSession('flow', null, resolveActiveTask(s.tasks, s.activeTaskId)?.id);
+        return { ...s, running: true, flowStart: Date.now(), remaining: Math.floor(s.flowAcc), justDone: false, openFlow };
       }
       if (s.running) {
         const remaining = s.endsAt
           ? Math.max(0, Math.ceil((s.endsAt - Date.now()) / 1000))
           : s.remaining;
-        return { ...s, running: false, endsAt: null, remaining, justDone: false };
+        // Snapshot pause progress so the boot sweep can estimate actual time.
+        const openFocus = s.openFocus
+          ? { ...s.openFocus, running: false, endsAt: null, remainingSec: remaining }
+          : s.openFocus;
+        return { ...s, running: false, endsAt: null, remaining, justDone: false, openFocus };
       }
       const rem = s.remaining > 0 ? s.remaining : dur[s.mode];
-      return { ...s, running: true, endsAt: Date.now() + rem * 1000, remaining: rem, justDone: false };
+      const endsAt = Date.now() + rem * 1000;
+      // Only focus sessions are recorded; breaks never open a record.
+      let openFocus = s.openFocus;
+      if (s.mode === 'focus') {
+        openFocus = openFocus
+          ? { ...openFocus, running: true, endsAt }
+          : {
+              ...newOpenSession('focus', dur.focus / 60, resolveActiveTask(s.tasks, s.activeTaskId)?.id),
+              endsAt,
+            };
+      }
+      return { ...s, running: true, endsAt, remaining: rem, justDone: false, openFocus };
     }
     case 'reset': {
       if (s.mode === 'flow') {
-        return { ...s, running: false, flowStart: null, flowAcc: 0, remaining: 0, justDone: false };
+        // Zeroing a started stopwatch abandons its session record.
+        const sessionRecords = s.openFlow
+          ? appendSessionRecord(
+              s.sessionRecords,
+              finalizeSession(s.openFlow, 'abandoned', flowElapsed(s) / 60),
+            )
+          : s.sessionRecords;
+        return { ...s, running: false, flowStart: null, flowAcc: 0, remaining: 0, justDone: false, sessionRecords, openFlow: null };
       }
-      return { ...s, running: false, endsAt: null, justDone: false, remaining: dur[s.mode] };
+      // Resetting a started focus countdown abandons its session record.
+      const sessionRecords = s.openFocus
+        ? appendSessionRecord(
+            s.sessionRecords,
+            finalizeSession(s.openFocus, 'abandoned', focusElapsedMin(s)),
+          )
+        : s.sessionRecords;
+      return { ...s, running: false, endsAt: null, justDone: false, remaining: dur[s.mode], sessionRecords, openFocus: null };
     }
     case 'pick': {
-      if (a.mode === 'flow') {
-        // Never wipe a live stopwatch by re-tapping its tab.
-        if (s.mode === 'flow') return s;
-        return { ...s, mode: 'flow', running: false, endsAt: null, justDone: false, remaining: Math.floor(s.flowAcc) };
+      // Never wipe a live stopwatch by re-tapping its tab.
+      if (a.mode === 'flow' && s.mode === 'flow') return s;
+      // Walking away from a started focus countdown abandons that session
+      // (re-picking Focus resets it, which is the same thing for the record).
+      let sessionRecords = s.sessionRecords;
+      let openFocus = s.openFocus;
+      if (s.mode === 'focus' && openFocus) {
+        sessionRecords = appendSessionRecord(
+          sessionRecords,
+          finalizeSession(openFocus, 'abandoned', focusElapsedMin(s)),
+        );
+        openFocus = null;
       }
-      // Leaving flow banks the elapsed time; the stopwatch waits, paused.
+      if (a.mode === 'flow') {
+        return { ...s, sessionRecords, openFocus, mode: 'flow', running: false, endsAt: null, justDone: false, remaining: Math.floor(s.flowAcc) };
+      }
+      // Leaving flow banks the elapsed time; the stopwatch waits, paused —
+      // its open record waits with it.
       const base =
         s.mode === 'flow' && s.running
           ? { ...s, running: false, flowStart: null, flowAcc: flowElapsed(s) }
           : s;
-      return { ...base, mode: a.mode, running: false, endsAt: null, justDone: false, remaining: dur[a.mode] };
+      return { ...base, sessionRecords, openFocus, mode: a.mode, running: false, endsAt: null, justDone: false, remaining: dur[a.mode] };
     }
     case 'skip': {
       if (s.mode === 'flow') return s; // flow has finish, not skip
@@ -405,13 +521,21 @@ function reducer(s: BloomState, a: Action): BloomState {
     case 'finishFlow': {
       if (s.mode !== 'flow') return s;
       const elapsed = flowElapsed(s);
+      // The user chose to end it, so the record is 'completed' either way —
+      // even a stretch too short to bank XP is a real session that happened.
+      const sessionRecords = s.openFlow
+        ? appendSessionRecord(
+            s.sessionRecords,
+            finalizeSession(s.openFlow, 'completed', elapsed / 60),
+          )
+        : s.sessionRecords;
       const focusLen = Math.max(60, dur.focus);
       // Nearest focus-length wins: half a session or more banks the first
       // bloom. Capped so a stopwatch left running can't mint a day of XP.
       const credited = Math.min(FLOW_CREDIT_CAP, Math.round(elapsed / focusLen));
       if (credited < 1) {
         // Too short to bank — zero out quietly, no celebration.
-        return { ...s, running: false, flowStart: null, flowAcc: 0, remaining: 0, justDone: false };
+        return { ...s, running: false, flowStart: null, flowAcc: 0, remaining: 0, justDone: false, sessionRecords, openFlow: null };
       }
       const streak = bumpStreak(s.streak, s.lastFocusDay);
       // Credit pomodoros one by one so they cascade across tasks exactly like
@@ -442,6 +566,8 @@ function reducer(s: BloomState, a: Action): BloomState {
         tasks,
         activeTaskId,
         palXp: { ...s.palXp, [s.settings.pal]: (s.palXp[s.settings.pal] ?? 0) + credited },
+        sessionRecords,
+        openFlow: null,
       };
     }
     case 'complete': {
@@ -470,6 +596,14 @@ function reducer(s: BloomState, a: Action): BloomState {
       const palXp = wasFocus
         ? { ...s.palXp, [s.settings.pal]: (s.palXp[s.settings.pal] ?? 0) + 1 }
         : s.palXp;
+      // The countdown ran its full course: finalize the session record.
+      const sessionRecords =
+        wasFocus && s.openFocus
+          ? appendSessionRecord(
+              s.sessionRecords,
+              finalizeSession(s.openFocus, 'completed', s.openFocus.plannedMin ?? dur.focus / 60),
+            )
+          : s.sessionRecords;
       return {
         ...s,
         running: false,
@@ -482,6 +616,8 @@ function reducer(s: BloomState, a: Action): BloomState {
         tasks,
         activeTaskId,
         palXp,
+        sessionRecords,
+        openFocus: wasFocus ? null : s.openFocus,
       };
     }
     case 'clearDone': {
@@ -540,6 +676,19 @@ function reducer(s: BloomState, a: Action): BloomState {
         goals: [...s.goals, { id, title, due: a.due, target, done: 0, createdAt: Date.now() }],
       };
     }
+    case 'linkDrift': {
+      // Attach a companion drift event to the open session it happened in.
+      // Matching by id guards the race where the session ended (or a new one
+      // started) between the event being logged and this action landing.
+      const link = (open: OpenSession | null): OpenSession | null =>
+        open && open.id === a.sessionId && !open.driftEventIds.includes(a.eventId)
+          ? { ...open, driftEventIds: [...open.driftEventIds, a.eventId] }
+          : open;
+      const openFocus = link(s.openFocus);
+      const openFlow = link(s.openFlow);
+      if (openFocus === s.openFocus && openFlow === s.openFlow) return s;
+      return { ...s, openFocus, openFlow };
+    }
     case 'removeGoal':
       return { ...s, goals: s.goals.filter((g) => g.id !== a.id) };
     case 'logGoal': {
@@ -556,8 +705,15 @@ function reducer(s: BloomState, a: Action): BloomState {
         companion: { ...s.settings.companion, ...(a.patch.companion || {}) },
       };
       // Switching the flow timer off while standing in it: land back on a
-      // fresh focus timer instead of a tab that no longer exists.
+      // fresh focus timer instead of a tab that no longer exists. The zeroed
+      // stopwatch's session record is finalized as abandoned.
       if (a.patch.flow === false && s.mode === 'flow') {
+        const sessionRecords = s.openFlow
+          ? appendSessionRecord(
+              s.sessionRecords,
+              finalizeSession(s.openFlow, 'abandoned', flowElapsed(s) / 60),
+            )
+          : s.sessionRecords;
         return {
           ...s,
           settings,
@@ -568,6 +724,8 @@ function reducer(s: BloomState, a: Action): BloomState {
           remaining: settings.durations.focus,
           flowStart: null,
           flowAcc: 0,
+          sessionRecords,
+          openFlow: null,
         };
       }
       // Duration edits apply immediately to a stopped timer; a running one
@@ -589,7 +747,7 @@ export function useBloom() {
   // per-second tick only touches `remaining`, which is not persisted.
   useEffect(() => {
     persist(state);
-  }, [state.sessions, state.streak, state.lastFocusDay, state.tasks, state.activeTaskId, state.palXp, state.goals, state.flowStart, state.flowAcc, state.running, state.mode, state.sessionRecords, state.settings]);
+  }, [state.sessions, state.streak, state.lastFocusDay, state.tasks, state.activeTaskId, state.palXp, state.goals, state.flowStart, state.flowAcc, state.running, state.mode, state.sessionRecords, state.openFocus, state.openFlow, state.settings]);
 
   // Wall-clock tick: recompute remaining ~4x/sec. Reads Date.now(), so it
   // stays accurate even when the tab is throttled in the background.
@@ -694,6 +852,8 @@ export function useBloom() {
         dispatch({ type: 'addGoal', title, due, target }),
       removeGoal: (id: number) => dispatch({ type: 'removeGoal', id }),
       logGoal: (id: number, delta: number) => dispatch({ type: 'logGoal', id, delta }),
+      linkDriftEvent: (eventId: string, sessionId: string) =>
+        dispatch({ type: 'linkDrift', eventId, sessionId }),
       patchSettings: (patch: Partial<Settings>) => dispatch({ type: 'patchSettings', patch }),
     }),
     [],
