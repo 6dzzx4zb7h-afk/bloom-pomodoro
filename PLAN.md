@@ -71,7 +71,7 @@ Rules of thumb:
 
 > Everything in Phases 2–6 explains itself *from the user's own data*. That data model is built here. This phase touches persisted state, so **every step bumps the schema version with a forward migration**.
 
-### - [ ] 1.1 Add the `SessionRecord` model and store slice
+### - [x] 1.1 Add the `SessionRecord` model and store slice
 
 - **Goal:** New persisted slice `src/store/sessions.ts`: `SessionRecord { id, startedAt, endedAt, mode: 'focus'|'flow'|'tiny', plannedMin, actualMin, outcome: 'completed'|'abandoned'|'interrupted', startHour, taskId?, goalId?, driftEventIds: string[], targetText? }`. Ring-buffer cap (e.g., last 500 records) to bound localStorage. Bump schema version; migration initializes an empty array for existing users.
 - **Science:** §Measurement — progress monitoring row (Harkin et al. 2016: monitoring works best when behavior is *actually recorded*; goal attainment d = 0.40, trim-and-fill d = 0.19).
@@ -229,6 +229,14 @@ Rules of thumb:
 - **Done when:** Fires only when opted in, only with sufficient signal, respects both caps; the explanation string is visible in Settings; trigger unit-tested.
 - **Depends on:** 1.4, 2.4.
 
+### - [ ] 4.6 Learned personal cadence: a starting ratio that grows with you
+
+- **Goal:** Turn 4.1's one-off experiment suggestions into a continuously-learned *personal starting point*. `suggestPersonalCadence()` in `src/insights/cadence.ts` blends the user's own signals — `medianMinutesToFirstDrift()`, `completionRateByPlannedLength()`, `driftPhaseDistribution()`, and the 4.4 chronotype tag — into one recommended focus/break pair (e.g. drifts cluster at ~min 16 → start at 15/4; long sessions complete cleanly → current fit is 40/8), always with a `{ because, evidenceKey }` per 2.4. Include a **stretch ladder**: when the user completes ≥ ~80% of sessions at their current length over a rolling window, offer (never auto-apply) the next rung up (+5 min focus, break scaled ~1:5), so the ratio grows as their attention does; a rough patch quietly re-offers a shorter rung with kind, no-failure framing. Recommendation recomputes at most weekly, surfaces only at natural pauses (weekly review, recipe card, settings), one-tap apply, one-tap back to any previous rung. With thin data the answer is always "25/5 is a lovely starting point while I learn your rhythm" (PLACEHOLDER_COPY until the copy pass). Copy rule, greppable in the done-check: the app may say "best fit *for you right now*" and "an experiment" — never "optimal", "ideal", or "what science recommends".
+- **Science:** §Staying — breaks row (Albulescu et al. 2022: breaks help, *no universally best cadence* — which is exactly why a personal, data-derived fit is honest where a universal claim would not be); §Staying — time-on-task + mind-wandering rows (Zanesco et al. 2024: drift timing is the signal to fit session length to); §Staying — chronotype row (May & Hasher 2023, as a prior); §Measurement — JITAI row (transparent, low-burden rule engine; recompute weekly, not per-session); §Do not build — the 25/5-optimal, 52/17 and ultradian rows (hard guardrail on the copy).
+- **Files:** `src/insights/cadence.ts` (+ tests), `WeeklyReview.tsx`, recipe card, `SettingsSheet.tsx`, timer presets.
+- **Done when:** With fixture data the recommendation, its because-sentence, and the stretch/shrink rungs are all derived from the user's own numbers; applying and reverting are one tap each; low-signal state recommends 25/5 with the learning framing; unit tests cover drift-timing fit, stretch trigger, rough-patch shrink, and low-signal; grep for "optimal|ideal|science recommends|scientifically" over user-facing strings returns clean.
+- **Depends on:** 4.1, 4.4, 1.4, 2.4.
+
 ---
 
 ## Phase 5 — RECOVERY features
@@ -349,7 +357,7 @@ Rules of thumb:
 1.4 → 2.1 → 2.2 → 2.3
         2.2 → 2.4
 Phase 3: 3.1 → 3.2 → 3.5   |  3.3, 3.4 after 1.2
-Phase 4: 4.1 ← (1.4, 2.4)  |  4.2 ← 2.1  |  4.3 ← 0.2  |  4.4 ← 2.4  |  4.5 ← (1.4, 2.4)
+Phase 4: 4.1 ← (1.4, 2.4)  |  4.2 ← 2.1  |  4.3 ← 0.2  |  4.4 ← 2.4  |  4.5 ← (1.4, 2.4)  |  4.6 ← (4.1, 4.4)
 Phase 5: 5.1 ← 1.3 → 5.2 ← 4.2 → 5.3     |  5.4 ← 0.2
 Phase 6: 6.1 ← (0.1, 2.2) → 6.2 → 6.3 ← 2.4 → 6.4 ← 0.2
 Phase 7: after everything above

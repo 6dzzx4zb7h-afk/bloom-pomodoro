@@ -4,6 +4,7 @@ import type { AnimalKind } from '../engine/pixelpals';
 import { audioEngine, notify, type BgSound } from '../engine/audio';
 import { DEFAULT_COMPANION, type CompanionSettings } from './companion';
 import { GOAL_TARGET_MAX, type Goal } from './goals';
+import { sanitizeSessionRecords, type SessionRecord } from './sessions';
 
 /** 'flow' is the opt-in count-up stopwatch; the rest count down. */
 export type TimerMode = 'focus' | 'short' | 'long' | 'flow';
@@ -66,6 +67,8 @@ interface BloomState {
   flowStart: number | null;
   /** Flow stopwatch: seconds banked across pauses. */
   flowAcc: number;
+  /** Per-session log (capped ring buffer) — the raw data behind insights. */
+  sessionRecords: SessionRecord[];
   settings: Settings;
 }
 
@@ -103,6 +106,7 @@ const DEFAULT_STATE: BloomState = {
   goals: [],
   flowStart: null,
   flowAcc: 0,
+  sessionRecords: [],
   settings: DEFAULT_SETTINGS,
 };
 
@@ -120,7 +124,7 @@ const DEFAULT_STATE: BloomState = {
 const STORAGE_KEY = 'bloom-state';
 /** Older keys we still read from once, newest first. */
 const LEGACY_KEYS = ['bloom-state-v2', 'bloom-state-v1'];
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
 
 interface PersistedShape {
   version: number;
@@ -133,6 +137,8 @@ interface PersistedShape {
   goals: Goal[];
   /** Flow stopwatch survives reloads — a stopwatch keeps counting while away. */
   flow: { startedAt: number | null; acc: number; running: boolean };
+  /** Per-session records, newest last, capped in sessions.ts. */
+  sessionRecords: SessionRecord[];
   settings: Settings;
 }
 
@@ -141,8 +147,12 @@ interface PersistedShape {
  * Append here (never rewrite past entries) when the shape changes.
  */
 const MIGRATIONS: Array<(blob: Record<string, unknown>) => Record<string, unknown>> = [
-  // Reserved: v0 (pre-versioned / legacy keys) -> v1 is handled by withDefaults,
+  // v0 (pre-versioned / legacy keys) -> v1 is handled by withDefaults,
   // which tolerates both the old top-level `durations` layout and the v2 shape.
+  (blob) => blob,
+  // v1 -> v2: per-session records (PLAN 1.1). Existing users start with an
+  // empty log; every other field passes through untouched.
+  (blob) => ({ ...blob, sessionRecords: [] }),
 ];
 
 function dayStr(d = new Date()): string {
@@ -194,6 +204,7 @@ function withDefaults(blob: Record<string, unknown>): PersistedShape {
     palXp: b.palXp && typeof b.palXp === 'object' ? (b.palXp as Record<string, number>) : {},
     goals,
     flow,
+    sessionRecords: sanitizeSessionRecords(b.sessionRecords),
     settings,
   };
 }
@@ -244,6 +255,7 @@ function loadState(): BloomState {
     palXp: p.palXp,
     goals: p.goals,
     flowAcc: p.flow.acc,
+    sessionRecords: p.sessionRecords,
   };
   // A flow run that was live when the app closed keeps counting (that's what
   // a stopwatch does) — unless it's been so long it was clearly abandoned, in
@@ -280,6 +292,7 @@ function persist(s: BloomState) {
     palXp: s.palXp,
     goals: s.goals,
     flow: { startedAt: s.flowStart, acc: s.flowAcc, running: s.running && s.mode === 'flow' },
+    sessionRecords: s.sessionRecords,
     settings: s.settings,
   };
   try {
@@ -576,7 +589,7 @@ export function useBloom() {
   // per-second tick only touches `remaining`, which is not persisted.
   useEffect(() => {
     persist(state);
-  }, [state.sessions, state.streak, state.lastFocusDay, state.tasks, state.activeTaskId, state.palXp, state.goals, state.flowStart, state.flowAcc, state.running, state.mode, state.settings]);
+  }, [state.sessions, state.streak, state.lastFocusDay, state.tasks, state.activeTaskId, state.palXp, state.goals, state.flowStart, state.flowAcc, state.running, state.mode, state.sessionRecords, state.settings]);
 
   // Wall-clock tick: recompute remaining ~4x/sec. Reads Date.now(), so it
   // stays accurate even when the tab is throttled in the background.
