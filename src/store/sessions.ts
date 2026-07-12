@@ -15,7 +15,7 @@
  * when the app closed is finalized as 'interrupted' by the boot-time sweep.
  */
 
-/** 'tiny' is the future 2–5 minute starter; breaks are never recorded. */
+/** 'tiny' is the 2/5-minute starter (and its optional next rung); breaks are never recorded. */
 export type SessionMode = 'focus' | 'flow' | 'tiny';
 
 export type SessionOutcome = 'completed' | 'abandoned' | 'interrupted';
@@ -120,11 +120,11 @@ export interface OpenSession {
   /** Task the session will be credited to, if any. */
   taskId?: number;
   /**
-   * Countdown bookkeeping for the boot-time sweep — meaningful for focus
-   * sessions only (flow keeps its own clock in the persisted flow state).
+   * Countdown bookkeeping for the boot-time sweep — meaningful for focus and
+   * tiny sessions (flow keeps its own clock in the persisted flow state).
    */
   endsAt: number | null;
-  /** Remaining seconds at the last pause (focus only). */
+  /** Remaining seconds at the last pause (focus/tiny only). */
   remainingSec: number;
   running: boolean;
   /** Companion drift events triaged while this session runs (PLAN 1.3). */

@@ -3,6 +3,10 @@ import { PixelPal } from '../components/PixelPal';
 import { FRIENDS, levelProgress, MAX_LEVEL } from '../data/friends';
 import type { useBloom } from '../store/useBloom';
 
+function fmtXp(value: number): string {
+  return Number.isInteger(value) ? String(value) : value.toFixed(2).replace(/0+$/, '').replace(/\.$/, '');
+}
+
 export function CollectionScreen({ bloom }: { bloom: ReturnType<typeof useBloom> }) {
   const { state, actions } = bloom;
   const { palXp } = state;
@@ -44,7 +48,9 @@ export function CollectionScreen({ bloom }: { bloom: ReturnType<typeof useBloom>
                 <span className="lvl-bar-fill" style={{ width: `${Math.round(prog.pct * 100)}%` }} />
               </div>
               <div className="lvl-xp">
-                {prog.maxed ? `max level · ${xp} sessions` : `${prog.into}/${prog.span} to Lv ${prog.level + 1}`}
+                {prog.maxed
+                  ? `max level · ${fmtXp(xp)} focus XP`
+                  : `${fmtXp(prog.into)}/${prog.span} XP to Lv ${prog.level + 1}`}
               </div>
             </button>
           );

@@ -161,7 +161,7 @@ Rules of thumb:
 - **Done when:** Slice persists and migrates; templates load; tests for CRUD.
 - **Depends on:** Phase 1 complete (records will later log which plan a session used).
 
-### - [ ] 3.2 Pre-session if–then planner UI
+### - [x] 3.2 Pre-session if–then planner UI
 
 - **Goal:** Optional one-line step on FocusScreen before starting: pick a saved plan or fill a template (cue + action), skippable with one tap, remembered per task. Session record stores the planId used. Pet frames it as "what's our opening move?" — never as a requirement.
 - **Science:** Same as 3.1; §Starting — procrastination-as-mood-regulation row (Sirois & Pychyl 2013: reduce the felt cost of the first two minutes; avoid "be more disciplined" framing).
@@ -169,7 +169,7 @@ Rules of thumb:
 - **Done when:** Full flow works: pick/fill → start session → record links planId; skipping is one tap; zero friction added for users who ignore it.
 - **Depends on:** 3.1.
 
-### - [ ] 3.3 Tiny-start mode
+### - [x] 3.3 Tiny-start mode
 
 - **Goal:** A third start option beside focus/flow: a 2- or 5-minute "tiny start". When it completes, the pet offers (never insists) the next rung: "keep going for 10?" — accepting extends seamlessly without a break; declining still counts as a *completed* session and earns normal warmth. Records use `mode:'tiny'`.
 - **Science:** §Starting — micro-commitments row (Felkey, Dziadula & Chiang 2023, *Southern Economic Journal* 90(2): students with microcommitments ~2× as likely to engage; marginal effect largest for high procrastinators; report grades this *promising, not settled* — so copy must not oversell); §Starting — article brief "Use a tiny start without lying to yourself" (the ladder: 2 min → 10 min → full session).

@@ -25,9 +25,14 @@ import {
 } from './sessions';
 
 /** 'flow' is the opt-in count-up stopwatch; the rest count down. */
-export type TimerMode = 'focus' | 'short' | 'long' | 'flow';
+export type TimerMode = 'focus' | 'tiny' | 'short' | 'long' | 'flow';
 /** The countdown modes — the only ones with a configured length. */
 export type DurationMode = 'focus' | 'short' | 'long';
+
+/** Honest, deliberately small first rungs offered by Tiny Start (PLAN 3.3). */
+export const TINY_START_OPTIONS = [2, 5] as const;
+export type TinyStartMinutes = (typeof TINY_START_OPTIONS)[number];
+export const TINY_EXTENSION_MIN = 10;
 
 export interface Task {
   id: number;
@@ -87,7 +92,7 @@ interface BloomState {
   flowAcc: number;
   /** Per-session log (capped ring buffer) — the raw data behind insights. */
   sessionRecords: SessionRecord[];
-  /** The focus countdown currently underway, if any (finalized on end). */
+  /** The focus/tiny countdown currently underway, if any (finalized on end). */
   openFocus: OpenSession | null;
   /**
    * The flow stopwatch's open record, if any. Lives in its own slot because
@@ -158,7 +163,7 @@ const DEFAULT_STATE: BloomState = {
 const STORAGE_KEY = 'bloom-state';
 /** Older keys we still read from once, newest first. */
 const LEGACY_KEYS = ['bloom-state-v2', 'bloom-state-v1'];
-const SCHEMA_VERSION = 8;
+const SCHEMA_VERSION = 9;
 
 interface PersistedShape {
   version: number;
@@ -230,6 +235,11 @@ const MIGRATIONS: Array<(blob: Record<string, unknown>) => Record<string, unknow
   // persisted-shape change has a version (constraint #2) and 7.1 gets a
   // fixture per version.
   (blob) => blob,
+  // v8 -> v9: Tiny Start (PLAN 3.3). The session model already allowed
+  // `mode:'tiny'`; this version begins persisting tiny open sessions and
+  // proportional (fractional) pal XP. Both fit the existing fields, so no
+  // rewrite is needed and every existing value passes through losslessly.
+  (blob) => blob,
 ];
 
 function dayStr(d = new Date()): string {
@@ -292,9 +302,10 @@ function withDefaults(blob: Record<string, unknown>): PersistedShape {
 }
 
 /** An open-session slot only counts if it parses and sits in the right slot. */
-function keepOpenSession(raw: unknown, mode: 'focus' | 'flow'): OpenSession | null {
+function keepOpenSession(raw: unknown, slot: 'focus' | 'flow'): OpenSession | null {
   const open = sanitizeOpenSession(raw);
-  return open && open.mode === mode ? open : null;
+  const fitsSlot = slot === 'flow' ? open?.mode === 'flow' : open?.mode === 'focus' || open?.mode === 'tiny';
+  return open && fitsSlot ? open : null;
 }
 
 function migrate(blob: Record<string, unknown>): PersistedShape {
@@ -434,13 +445,48 @@ function focusElapsedMin(s: BloomState, now = Date.now()): number {
   return Math.max(0, (plannedSec - remaining) / 60);
 }
 
+/**
+ * Tiny sessions earn the same XP unit as focus sessions, scaled by minutes.
+ * Keep two decimals so even the smallest allowed rung against a 90-minute
+ * focus preset remains visibly positive; a tiny rung can never mint more than
+ * one full focus session's XP.
+ */
+export function tinyXpFor(plannedMin: number, focusMin: number): number {
+  const ratio = Math.max(0, plannedMin) / Math.max(1, focusMin);
+  return Math.max(0.01, Math.min(1, Math.round(ratio * 100) / 100));
+}
+
+/** Reset keeps a selected 2/5-minute rung; a reset extension returns to 2. */
+export function tinyResetMinutes(
+  openPlannedMin: number | null | undefined,
+  remainingSec: number,
+): TinyStartMinutes {
+  const selectedMin = openPlannedMin ?? remainingSec / 60;
+  return TINY_START_OPTIONS.includes(selectedMin as TinyStartMinutes)
+    ? (selectedMin as TinyStartMinutes)
+    : TINY_START_OPTIONS[0];
+}
+
+/** The one-time 10-minute offer follows only a completed 2/5-minute rung. */
+export function isTinyFirstRung(record: SessionRecord | undefined): boolean {
+  return Boolean(
+    record &&
+      record.mode === 'tiny' &&
+      record.outcome === 'completed' &&
+      record.plannedMin != null &&
+      TINY_START_OPTIONS.includes(record.plannedMin as TinyStartMinutes),
+  );
+}
+
 type Action =
   | { type: 'tick' }
   | { type: 'toggle'; ifThenPlanId?: string }
   | { type: 'reset' }
-  | { type: 'pick'; mode: TimerMode }
+  | { type: 'pick'; mode: TimerMode; tinyMinutes?: TinyStartMinutes }
   | { type: 'skip' }
   | { type: 'complete' }
+  | { type: 'extendTiny' }
+  | { type: 'declineTiny' }
   | { type: 'finishFlow' }
   | { type: 'clearDone' }
   | { type: 'toggleTask'; id: number }
@@ -498,12 +544,16 @@ function reducer(s: BloomState, a: Action): BloomState {
           : s.openFocus;
         return { ...s, running: false, endsAt: null, remaining, justDone: false, openFocus };
       }
-      const rem = s.remaining > 0 ? s.remaining : dur[s.mode];
+      const fallbackSec =
+        s.mode === 'tiny'
+          ? TINY_START_OPTIONS[0] * 60
+          : dur[s.mode];
+      const rem = s.remaining > 0 ? s.remaining : fallbackSec;
       const endsAt = Date.now() + rem * 1000;
-      // Only focus sessions are recorded; breaks never open a record.
+      // Focus and tiny sessions are recorded; breaks never open a record.
       let openFocus = s.openFocus;
       let ifThenPlans = s.ifThenPlans;
-      if (s.mode === 'focus') {
+      if (s.mode === 'focus' || s.mode === 'tiny') {
         if (openFocus) {
           // Resuming a paused session keeps its record (and plan) as-is.
           openFocus = { ...openFocus, running: true, endsAt };
@@ -512,10 +562,14 @@ function reducer(s: BloomState, a: Action): BloomState {
           // The plan picked in the pre-session planner (PLAN 3.2): stamp it on
           // the fresh record, bump its usage, and remember it for the active
           // task so the planner preselects it next time.
-          const plan = a.ifThenPlanId
+          const plan = s.mode === 'focus' && a.ifThenPlanId
             ? ifThenPlans.find((p) => p.id === a.ifThenPlanId)
             : undefined;
-          openFocus = { ...newOpenSession('focus', dur.focus / 60, taskId, plan?.id), endsAt };
+          const plannedMin = s.mode === 'tiny' ? rem / 60 : dur.focus / 60;
+          openFocus = {
+            ...newOpenSession(s.mode, plannedMin, taskId, plan?.id),
+            endsAt,
+          };
           if (plan) {
             ifThenPlans = markIfThenPlanUsed(ifThenPlans, plan.id);
             if (taskId != null && plan.taskId !== taskId) {
@@ -537,23 +591,28 @@ function reducer(s: BloomState, a: Action): BloomState {
           : s.sessionRecords;
         return { ...s, running: false, flowStart: null, flowAcc: 0, remaining: 0, justDone: false, sessionRecords, openFlow: null };
       }
-      // Resetting a started focus countdown abandons its session record.
+      // Resetting a started focus/tiny countdown abandons its session record.
+      const tinyResetMin = tinyResetMinutes(s.openFocus?.plannedMin, s.remaining);
+      const resetSec =
+        s.mode === 'tiny'
+          ? tinyResetMin * 60
+          : dur[s.mode];
       const sessionRecords = s.openFocus
         ? appendSessionRecord(
             s.sessionRecords,
             finalizeSession(s.openFocus, 'abandoned', focusElapsedMin(s)),
           )
         : s.sessionRecords;
-      return { ...s, running: false, endsAt: null, justDone: false, remaining: dur[s.mode], sessionRecords, openFocus: null };
+      return { ...s, running: false, endsAt: null, justDone: false, remaining: resetSec, sessionRecords, openFocus: null };
     }
     case 'pick': {
       // Never wipe a live stopwatch by re-tapping its tab.
       if (a.mode === 'flow' && s.mode === 'flow') return s;
-      // Walking away from a started focus countdown abandons that session
-      // (re-picking Focus resets it, which is the same thing for the record).
+      // Walking away from a started focus/tiny countdown abandons that session
+      // (re-picking its tab resets it, which is the same thing for the record).
       let sessionRecords = s.sessionRecords;
       let openFocus = s.openFocus;
-      if (s.mode === 'focus' && openFocus) {
+      if ((s.mode === 'focus' || s.mode === 'tiny') && openFocus) {
         sessionRecords = appendSessionRecord(
           sessionRecords,
           finalizeSession(openFocus, 'abandoned', focusElapsedMin(s)),
@@ -569,7 +628,11 @@ function reducer(s: BloomState, a: Action): BloomState {
         s.mode === 'flow' && s.running
           ? { ...s, running: false, flowStart: null, flowAcc: flowElapsed(s) }
           : s;
-      return { ...base, sessionRecords, openFocus, mode: a.mode, running: false, endsAt: null, justDone: false, remaining: dur[a.mode] };
+      const remaining =
+        a.mode === 'tiny'
+          ? (a.tinyMinutes ?? TINY_START_OPTIONS[0]) * 60
+          : dur[a.mode];
+      return { ...base, sessionRecords, openFocus, mode: a.mode, running: false, endsAt: null, justDone: false, remaining };
     }
     case 'skip': {
       if (s.mode === 'flow') return s; // flow has finish, not skip
@@ -628,12 +691,41 @@ function reducer(s: BloomState, a: Action): BloomState {
         openFlow: null,
       };
     }
+    case 'extendTiny': {
+      // The first rung is already safely finalized and credited. Accepting
+      // begins the next tiny record immediately: no break screen and no
+      // pressure to continue beyond these ten minutes.
+      const lastRecord = s.sessionRecords[s.sessionRecords.length - 1];
+      if (s.mode !== 'tiny' || !s.justDone || !isTinyFirstRung(lastRecord)) return s;
+      const remaining = TINY_EXTENSION_MIN * 60;
+      const endsAt = Date.now() + remaining * 1000;
+      const taskId = resolveActiveTask(s.tasks, s.activeTaskId)?.id;
+      const openFocus = {
+        ...newOpenSession('tiny', TINY_EXTENSION_MIN, taskId),
+        endsAt,
+      };
+      return {
+        ...s,
+        running: true,
+        endsAt,
+        remaining,
+        justDone: false,
+        openFocus,
+      };
+    }
+    case 'declineTiny': {
+      const lastRecord = s.sessionRecords[s.sessionRecords.length - 1];
+      if (s.mode !== 'tiny' || !s.justDone || !isTinyFirstRung(lastRecord)) return s;
+      return reducer(s, { type: 'clearDone' });
+    }
     case 'complete': {
       if (s.mode === 'flow') return s; // flow ends via finishFlow only
       const wasFocus = s.mode === 'focus';
+      const wasTiny = s.mode === 'tiny';
+      const wasWork = wasFocus || wasTiny;
       const sessions = s.sessions + (wasFocus ? 1 : 0);
-      const streak = wasFocus ? bumpStreak(s.streak, s.lastFocusDay) : s.streak;
-      const lastFocusDay = wasFocus ? dayStr() : s.lastFocusDay;
+      const streak = wasWork ? bumpStreak(s.streak, s.lastFocusDay) : s.streak;
+      const lastFocusDay = wasWork ? dayStr() : s.lastFocusDay;
       // Credit the finished pomodoro to the active task; auto-check it once
       // its goal is reached and move focus to the next open task.
       let tasks = s.tasks;
@@ -650,13 +742,23 @@ function reducer(s: BloomState, a: Action): BloomState {
           activeTaskId = nowDone ? (tasks.find((t) => !t.done)?.id ?? null) : cur.id;
         }
       }
-      // Credit XP toward the on-duty friend's level.
-      const palXp = wasFocus
-        ? { ...s.palXp, [s.settings.pal]: (s.palXp[s.settings.pal] ?? 0) + 1 }
-        : s.palXp;
+      // Credit XP toward the on-duty friend's level. Tiny rungs get a
+      // positive, proportional share of one configured focus session.
+      const xpEarned = wasFocus
+        ? 1
+        : wasTiny
+          ? tinyXpFor(s.openFocus?.plannedMin ?? 0, dur.focus / 60)
+          : 0;
+      const palXp =
+        xpEarned > 0
+          ? {
+              ...s.palXp,
+              [s.settings.pal]: Math.round(((s.palXp[s.settings.pal] ?? 0) + xpEarned) * 100) / 100,
+            }
+          : s.palXp;
       // The countdown ran its full course: finalize the session record.
       const sessionRecords =
-        wasFocus && s.openFocus
+        wasWork && s.openFocus
           ? appendSessionRecord(
               s.sessionRecords,
               finalizeSession(s.openFocus, 'completed', s.openFocus.plannedMin ?? dur.focus / 60),
@@ -675,7 +777,7 @@ function reducer(s: BloomState, a: Action): BloomState {
         activeTaskId,
         palXp,
         sessionRecords,
-        openFocus: wasFocus ? null : s.openFocus,
+        openFocus: wasWork ? null : s.openFocus,
       };
     }
     case 'clearDone': {
@@ -683,6 +785,18 @@ function reducer(s: BloomState, a: Action): BloomState {
       // whether to break (and for how long) stays the user's call.
       if (s.mode === 'flow') {
         return { ...s, justDone: false, running: false, endsAt: null, remaining: 0 };
+      }
+      // Tiny rungs finish as real sessions, then return to an idle focus
+      // timer. They never force a break or auto-start another block.
+      if (s.mode === 'tiny') {
+        return {
+          ...s,
+          justDone: false,
+          mode: 'focus',
+          running: false,
+          endsAt: null,
+          remaining: dur.focus,
+        };
       }
       // After the celebrate animation: advance to the next mode, and keep the
       // flow going automatically if auto-start is on.
@@ -809,7 +923,9 @@ function reducer(s: BloomState, a: Action): BloomState {
       // Duration edits apply immediately to a stopped timer; a running one
       // keeps its end time and picks up the new length next session.
       const remaining =
-        s.mode !== 'flow' && !s.running && !s.justDone ? settings.durations[s.mode] : s.remaining;
+        s.mode !== 'flow' && s.mode !== 'tiny' && !s.running && !s.justDone
+          ? settings.durations[s.mode]
+          : s.remaining;
       return { ...s, settings, remaining };
     }
     default:
@@ -846,25 +962,33 @@ export function useBloom() {
   }, []);
 
   // When a session completes: chime, hold the celebrate state, then advance.
+  // A finished first tiny rung stays put until the user freely chooses the
+  // 10-minute extension or says this was enough.
   const celRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const soundRef = useRef(state.settings.sound);
   soundRef.current = state.settings.sound;
   useEffect(() => {
     if (!state.justDone) return;
+    const lastRecord = state.sessionRecords[state.sessionRecords.length - 1];
+    const holdsTinyOffer = state.mode === 'tiny' && isTinyFirstRung(lastRecord);
     if (soundRef.current) {
       audioEngine.playRing();
       if (state.mode === 'flow') {
         notify('🌸 Flow banked!', 'Lovely stretch of focus — treat yourself to a real break.');
+      } else if (holdsTinyOffer) {
+        notify('🌸 Tiny start complete!', 'That first step bloomed — ten more minutes are optional.');
       } else {
         notify('🌸 Session done!', 'Nice work — time for a little break.');
       }
     }
-    celRef.current = setTimeout(() => dispatch({ type: 'clearDone' }), 3600);
+    if (!holdsTinyOffer) {
+      celRef.current = setTimeout(() => dispatch({ type: 'clearDone' }), 3600);
+    }
     return () => {
       if (celRef.current) clearTimeout(celRef.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.justDone]);
+  }, [state.justDone, state.mode, state.sessionRecords]);
 
   // Background ambience is owned here so it can never fight a settings preview.
   const runningRef = useRef(state.running);
@@ -895,7 +1019,9 @@ export function useBloom() {
   const mood = useMemo<'idle' | 'work' | 'sleep' | 'celebrate'>(() => {
     if (state.justDone) return 'celebrate';
     if (!state.running) return 'idle';
-    return state.mode === 'focus' || state.mode === 'flow' ? 'work' : 'sleep';
+    return state.mode === 'focus' || state.mode === 'flow' || state.mode === 'tiny'
+      ? 'work'
+      : 'sleep';
   }, [state.justDone, state.running, state.mode]);
 
   const statusLabel = state.justDone
@@ -903,9 +1029,11 @@ export function useBloom() {
     : state.running
       ? state.mode === 'flow'
         ? 'in the flow…'
-        : state.mode === 'focus'
-          ? 'focusing…'
-          : 'resting…'
+        : state.mode === 'tiny'
+          ? 'one tiny start…'
+          : state.mode === 'focus'
+            ? 'focusing…'
+            : 'resting…'
       : 'ready when you are';
 
   const palSprite: AnimalKind = friendByName(state.settings.pal).sprite;
@@ -920,12 +1048,19 @@ export function useBloom() {
       },
       reset: () => dispatch({ type: 'reset' }),
       pick: (m: TimerMode) => dispatch({ type: 'pick', mode: m }),
+      pickTiny: (minutes: TinyStartMinutes) =>
+        dispatch({ type: 'pick', mode: 'tiny', tinyMinutes: minutes }),
       skip: () => dispatch({ type: 'skip' }),
       toggleTask: (id: number) => dispatch({ type: 'toggleTask', id }),
       addTask: (text: string, goal = 1) => dispatch({ type: 'addTask', text, goal }),
       removeTask: (id: number) => dispatch({ type: 'removeTask', id }),
       setActiveTask: (id: number) => dispatch({ type: 'setActiveTask', id }),
       finishFlow: () => dispatch({ type: 'finishFlow' }),
+      extendTiny: () => {
+        audioEngine.resume();
+        dispatch({ type: 'extendTiny' });
+      },
+      declineTiny: () => dispatch({ type: 'declineTiny' }),
       addGoal: (title: string, due: string, target: number) =>
         dispatch({ type: 'addGoal', title, due, target }),
       removeGoal: (id: number) => dispatch({ type: 'removeGoal', id }),
@@ -968,7 +1103,14 @@ export function useBloom() {
     if (state.justDone) {
       document.title = '🌸 session done! — Bloom';
     } else if (state.running) {
-      const what = state.mode === 'flow' ? 'flow' : state.mode === 'focus' ? 'focus' : 'break';
+      const what =
+        state.mode === 'flow'
+          ? 'flow'
+          : state.mode === 'tiny'
+            ? 'tiny start'
+            : state.mode === 'focus'
+              ? 'focus'
+              : 'break';
       const time = state.mode === 'flow' ? clock(state.remaining) : mmss(state.remaining);
       document.title = `${time} ${what} — Bloom`;
     } else {

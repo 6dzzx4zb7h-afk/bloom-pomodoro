@@ -1,12 +1,19 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { DebriefCard } from '../components/DebriefCard';
+import { IfThenPlanner } from '../components/IfThenPlanner';
 import { PixelPal } from '../components/PixelPal';
 import { SettingsSheet } from '../components/SettingsSheet';
 import { WeeklyReview } from '../components/WeeklyReview';
 import { WEEKLY_WINDOW_DAYS, weekKey } from '../insights/weekly';
 import type { SessionRecord } from '../store/sessions';
-import type { useBloom } from '../store/useBloom';
-import type { TimerMode } from '../store/useBloom';
+import {
+  TINY_EXTENSION_MIN,
+  TINY_START_OPTIONS,
+  isTinyFirstRung,
+  type TimerMode,
+  type TinyStartMinutes,
+  type useBloom,
+} from '../store/useBloom';
 import type { Companion } from '../store/useCompanion';
 
 const RING_R = 92;
@@ -14,6 +21,7 @@ const RING_C = 2 * Math.PI * RING_R;
 const MODE_LABEL: Record<TimerMode, string> = {
   focus: 'Focus',
   flow: 'Flow',
+  tiny: 'Tiny',
   short: 'Short',
   long: 'Long',
 };
@@ -27,6 +35,7 @@ export function FocusScreen({
 }) {
   const { state, mood, statusLabel, palSprite, activeTask, actions, mmss, clock } = bloom;
   const [showSettings, setShowSettings] = useState(false);
+  const [tinyMinutes, setTinyMinutes] = useState<TinyStartMinutes>(TINY_START_OPTIONS[0]);
 
   // Post-session debrief (PLAN 2.1): watch the session log for a record
   // finalized while this screen is up. Seeding the ref with the log's current
@@ -70,19 +79,44 @@ export function FocusScreen({
   const wantsIntention =
     companion.enabled && companion.conf.intention && state.mode === 'focus' && !state.justDone;
 
+  // Pre-session if–then planner (PLAN 3.2): only before a fresh focus start —
+  // a paused session already has its record (and plan) stamped.
+  const showPlanner =
+    state.mode === 'focus' && !state.running && !state.openFocus && !state.justDone;
+  const activeTaskId = activeTask?.id;
+  // Remembered per task: default to the plan this task last started with.
+  const rememberedPlanId = useMemo(() => {
+    const own = state.ifThenPlans.filter((p) => p.taskId === activeTaskId);
+    if (!own.length) return null;
+    return own.reduce((a, b) =>
+      (b.lastUsedAt ?? b.createdAt) > (a.lastUsedAt ?? a.createdAt) ? b : a,
+    ).id;
+  }, [state.ifThenPlans, activeTaskId]);
+  // undefined = follow the per-task default; null = skipped for now.
+  const [chosenPlanId, setChosenPlanId] = useState<string | null | undefined>(undefined);
+  useEffect(() => setChosenPlanId(undefined), [activeTaskId]);
+  const rawPlanId = chosenPlanId === undefined ? rememberedPlanId : chosenPlanId;
+  // A remembered plan that has since been deleted counts as no plan.
+  const planId = state.ifThenPlans.some((p) => p.id === rawPlanId) ? rawPlanId : null;
+
   const isFlow = state.mode === 'flow';
+  const isTiny = state.mode === 'tiny';
   const focusLen = state.settings.durations.focus || 1;
   // Flow: `remaining` holds elapsed seconds and the ring fills once per
   // focus-length, lap after lap — the stopwatch's quiet nod to the pomodoro.
-  const total = state.mode === 'flow' ? focusLen : state.settings.durations[state.mode] || 1;
+  const total = state.mode === 'flow'
+    ? focusLen
+    : state.mode === 'tiny'
+      ? (state.openFocus?.plannedMin ?? tinyMinutes) * 60
+      : state.settings.durations[state.mode] || 1;
   const ringFrac = isFlow ? (state.remaining % focusLen) / focusLen : state.remaining / total;
   const ringOffset = RING_C * (1 - ringFrac);
   // Whole focus-lengths already on the clock — what "finish" would bank.
   const laps = isFlow ? Math.floor(state.remaining / focusLen) : 0;
 
   const modes: TimerMode[] = state.settings.flow
-    ? ['focus', 'flow', 'short', 'long']
-    : ['focus', 'short', 'long'];
+    ? ['focus', 'flow', 'tiny', 'short', 'long']
+    : ['focus', 'tiny', 'short', 'long'];
   const idx = Math.max(0, modes.indexOf(state.mode));
   const pillW = `calc((100% - 8px) / ${modes.length})`;
 
@@ -91,6 +125,9 @@ export function FocusScreen({
   const cyc = state.sessions % 4;
   const filled =
     cyc === 0 && state.sessions > 0 && (state.justDone || state.mode !== 'focus') ? 4 : cyc;
+
+  const lastRecord = records.length ? records[records.length - 1] : undefined;
+  const showTinyOffer = state.justDone && isTiny && isTinyFirstRung(lastRecord);
 
   return (
     <div className="screen focus-bg">
@@ -122,13 +159,34 @@ export function FocusScreen({
               key={m}
               className="tab-btn"
               aria-pressed={state.mode === m}
-              onClick={() => actions.pick(m)}
+              onClick={() => (m === 'tiny' ? actions.pickTiny(tinyMinutes) : actions.pick(m))}
             >
               {MODE_LABEL[m]}
             </button>
           ))}
         </div>
       </div>
+
+      {isTiny && !state.running && !state.openFocus && !state.justDone && (
+        <div className="tiny-picker" role="group" aria-label="Tiny start length">
+          <span className="tiny-picker-label">pick one small first rung</span>
+          <span className="tiny-picker-options">
+            {TINY_START_OPTIONS.map((minutes) => (
+              <button
+                key={minutes}
+                className={`tiny-choice${tinyMinutes === minutes ? ' on' : ''}`}
+                aria-pressed={tinyMinutes === minutes}
+                onClick={() => {
+                  setTinyMinutes(minutes);
+                  actions.pickTiny(minutes);
+                }}
+              >
+                {minutes} min
+              </button>
+            ))}
+          </span>
+        </div>
+      )}
 
       <div className="ring-wrap">
         <svg className="ring-svg" width="236" height="236" viewBox="0 0 236 236">
@@ -181,7 +239,11 @@ export function FocusScreen({
         <button className="ctrl-round ctrl-reset" onClick={actions.reset} aria-label="Reset">
           &#8634;
         </button>
-        <button className="ctrl-play" onClick={actions.toggle} aria-label={state.running ? 'Pause' : 'Start'}>
+        <button
+          className="ctrl-play"
+          onClick={() => actions.toggle(showPlanner && planId ? planId : undefined)}
+          aria-label={state.running ? 'Pause' : 'Start'}
+        >
           {state.running ? (
             <span className="pause-bars">
               <span />
@@ -207,6 +269,37 @@ export function FocusScreen({
           </button>
         )}
       </div>
+
+      {showTinyOffer && (
+        <div className="companion-pop tiny-rung-card" role="status" aria-label="Tiny start complete">
+          <PixelPal sprite={palSprite} mode="idle" scale={3} size={64} className="pop-pal" />
+          <div className="pop-body">
+            <div className="pop-text">tiny start complete — that counts ♡</div>
+            <div className="tiny-rung-question">keep going for {TINY_EXTENSION_MIN}?</div>
+            <div className="pop-actions">
+              <button className="pop-btn primary" onClick={actions.extendTiny}>
+                yes, {TINY_EXTENSION_MIN} more
+              </button>
+              <button className="pop-btn" onClick={actions.declineTiny}>
+                done for now ♡
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showPlanner && (
+        <IfThenPlanner
+          plans={state.ifThenPlans}
+          selectedId={planId}
+          onSelect={(id) => setChosenPlanId(id)}
+          onClear={() => setChosenPlanId(null)}
+          onCreate={(cueType, cueText, actionText) =>
+            actions.addIfThenPlan(cueType, cueText, actionText)
+          }
+          onRemove={(id) => actions.removeIfThenPlan(id)}
+        />
+      )}
 
       {wantsIntention && !state.running && (
         <input

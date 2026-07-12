@@ -244,6 +244,41 @@ button {
   color: var(--plum);
 }
 
+/* Tiny Start (PLAN 3.3): two honest first rungs, never a hidden commitment. */
+.tiny-picker {
+  margin: 9px auto -5px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  flex: none;
+}
+.tiny-picker-label {
+  font: 600 11.5px var(--font-body);
+  color: var(--text-faint);
+}
+.tiny-picker-options {
+  display: inline-flex;
+  gap: 5px;
+  padding: 3px;
+  border-radius: 13px;
+  background: rgba(255, 255, 255, 0.55);
+}
+.tiny-choice {
+  border: none;
+  border-radius: 10px;
+  padding: 5px 10px;
+  background: transparent;
+  color: var(--soft2);
+  font: 700 11px var(--font-display);
+  cursor: pointer;
+}
+.tiny-choice.on {
+  color: var(--plum);
+  background: #fff;
+  box-shadow: 0 4px 10px -7px rgba(110, 85, 119, 0.7);
+}
+
 .ring-wrap {
   position: relative;
   width: 236px;
@@ -1410,6 +1445,17 @@ button {
   margin-right: 2px;
 }
 
+/* The next rung appears only at the natural pause after a completed tiny
+   start. Both choices are equally available; stopping keeps all credit. */
+.tiny-rung-card {
+  z-index: 56;
+}
+.tiny-rung-question {
+  margin: -2px 0 9px;
+  font: 700 12.5px var(--font-display);
+  color: var(--soft2);
+}
+
 .pop-jot {
   display: flex;
   gap: 6px;
@@ -1465,6 +1511,146 @@ button {
   overflow: hidden;
   text-overflow: ellipsis;
   padding: 0 30px;
+}
+
+/* Pre-session if–then planner (PLAN 3.2): one airy optional line above the
+   intention input; expands into a small panel to pick or write a plan. */
+.ifthen-ask {
+  margin: 12px auto 0;
+  display: block;
+  border: none;
+  background: none;
+  cursor: pointer;
+  font: 600 12px var(--font-body);
+  color: var(--text-faint);
+  padding: 4px 10px;
+  flex: none;
+}
+.ifthen-ask:hover {
+  color: var(--soft2);
+}
+.ifthen-opt {
+  font-size: 10px;
+  opacity: 0.75;
+}
+.ifthen-bar {
+  margin: 12px auto 0;
+  width: min(300px, calc(100% - 40px));
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+}
+.ifthen-current {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: rgba(255, 255, 255, 0.55);
+  border-radius: 12px;
+  padding: 7px 11px;
+  cursor: pointer;
+  font: 600 11.5px var(--font-body);
+  color: var(--soft);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: center;
+}
+.ifthen-clear,
+.ifthen-close,
+.ifthen-del {
+  border: none;
+  background: none;
+  cursor: pointer;
+  color: var(--soft3);
+  font: 700 15px var(--font-display);
+  padding: 2px 7px;
+  border-radius: 9px;
+  flex: none;
+}
+.ifthen-clear:hover,
+.ifthen-close:hover,
+.ifthen-del:hover {
+  color: var(--soft);
+  background: rgba(199, 159, 230, 0.14);
+}
+.ifthen-panel {
+  margin: 12px auto 0;
+  width: min(320px, calc(100% - 40px));
+  background: rgba(255, 255, 255, 0.85);
+  border-radius: 16px;
+  padding: 11px 13px;
+  flex: none;
+  text-align: left;
+}
+.ifthen-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.ifthen-title {
+  font: 700 13px var(--font-display);
+  color: var(--plum);
+}
+.ifthen-sub {
+  font: 600 10.5px var(--font-body);
+  color: var(--soft3);
+  margin: 2px 0 8px;
+}
+.ifthen-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 9px;
+  max-height: 150px;
+  overflow-y: auto;
+}
+.ifthen-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.ifthen-plan {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: rgba(199, 159, 230, 0.12);
+  border-radius: 10px;
+  padding: 6px 10px;
+  cursor: pointer;
+  font: 600 11.5px var(--font-body);
+  color: var(--soft);
+  text-align: left;
+  line-height: 1.35;
+}
+.ifthen-plan:hover {
+  background: rgba(199, 159, 230, 0.2);
+}
+.ifthen-plan.on {
+  background: linear-gradient(150deg, rgba(255, 176, 212, 0.35), rgba(199, 159, 230, 0.35));
+  color: var(--plum);
+}
+.ifthen-new {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.ifthen-cues {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+.ifthen-save {
+  align-self: flex-end;
+}
+.ifthen-save:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.ifthen-note {
+  font: 600 10.5px var(--font-body);
+  color: var(--soft3);
 }
 
 /* Weekly Focus Patterns card (Tasks screen, Companion Mode only). Lives
@@ -1946,6 +2132,36 @@ body.night {
 }
 .night .patterns-card {
   background: rgba(46, 37, 87, 0.72);
+}
+.night .ifthen-current {
+  background: rgba(46, 37, 87, 0.55);
+  color: var(--purple-2);
+}
+.night .tiny-picker-options {
+  background: rgba(46, 37, 87, 0.55);
+}
+.night .tiny-choice.on {
+  background: rgba(16, 11, 34, 0.6);
+  color: #fff;
+}
+.night .ifthen-panel {
+  background: rgba(46, 37, 87, 0.92);
+}
+.night .ifthen-plan {
+  background: rgba(16, 11, 34, 0.45);
+  color: var(--purple-2);
+}
+.night .ifthen-plan:hover {
+  background: rgba(16, 11, 34, 0.6);
+}
+.night .ifthen-plan.on {
+  background: linear-gradient(150deg, rgba(255, 156, 194, 0.25), rgba(183, 159, 227, 0.25));
+  color: #fff;
+}
+.night .ifthen-clear:hover,
+.night .ifthen-close:hover,
+.night .ifthen-del:hover {
+  background: rgba(16, 11, 34, 0.45);
 }
 .night .patterns-chip {
   background: rgba(16, 11, 34, 0.45);

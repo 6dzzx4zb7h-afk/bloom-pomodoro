@@ -34,8 +34,8 @@ export default function App() {
     if (screen === 'goals' && !showGoals) setScreen('tasks');
   }, [screen, showGoals]);
 
-  // Flow shares Focus's sky mood — it's the same kind of hour, just unclocked.
-  const skyMode = mode === 'flow' ? 'focus' : mode;
+  // Flow and Tiny Start share Focus's sky mood — both are working modes.
+  const skyMode = mode === 'flow' || mode === 'tiny' ? 'focus' : mode;
 
   return (
     <div className="bezel">
