@@ -11,6 +11,8 @@ interface SettingsSheetProps {
   running: boolean;
   onPatch: (patch: Partial<Settings>) => void;
   onClose: () => void;
+  /** Open the weekly review card on demand (PLAN 2.3); closes the sheet. */
+  onShowWeekly?: () => void;
 }
 
 interface DurationRowSpec {
@@ -27,7 +29,7 @@ const DURATION_ROWS: DurationRowSpec[] = [
   { key: 'long', label: 'Long break', step: 5, min: 5, max: 45 },
 ];
 
-export function SettingsSheet({ settings, running, onPatch, onClose }: SettingsSheetProps) {
+export function SettingsSheet({ settings, running, onPatch, onClose, onShowWeekly }: SettingsSheetProps) {
   // 'unknown' until asked; used to nudge the user if they blocked notifications.
   const [notifyDenied, setNotifyDenied] = useState(false);
   const companion = settings.companion;
@@ -394,6 +396,20 @@ export function SettingsSheet({ settings, running, onPatch, onClose }: SettingsS
                 <span className="knob" />
               </button>
             </div>
+          </div>
+        )}
+
+        {onShowWeekly && (
+          <div className="set-row">
+            <span className="set-label">
+              Weekly review
+              <span className="set-sub">
+                a tiny look back — what helped you start, and what helped you recover
+              </span>
+            </span>
+            <button className="mini-btn" onClick={onShowWeekly}>
+              see this week
+            </button>
           </div>
         )}
 

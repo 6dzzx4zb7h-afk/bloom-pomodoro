@@ -8,6 +8,7 @@ import {
   loadEvents,
   RECIPE_MIN_SIGNALS,
 } from '../store/companion';
+import { EVIDENCE_EXPLAINERS, type EvidenceKey } from '../insights/why';
 
 const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
@@ -44,6 +45,9 @@ export function TasksScreen({ bloom }: { bloom: ReturnType<typeof useBloom> }) {
     () => (companionOn ? computeAttentionPlan(loadEvents(), focusLenMins) : []),
     [companionOn, focusLenMins],
   );
+  // The recipe's tappable "why?" (PLAN 2.4): a plain explainer sheet for now;
+  // 6.3 upgrades the same keys into Field Guide deep-links.
+  const [evidence, setEvidence] = useState<EvidenceKey | null>(null);
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -183,17 +187,48 @@ export function TasksScreen({ bloom }: { bloom: ReturnType<typeof useBloom> }) {
               </div>
             ) : (
               recipe.map((item, i) => (
-                <div className="recipe-item" key={i}>
+                <div className="recipe-item" key={i} data-evidence={item.evidenceKey}>
                   <span className="recipe-emoji" aria-hidden="true">
                     {item.emoji}
                   </span>
-                  <span className="recipe-text">{item.text}</span>
+                  <span className="recipe-text">
+                    {item.text}
+                    <span className="recipe-because">
+                      {item.because}{' '}
+                      <button
+                        className="recipe-why"
+                        onClick={() => setEvidence(item.evidenceKey)}
+                        aria-label="Why this suggestion?"
+                      >
+                        why?
+                      </button>
+                    </span>
+                  </span>
                 </div>
               ))
             )}
           </div>
         )}
       </div>
+
+      {evidence && (
+        <div className="sheet-backdrop" onClick={() => setEvidence(null)}>
+          <div
+            className="sheet evidence-sheet"
+            role="dialog"
+            aria-label="Why this suggestion"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="sheet-grip" />
+            <div className="sheet-title">{EVIDENCE_EXPLAINERS[evidence].title}</div>
+            <div className="evidence-text">{EVIDENCE_EXPLAINERS[evidence].text}</div>
+            <div className="evidence-src">the pet only suggests — you always know best ♡</div>
+            <button className="sheet-done" onClick={() => setEvidence(null)}>
+              ok ♡
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className="add-row">
         <form className="add-form" onSubmit={submit}>

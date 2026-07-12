@@ -86,6 +86,8 @@ interface BloomState {
    * background while focus sessions run.
    */
   openFlow: OpenSession | null;
+  /** weekKey() of the last week the weekly review auto-surfaced (PLAN 2.3). */
+  lastWeeklyReviewWeek: string | null;
   settings: Settings;
 }
 
@@ -126,6 +128,7 @@ const DEFAULT_STATE: BloomState = {
   sessionRecords: [],
   openFocus: null,
   openFlow: null,
+  lastWeeklyReviewWeek: null,
   settings: DEFAULT_SETTINGS,
 };
 
@@ -143,7 +146,7 @@ const DEFAULT_STATE: BloomState = {
 const STORAGE_KEY = 'bloom-state';
 /** Older keys we still read from once, newest first. */
 const LEGACY_KEYS = ['bloom-state-v2', 'bloom-state-v1'];
-const SCHEMA_VERSION = 5;
+const SCHEMA_VERSION = 6;
 
 interface PersistedShape {
   version: number;
@@ -161,6 +164,8 @@ interface PersistedShape {
   /** Open-session slots — swept into `interrupted` records on boot (focus). */
   openFocus: OpenSession | null;
   openFlow: OpenSession | null;
+  /** weekKey() of the last week the weekly review auto-surfaced (PLAN 2.3). */
+  lastWeeklyReviewWeek: string | null;
   settings: Settings;
 }
 
@@ -198,6 +203,10 @@ const MIGRATIONS: Array<(blob: Record<string, unknown>) => Record<string, unknow
   // this blob needs no transformation. Bumped anyway so every persisted-shape
   // change has a version (constraint #2) and 7.1 gets a fixture per version.
   (blob) => blob,
+  // v5 -> v6: weekly review (PLAN 2.3). Tracks the Monday-key of the last
+  // calendar week the review card auto-surfaced, so it appears at most once
+  // per week. Existing users have never seen one.
+  (blob) => ({ ...blob, lastWeeklyReviewWeek: null }),
 ];
 
 function dayStr(d = new Date()): string {
@@ -252,6 +261,8 @@ function withDefaults(blob: Record<string, unknown>): PersistedShape {
     sessionRecords: sanitizeSessionRecords(b.sessionRecords),
     openFocus: keepOpenSession(b.openFocus, 'focus'),
     openFlow: keepOpenSession(b.openFlow, 'flow'),
+    lastWeeklyReviewWeek:
+      typeof b.lastWeeklyReviewWeek === 'string' ? (b.lastWeeklyReviewWeek as string) : null,
     settings,
   };
 }
@@ -316,6 +327,7 @@ function loadState(): BloomState {
     sessionRecords,
     openFocus: null,
     openFlow: p.openFlow,
+    lastWeeklyReviewWeek: p.lastWeeklyReviewWeek,
   };
   // A flow run that was live when the app closed keeps counting (that's what
   // a stopwatch does) — unless it's been so long it was clearly abandoned, in
@@ -355,6 +367,7 @@ function persist(s: BloomState) {
     sessionRecords: s.sessionRecords,
     openFocus: s.openFocus,
     openFlow: s.openFlow,
+    lastWeeklyReviewWeek: s.lastWeeklyReviewWeek,
     settings: s.settings,
   };
   try {
@@ -412,6 +425,7 @@ type Action =
   | { type: 'removeGoal'; id: number }
   | { type: 'logGoal'; id: number; delta: number }
   | { type: 'linkDrift'; eventId: string; sessionId: string }
+  | { type: 'markWeeklyReview'; week: string }
   | { type: 'patchSettings'; patch: Partial<Settings> };
 
 function reducer(s: BloomState, a: Action): BloomState {
@@ -689,6 +703,10 @@ function reducer(s: BloomState, a: Action): BloomState {
       if (openFocus === s.openFocus && openFlow === s.openFlow) return s;
       return { ...s, openFocus, openFlow };
     }
+    case 'markWeeklyReview':
+      // The weekly review card surfaced this week — don't auto-show another
+      // until the next calendar week (PLAN 2.3).
+      return s.lastWeeklyReviewWeek === a.week ? s : { ...s, lastWeeklyReviewWeek: a.week };
     case 'removeGoal':
       return { ...s, goals: s.goals.filter((g) => g.id !== a.id) };
     case 'logGoal': {
@@ -747,7 +765,7 @@ export function useBloom() {
   // per-second tick only touches `remaining`, which is not persisted.
   useEffect(() => {
     persist(state);
-  }, [state.sessions, state.streak, state.lastFocusDay, state.tasks, state.activeTaskId, state.palXp, state.goals, state.flowStart, state.flowAcc, state.running, state.mode, state.sessionRecords, state.openFocus, state.openFlow, state.settings]);
+  }, [state.sessions, state.streak, state.lastFocusDay, state.tasks, state.activeTaskId, state.palXp, state.goals, state.flowStart, state.flowAcc, state.running, state.mode, state.sessionRecords, state.openFocus, state.openFlow, state.lastWeeklyReviewWeek, state.settings]);
 
   // Wall-clock tick: recompute remaining ~4x/sec. Reads Date.now(), so it
   // stays accurate even when the tab is throttled in the background.
@@ -854,6 +872,7 @@ export function useBloom() {
       logGoal: (id: number, delta: number) => dispatch({ type: 'logGoal', id, delta }),
       linkDriftEvent: (eventId: string, sessionId: string) =>
         dispatch({ type: 'linkDrift', eventId, sessionId }),
+      markWeeklyReview: (week: string) => dispatch({ type: 'markWeeklyReview', week }),
       patchSettings: (patch: Partial<Settings>) => dispatch({ type: 'patchSettings', patch }),
     }),
     [],

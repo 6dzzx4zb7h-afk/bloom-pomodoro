@@ -115,7 +115,7 @@ Rules of thumb:
 
 ## Phase 2 — Insights that explain WHY
 
-### - [ ] 2.1 Post-session debrief card (skeleton)
+### - [x] 2.1 Post-session debrief card (skeleton)
 
 - **Goal:** After a session ends (complete or abandon), FocusScreen shows a dismissible debrief card: planned vs. actual, drift count with early/mid/late chips, outcome — and one slot for a "why" sentence (placeholder for now). Never shown mid-session. Pet delivers it via CompanionPrompt tone, not a modal wall.
 - **Science:** §Measurement — progress monitoring row (Harkin 2016: visible recording of behavior, d = 0.40); §Measurement closing paragraph (reflect back clearly, don't moralize).
@@ -123,7 +123,7 @@ Rules of thumb:
 - **Done when:** Card renders with real record data after any session end; dismisses cleanly; nothing renders while a timer runs.
 - **Depends on:** 1.4.
 
-### - [ ] 2.2 Rule-based "why" engine for the debrief
+### - [x] 2.2 Rule-based "why" engine for the debrief
 
 - **Goal:** `src/insights/why.ts`: pure function mapping (this session's record + user's aggregate stats) → one explanatory sentence with a cause, e.g. "Both drifts were late-session — attention naturally sags with time on task; a slightly shorter block might fit this task." Each rule returns `{ text, evidenceKey }` where `evidenceKey` points at a science.md anchor / future guide article. Cap: exactly one insight per debrief; a neutral fallback when signal is thin.
 - **Science:** §Staying — time-on-task row (vigilance decrement is expected, "prompt before the slump, not after"); §Staying — mind-wandering row; §Recovering — self-forgiveness row (abandoned-session copy must be kind-restart framed, never streak-framed).
@@ -131,7 +131,7 @@ Rules of thumb:
 - **Done when:** ≥6 rules with unit tests (late-drift pattern, short-session success, golden-hour match, abandon-kindness, first-drift-timing, low-signal fallback); every rule's copy passes a manual check against `docs/voice.md`.
 - **Depends on:** 2.1, 0.2.
 
-### - [ ] 2.3 Weekly review card
+### - [x] 2.3 Weekly review card
 
 - **Goal:** A once-per-week card (surfaced on FocusScreen when idle, and from Settings on demand) answering exactly two questions from the data: "What helped you start?" and "What helped you recover?" — plus one suggested experiment for next week. Small numbers, no judgment words, no red/failure styling.
 - **Science:** §Measurement — article brief "Why tracking helps and when it turns into pressure" (review with only those two questions, skip judgment); §Measurement — feedback row (simple, low-frequency beats over-engineered dashboards).
@@ -139,7 +139,7 @@ Rules of thumb:
 - **Done when:** With ≥5 sessions of fixture data the card shows both answers + one experiment; with less it shows an encouraging "still learning your patterns" state; appears at most once per calendar week automatically.
 - **Depends on:** 2.2.
 
-### - [ ] 2.4 Make the attention recipe explainable
+### - [x] 2.4 Make the attention recipe explainable
 
 - **Goal:** Extend `computeAttentionPlan()` so every recommendation carries `{ because: string, evidenceKey: string }` — the *because* cites the user's own numbers ("62% of your drifts are rabbit-holes, mostly mid-session"), the *evidenceKey* links the science (rendered as a tappable "why?" that later deep-links to a guide article after 6.3; until then it opens a plain explainer sheet). No recommendation may appear without a because.
 - **Science:** §Measurement — JITAI row (adaptation must be transparent and explainable, not opaque over-personalization); §Prioritized feature ideas rank 8 (pattern-aware reflection).

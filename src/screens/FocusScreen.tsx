@@ -1,6 +1,10 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { DebriefCard } from '../components/DebriefCard';
 import { PixelPal } from '../components/PixelPal';
 import { SettingsSheet } from '../components/SettingsSheet';
+import { WeeklyReview } from '../components/WeeklyReview';
+import { WEEKLY_WINDOW_DAYS, weekKey } from '../insights/weekly';
+import type { SessionRecord } from '../store/sessions';
 import type { useBloom } from '../store/useBloom';
 import type { TimerMode } from '../store/useBloom';
 import type { Companion } from '../store/useCompanion';
@@ -23,6 +27,44 @@ export function FocusScreen({
 }) {
   const { state, mood, statusLabel, palSprite, activeTask, actions, mmss, clock } = bloom;
   const [showSettings, setShowSettings] = useState(false);
+
+  // Post-session debrief (PLAN 2.1): watch the session log for a record
+  // finalized while this screen is up. Seeding the ref with the log's current
+  // tail means boot-time 'interrupted' sweeps never trigger a card — only a
+  // session the user just ended (completed or abandoned) does.
+  const [debrief, setDebrief] = useState<SessionRecord | null>(null);
+  const records = state.sessionRecords;
+  const lastSeenId = useRef<string | null>(
+    records.length ? records[records.length - 1].id : null,
+  );
+  useEffect(() => {
+    const last = records.length ? records[records.length - 1] : null;
+    if (!last || last.id === lastSeenId.current) return;
+    lastSeenId.current = last.id;
+    if (last.outcome === 'completed' || last.outcome === 'abandoned') setDebrief(last);
+  }, [records]);
+  // Weekly review (PLAN 2.3): auto-surface at most once per calendar week,
+  // only while idle, only when the week actually has sessions to reflect on.
+  // Settings can open it on demand any time (via onShowWeekly below).
+  const [weekly, setWeekly] = useState(false);
+
+  // Never mid-session: a new run sweeps the cards away even without a dismiss.
+  useEffect(() => {
+    if (state.running) {
+      setDebrief(null);
+      setWeekly(false);
+    }
+  }, [state.running]);
+
+  useEffect(() => {
+    if (state.running || state.justDone || debrief || weekly || showSettings) return;
+    const week = weekKey();
+    if (state.lastWeeklyReviewWeek === week) return;
+    const cutoff = Date.now() - WEEKLY_WINDOW_DAYS * 86400000;
+    if (!records.some((r) => r.endedAt >= cutoff)) return;
+    setWeekly(true);
+    actions.markWeeklyReview(week);
+  }, [state.running, state.justDone, debrief, weekly, showSettings, records, state.lastWeeklyReviewWeek, actions]);
 
   // Pre-session intention: optional, skippable, only in Companion Mode.
   const wantsIntention =
@@ -189,12 +231,30 @@ export function FocusScreen({
         </div>
       </div>
 
+      {debrief && !state.running && !state.justDone && (
+        <DebriefCard
+          record={debrief}
+          records={records}
+          palSprite={palSprite}
+          onDismiss={() => setDebrief(null)}
+        />
+      )}
+
+      {/* The debrief takes precedence — one card at a time, never mid-session. */}
+      {weekly && !debrief && !state.running && !state.justDone && (
+        <WeeklyReview records={records} palSprite={palSprite} onDismiss={() => setWeekly(false)} />
+      )}
+
       {showSettings && (
         <SettingsSheet
           settings={state.settings}
           running={state.running}
           onPatch={actions.patchSettings}
           onClose={() => setShowSettings(false)}
+          onShowWeekly={() => {
+            setShowSettings(false);
+            setWeekly(true);
+          }}
         />
       )}
     </div>

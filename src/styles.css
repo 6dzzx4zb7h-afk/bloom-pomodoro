@@ -1369,6 +1369,47 @@ button {
   line-height: 1.45;
   margin-bottom: 8px;
 }
+/* Post-session debrief card: same speech-bubble shell as the check-ins,
+   plus small mirror-not-grade data rows. No red/failure styling ever. */
+.debrief-card {
+  z-index: 54; /* under a live companion prompt, above everything else */
+}
+.debrief-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-bottom: 9px;
+}
+.debrief-row {
+  font: 600 12px var(--font-body);
+  color: var(--soft);
+  line-height: 1.45;
+}
+.debrief-chips {
+  display: inline-flex;
+  gap: 5px;
+  margin-left: 6px;
+  vertical-align: 1px;
+}
+.debrief-chip {
+  font: 700 10px var(--font-display);
+  color: var(--plum);
+  background: #f4eafb;
+  border-radius: 8px;
+  padding: 2px 7px;
+}
+.debrief-why {
+  color: var(--soft2);
+  font-style: italic;
+}
+/* Weekly review card (PLAN 2.3) shares the debrief shell; only the two
+   question labels are its own. Warm neutrals — no red/failure styling ever. */
+.weekly-q {
+  font: 700 11px var(--font-display);
+  color: var(--plum);
+  margin-right: 2px;
+}
+
 .pop-jot {
   display: flex;
   gap: 6px;
@@ -1549,6 +1590,33 @@ button {
   font: 600 12px var(--font-body);
   color: var(--soft);
   line-height: 1.5;
+}
+/* PLAN 2.4: the user's own numbers under each suggestion, plus its "why?". */
+.recipe-because {
+  display: block;
+  margin-top: 2px;
+  font: 600 11px var(--font-body);
+  color: var(--soft3);
+}
+.recipe-why {
+  border: none;
+  background: none;
+  padding: 0;
+  font: 700 11px var(--font-body);
+  color: var(--plum);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.evidence-text {
+  font: 600 13px var(--font-body);
+  color: var(--soft);
+  line-height: 1.6;
+  margin-bottom: 8px;
+}
+.evidence-src {
+  font: 600 11px var(--font-body);
+  color: var(--soft3);
 }
 
 /* ---------- goals & deadlines screen ---------- */
@@ -1854,6 +1922,9 @@ body.night {
   box-shadow: 0 14px 30px -14px rgba(8, 5, 20, 0.9);
 }
 .night .pop-btn {
+  background: #383060;
+}
+.night .debrief-chip {
   background: #383060;
 }
 .night .pop-opt {

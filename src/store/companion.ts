@@ -8,6 +8,10 @@
  * the data.
  */
 
+// Type-only (erased at compile time, so no runtime cycle with why.ts, which
+// imports helpers from this file): the shared evidence vocabulary (PLAN 2.4).
+import type { EvidenceKey } from '../insights/why';
+
 export interface CompanionSettings {
   /** Master toggle. Off = the app behaves exactly as without the feature. */
   on: boolean;
@@ -315,40 +319,67 @@ export interface RecipeItem {
   /** Tiny pictogram for the row. */
   emoji: string;
   text: string;
+  /**
+   * The user's own numbers behind this line (PLAN 2.4) — no recommendation
+   * appears without one. Rendered under the suggestion, next to "why?".
+   */
+  because: string;
+  /**
+   * Which piece of the evidence base backs the line — shared vocabulary with
+   * the debrief why-engine; resolves via WHY_EVIDENCE_ANCHORS / the explainer
+   * sheet today, and deep-links into the Field Guide after 6.3.
+   */
+  evidenceKey: EvidenceKey;
 }
 
 /** Signals (answers + aways) needed before the recipe says anything. */
 export const RECIPE_MIN_SIGNALS = 5;
 
 /** How each drift style is best met — richer than the in-session micro-tips. */
-const RECIPE_STRATEGY: Record<DriftKind, { emoji: string; text: string }> = {
+const RECIPE_STRATEGY: Record<DriftKind, { emoji: string; text: string; evidenceKey: EvidenceKey }> = {
   rabbit: {
     emoji: '🕳️',
     text: 'rabbit holes are your main pull — keep a "later list" beside you and park links there unopened; visit them in one batch after the timer.',
+    evidenceKey: 'parking-lot',
   },
   external: {
     emoji: '🔕',
     text: 'interruptions are your main pull — do-not-disturb during sessions, and tell people "back in a bit"; almost everything waits happily.',
+    evidenceKey: 'desk-help',
   },
   urge: {
     emoji: '🌊',
     text: 'check-urges are your main pull — put the phone out of reach, and when an urge hits, surf it for two minutes; most fade on their own.',
+    evidenceKey: 'parking-lot',
   },
   wander: {
     emoji: '💭',
     text: 'mind-wandering is your main pull — write one tiny intention before each session and re-read the last line whenever you notice drifting.',
+    evidenceKey: 'if-then',
   },
   restless: {
     emoji: '🐇',
     text: 'restlessness is your main pull — move every break (stretch, shake-out, a lap of the room) so the wiggles are spent before you sit back down.',
+    evidenceKey: 'breaks-are-fuel',
   },
 };
+
+const pctOf = (n: number, total: number) => Math.round((n / Math.max(1, total)) * 100);
+
+/** "4 weeks" for the default window; falls back to days for odd windows. */
+const windowLabel = (days: number) =>
+  days % 7 === 0 ? `${days / 7} weeks` : `${days} days`;
 
 /**
  * Build the personal attention recipe from the event log. Returns [] until
  * there are at least RECIPE_MIN_SIGNALS signals in the window; callers show a
  * "still learning you" line instead. Capped at 4 rows so it stays a recipe,
  * not a lecture.
+ *
+ * PLAN 2.4: every row carries `{ because, evidenceKey }` — the because cites
+ * the user's own numbers from this window, the evidenceKey names the science
+ * behind the suggestion. No recommendation without a because: adaptation must
+ * stay transparent and explainable (docs/science.md#measurement — JITAI row).
  */
 export function computeAttentionPlan(
   events: CompanionEvent[],
@@ -365,56 +396,65 @@ export function computeAttentionPlan(
   const items: RecipeItem[] = [];
   const answers = focused.length + drifts.length;
   const driftRate = answers > 0 ? drifts.length / answers : 0;
+  const span = windowLabel(windowDays);
 
   // 1) Session length, fit to where attention actually bends.
   if (drifts.length >= 3) {
     const late = drifts.filter((d) => phaseOf(driftOnsetMin(d), d.len) === 'late');
+    const early = drifts.filter((d) => phaseOf(driftOnsetMin(d), d.len) === 'early');
     if (late.length > drifts.length / 2 && focusLenMins >= 20) {
       const shorter = Math.max(15, focusLenMins - 5);
       items.push({
         emoji: '⏱️',
         text: `your focus tends to fade near the end — try ${shorter}-minute sessions for a week; ending strong beats lasting long.`,
+        because: `${late.length} of your ${drifts.length} drifts these last ${span} started in the final stretch of a session.`,
+        evidenceKey: 'attention-fades',
       });
-    } else if (
-      drifts.filter((d) => phaseOf(driftOnsetMin(d), d.len) === 'early').length >
-      drifts.length / 2
-    ) {
+    } else if (early.length > drifts.length / 2) {
       items.push({
         emoji: '🚀',
         text: 'drifts cluster right after you start — a 30-second warm-up (clear desk, one intention, water) helps you land in the session.',
+        because: `${early.length} of your ${drifts.length} drifts these last ${span} came in the opening minutes.`,
+        evidenceKey: 'desk-help',
       });
     }
   } else if (answers >= 8 && driftRate < 0.15 && focusLenMins <= 30) {
     items.push({
       emoji: '📈',
       text: `you hold focus really well — you could stretch sessions to ${focusLenMins + 5} minutes and sink into deeper work.`,
+      because: `you answered focused on ${focused.length} of ${answers} check-ins (${pctOf(focused.length, answers)}%) these last ${span}.`,
+      evidenceKey: 'breaks-are-fuel',
     });
   }
 
   // 2) The clock: guard the strong hours, spare the weak ones.
   const buckets = bucketStats(window);
-  let best: { name: string; ratio: number } | null = null;
-  let worst: { name: string; ratio: number } | null = null;
+  let best: { name: string; ratio: number; f: number; total: number } | null = null;
+  let worst: { name: string; ratio: number; f: number; total: number } | null = null;
   for (const [name, b] of buckets) {
     const total = b.f + b.d;
     if (total < 3 || b.f === 0) {
-      if (total >= 3 && b.f === 0) worst = { name, ratio: 0 };
+      if (total >= 3 && b.f === 0) worst = { name, ratio: 0, f: 0, total };
       continue;
     }
     const ratio = b.f / total;
-    if (!best || ratio > best.ratio) best = { name, ratio };
-    if (!worst || ratio < worst.ratio) worst = { name, ratio };
+    if (!best || ratio > best.ratio) best = { name, ratio, f: b.f, total };
+    if (!worst || ratio < worst.ratio) worst = { name, ratio, f: b.f, total };
   }
   if (best && best.ratio >= 0.6) {
     items.push({
       emoji: '🌤️',
       text: `${best.name} are your golden hours — give them your hardest task, before anything else gets a turn.`,
+      because: `${best.f} of your ${best.total} ${best.name} check-ins were focused (${pctOf(best.f, best.total)}%).`,
+      evidenceKey: 'golden-hours',
     });
   }
   if (worst && best && worst.name !== best.name && worst.ratio <= 0.45) {
     items.push({
       emoji: '🌙',
       text: `${worst.name} run foggier for you — save easy wins (tidying notes, small errands) for then instead of the big stuff.`,
+      because: `only ${worst.f} of your ${worst.total} ${worst.name} check-ins were focused (${pctOf(worst.f, worst.total)}%).`,
+      evidenceKey: 'golden-hours',
     });
   }
 
@@ -422,8 +462,21 @@ export function computeAttentionPlan(
   if (drifts.length >= 3) {
     const counts = new Map<DriftKind, number>();
     for (const d of drifts) counts.set(d.kind as DriftKind, (counts.get(d.kind as DriftKind) ?? 0) + 1);
-    const dominant = [...counts.entries()].sort((a, b) => b[1] - a[1])[0][0];
-    items.push(RECIPE_STRATEGY[dominant]);
+    const [dominant, domCount] = [...counts.entries()].sort((a, b) => b[1] - a[1])[0];
+    // Where the dominant kind clusters, if it clearly does — makes the
+    // because read like "62% rabbit-holes, mostly mid-session".
+    const byPhase = { early: 0, mid: 0, late: 0 };
+    const dom = drifts.filter((d) => d.kind === dominant);
+    for (const d of dom) byPhase[phaseOf(driftOnsetMin(d), d.len)]++;
+    const topPhase = (Object.entries(byPhase) as [Phase, number][]).sort((a, b) => b[1] - a[1])[0];
+    const phaseNote =
+      topPhase[1] > dom.length / 2
+        ? `, mostly ${{ early: 'early on', mid: 'mid-session', late: 'late in sessions' }[topPhase[0]]}`
+        : '';
+    items.push({
+      ...RECIPE_STRATEGY[dominant],
+      because: `${pctOf(domCount, drifts.length)}% of your drifts these last ${span} were ${KIND_NAMES[dominant]}${phaseNote}.`,
+    });
   }
 
   // 4) Quiet tab-aways: the drift that never gets asked about.
@@ -431,6 +484,8 @@ export function computeAttentionPlan(
     items.push({
       emoji: '🖥️',
       text: 'the tab pulls you away a lot — try fullscreen or a separate desktop for sessions so elsewhere is a real trip, not one flick.',
+      because: `${aways.length} quiet tab-away${aways.length === 1 ? '' : 's'} next to ${answers} answered check-in${answers === 1 ? '' : 's'} these last ${span}.`,
+      evidenceKey: 'desk-help',
     });
   }
 
