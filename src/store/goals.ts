@@ -1,8 +1,8 @@
 /**
  * Goals & deadlines — data layer.
  *
- * Types and the pace math for the opt-in planner ("put the whole semester
- * in"). No React in here; state lives in useBloom so goals persist with the
+ * Types and the pace math for the opt-in planner ("put everything you're
+ * working toward in"). No React in here; state lives in useBloom so goals persist with the
  * rest of the app. The guiding rule for suggestions: offer a concrete pace
  * while finishing is realistic, and go quiet (never nag, never fantasize)
  * when it isn't.

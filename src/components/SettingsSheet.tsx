@@ -225,8 +225,8 @@ export function SettingsSheet({ settings, running, onPatch, onClose, onShowWeekl
           <span className="set-label">
             Goals &amp; deadlines
             <span className="set-sub">
-              plan a semester, exam or any deadline — log parts as you finish and see the pace
-              that lands it
+              plan an exam, a project or any goal with a date — log parts as you finish and see
+              the pace that lands it
             </span>
           </span>
           <button

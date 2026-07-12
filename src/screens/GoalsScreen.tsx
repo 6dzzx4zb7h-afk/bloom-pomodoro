@@ -11,7 +11,7 @@ function shortDate(due: string): string {
 }
 
 /**
- * Goals & deadlines (opt-in): the whole semester on one screen. Each goal is
+ * Goals & deadlines (opt-in): everything you're working toward on one screen. Each goal is
  * a deadline plus a count of parts (lectures, chapters, problem sets…) and a
  * count finished, so working always points at something — and the card answers
  * the real question: "what pace gets me there?". Suggestions stay quiet when
@@ -43,7 +43,7 @@ export function GoalsScreen({ bloom }: { bloom: ReturnType<typeof useBloom> }) {
     e.preventDefault();
     const t = Math.max(1, Math.min(GOAL_TARGET_MAX, parseInt(target, 10) || 1));
     actions.addGoal(title, due, t);
-    // Keep date + size so a semester's worth of entries goes in quickly.
+    // Keep date + size so a whole batch of entries goes in quickly.
     setTitle('');
   }
 
@@ -51,7 +51,7 @@ export function GoalsScreen({ bloom }: { bloom: ReturnType<typeof useBloom> }) {
     <div className="screen tasks-bg">
       <div className="head">
         <div className="head-title">Goals &amp; deadlines</div>
-        <div className="head-sub">your semester at a glance · progress over pressure</div>
+        <div className="head-sub">everything you're working toward · progress over pressure</div>
       </div>
 
       {goals.length > 0 && (
@@ -138,9 +138,9 @@ export function GoalsScreen({ bloom }: { bloom: ReturnType<typeof useBloom> }) {
         })}
         {goals.length === 0 && (
           <div className="task-empty">
-            put your whole semester in — every exam, essay and lab, how many parts each one has,
-            and when it's due. then just log parts as you finish them, and Bloom shows the gentle
-            pace that gets you there ♡
+            put anything you're working toward in — an exam, a project, a book to read, a habit
+            to build — how many parts it has, and when you'd like it done. then just log parts as
+            you finish them, and Bloom shows the gentle pace that gets you there ♡
           </div>
         )}
       </div>
@@ -152,7 +152,7 @@ export function GoalsScreen({ bloom }: { bloom: ReturnType<typeof useBloom> }) {
             className="add-input"
             value={title}
             onChange={(e) => setTitle(e.target.value)}
-            placeholder="math exam, essay, lab…"
+            placeholder="exam, project, 12 books…"
             maxLength={60}
             aria-label="Goal name"
           />

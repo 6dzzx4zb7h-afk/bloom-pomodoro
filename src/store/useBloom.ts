@@ -49,7 +49,7 @@ export interface Settings {
   companion: CompanionSettings;
   /** Flow timer: an opt-in count-up stopwatch tab beside the pomodoro modes. */
   flow: boolean;
-  /** Goals & deadlines: the opt-in semester/exam planner tab. */
+  /** Goals & deadlines: the opt-in goal/deadline planner tab. */
   planner: boolean;
 }
 
