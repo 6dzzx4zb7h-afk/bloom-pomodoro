@@ -153,7 +153,7 @@ Rules of thumb:
 
 > Report ranking: if Bloom does only three things for starting, they are pre-session if–then plans, a tiny-start mode, and a friction-removing ritual (§Starting, closing paragraph).
 
-### - [ ] 3.1 If–then plan data model
+### - [x] 3.1 If–then plan data model
 
 - **Goal:** Persisted slice for implementation intentions: `IfThenPlan { id, cueType: 'time'|'place'|'emotion'|'obstacle', cueText, actionText, taskId?, usageCount, lastUsedAt }`. Ships with 4 fill-in templates (one per cue type, e.g. "If it's __:__ , then I open ____ and write one ugly sentence"). Schema bump + migration. No UI yet beyond a hidden dev list.
 - **Science:** §Starting — implementation intentions row (Gollwitzer & Sheeran 2006 meta-analysis: overall d = 0.65; specifically for failures-to-get-started d = 0.61 — the single best evidence-to-complexity ratio in the report, feature rank #1).

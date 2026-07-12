@@ -5,6 +5,15 @@ import { audioEngine, notify, type BgSound } from '../engine/audio';
 import { DEFAULT_COMPANION, type CompanionSettings } from './companion';
 import { GOAL_TARGET_MAX, type Goal } from './goals';
 import {
+  addIfThenPlan,
+  markIfThenPlanUsed,
+  removeIfThenPlan,
+  sanitizeIfThenPlans,
+  updateIfThenPlan,
+  type CueType,
+  type IfThenPlan,
+} from './ifThen';
+import {
   appendSessionRecord,
   finalizeSession,
   newOpenSession,
@@ -88,6 +97,8 @@ interface BloomState {
   openFlow: OpenSession | null;
   /** weekKey() of the last week the weekly review auto-surfaced (PLAN 2.3). */
   lastWeeklyReviewWeek: string | null;
+  /** Saved if–then plans — the starting toolkit's implementation intentions (PLAN 3.1). */
+  ifThenPlans: IfThenPlan[];
   settings: Settings;
 }
 
@@ -129,6 +140,7 @@ const DEFAULT_STATE: BloomState = {
   openFocus: null,
   openFlow: null,
   lastWeeklyReviewWeek: null,
+  ifThenPlans: [],
   settings: DEFAULT_SETTINGS,
 };
 
@@ -146,7 +158,7 @@ const DEFAULT_STATE: BloomState = {
 const STORAGE_KEY = 'bloom-state';
 /** Older keys we still read from once, newest first. */
 const LEGACY_KEYS = ['bloom-state-v2', 'bloom-state-v1'];
-const SCHEMA_VERSION = 6;
+const SCHEMA_VERSION = 7;
 
 interface PersistedShape {
   version: number;
@@ -166,6 +178,8 @@ interface PersistedShape {
   openFlow: OpenSession | null;
   /** weekKey() of the last week the weekly review auto-surfaced (PLAN 2.3). */
   lastWeeklyReviewWeek: string | null;
+  /** Saved if–then plans (PLAN 3.1). */
+  ifThenPlans: IfThenPlan[];
   settings: Settings;
 }
 
@@ -207,6 +221,9 @@ const MIGRATIONS: Array<(blob: Record<string, unknown>) => Record<string, unknow
   // calendar week the review card auto-surfaced, so it appears at most once
   // per week. Existing users have never seen one.
   (blob) => ({ ...blob, lastWeeklyReviewWeek: null }),
+  // v6 -> v7: if–then plans (PLAN 3.1). Existing users start with an empty
+  // list; the fill-in templates live in code, not storage.
+  (blob) => ({ ...blob, ifThenPlans: [] }),
 ];
 
 function dayStr(d = new Date()): string {
@@ -263,6 +280,7 @@ function withDefaults(blob: Record<string, unknown>): PersistedShape {
     openFlow: keepOpenSession(b.openFlow, 'flow'),
     lastWeeklyReviewWeek:
       typeof b.lastWeeklyReviewWeek === 'string' ? (b.lastWeeklyReviewWeek as string) : null,
+    ifThenPlans: sanitizeIfThenPlans(b.ifThenPlans),
     settings,
   };
 }
@@ -328,6 +346,7 @@ function loadState(): BloomState {
     openFocus: null,
     openFlow: p.openFlow,
     lastWeeklyReviewWeek: p.lastWeeklyReviewWeek,
+    ifThenPlans: p.ifThenPlans,
   };
   // A flow run that was live when the app closed keeps counting (that's what
   // a stopwatch does) — unless it's been so long it was clearly abandoned, in
@@ -368,6 +387,7 @@ function persist(s: BloomState) {
     openFocus: s.openFocus,
     openFlow: s.openFlow,
     lastWeeklyReviewWeek: s.lastWeeklyReviewWeek,
+    ifThenPlans: s.ifThenPlans,
     settings: s.settings,
   };
   try {
@@ -426,6 +446,10 @@ type Action =
   | { type: 'logGoal'; id: number; delta: number }
   | { type: 'linkDrift'; eventId: string; sessionId: string }
   | { type: 'markWeeklyReview'; week: string }
+  | { type: 'addIfThenPlan'; cueType: CueType; cueText: string; actionText: string; taskId?: number }
+  | { type: 'updateIfThenPlan'; id: string; patch: Partial<Pick<IfThenPlan, 'cueType' | 'cueText' | 'actionText' | 'taskId'>> }
+  | { type: 'removeIfThenPlan'; id: string }
+  | { type: 'useIfThenPlan'; id: string }
   | { type: 'patchSettings'; patch: Partial<Settings> };
 
 function reducer(s: BloomState, a: Action): BloomState {
@@ -709,6 +733,22 @@ function reducer(s: BloomState, a: Action): BloomState {
       return s.lastWeeklyReviewWeek === a.week ? s : { ...s, lastWeeklyReviewWeek: a.week };
     case 'removeGoal':
       return { ...s, goals: s.goals.filter((g) => g.id !== a.id) };
+    case 'addIfThenPlan':
+      return {
+        ...s,
+        ifThenPlans: addIfThenPlan(s.ifThenPlans, {
+          cueType: a.cueType,
+          cueText: a.cueText,
+          actionText: a.actionText,
+          taskId: a.taskId,
+        }),
+      };
+    case 'updateIfThenPlan':
+      return { ...s, ifThenPlans: updateIfThenPlan(s.ifThenPlans, a.id, a.patch) };
+    case 'removeIfThenPlan':
+      return { ...s, ifThenPlans: removeIfThenPlan(s.ifThenPlans, a.id) };
+    case 'useIfThenPlan':
+      return { ...s, ifThenPlans: markIfThenPlanUsed(s.ifThenPlans, a.id) };
     case 'logGoal': {
       const goals = s.goals.map((g) =>
         g.id === a.id ? { ...g, done: Math.max(0, Math.min(g.target, g.done + a.delta)) } : g,
@@ -765,7 +805,7 @@ export function useBloom() {
   // per-second tick only touches `remaining`, which is not persisted.
   useEffect(() => {
     persist(state);
-  }, [state.sessions, state.streak, state.lastFocusDay, state.tasks, state.activeTaskId, state.palXp, state.goals, state.flowStart, state.flowAcc, state.running, state.mode, state.sessionRecords, state.openFocus, state.openFlow, state.lastWeeklyReviewWeek, state.settings]);
+  }, [state.sessions, state.streak, state.lastFocusDay, state.tasks, state.activeTaskId, state.palXp, state.goals, state.flowStart, state.flowAcc, state.running, state.mode, state.sessionRecords, state.openFocus, state.openFlow, state.lastWeeklyReviewWeek, state.ifThenPlans, state.settings]);
 
   // Wall-clock tick: recompute remaining ~4x/sec. Reads Date.now(), so it
   // stays accurate even when the tab is throttled in the background.
@@ -873,6 +913,14 @@ export function useBloom() {
       linkDriftEvent: (eventId: string, sessionId: string) =>
         dispatch({ type: 'linkDrift', eventId, sessionId }),
       markWeeklyReview: (week: string) => dispatch({ type: 'markWeeklyReview', week }),
+      addIfThenPlan: (cueType: CueType, cueText: string, actionText: string, taskId?: number) =>
+        dispatch({ type: 'addIfThenPlan', cueType, cueText, actionText, taskId }),
+      updateIfThenPlan: (
+        id: string,
+        patch: Partial<Pick<IfThenPlan, 'cueType' | 'cueText' | 'actionText' | 'taskId'>>,
+      ) => dispatch({ type: 'updateIfThenPlan', id, patch }),
+      removeIfThenPlan: (id: string) => dispatch({ type: 'removeIfThenPlan', id }),
+      useIfThenPlan: (id: string) => dispatch({ type: 'useIfThenPlan', id }),
       patchSettings: (patch: Partial<Settings>) => dispatch({ type: 'patchSettings', patch }),
     }),
     [],
