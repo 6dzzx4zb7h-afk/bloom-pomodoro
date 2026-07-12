@@ -158,7 +158,7 @@ const DEFAULT_STATE: BloomState = {
 const STORAGE_KEY = 'bloom-state';
 /** Older keys we still read from once, newest first. */
 const LEGACY_KEYS = ['bloom-state-v2', 'bloom-state-v1'];
-const SCHEMA_VERSION = 7;
+const SCHEMA_VERSION = 8;
 
 interface PersistedShape {
   version: number;
@@ -224,6 +224,12 @@ const MIGRATIONS: Array<(blob: Record<string, unknown>) => Record<string, unknow
   // v6 -> v7: if–then plans (PLAN 3.1). Existing users start with an empty
   // list; the fill-in templates live in code, not storage.
   (blob) => ({ ...blob, ifThenPlans: [] }),
+  // v7 -> v8: planner wiring (PLAN 3.2). Session records and open-session
+  // slots may now carry an optional `ifThenPlanId`; absent on every existing
+  // entry, so the blob passes through untouched. Bumped anyway so every
+  // persisted-shape change has a version (constraint #2) and 7.1 gets a
+  // fixture per version.
+  (blob) => blob,
 ];
 
 function dayStr(d = new Date()): string {
@@ -430,7 +436,7 @@ function focusElapsedMin(s: BloomState, now = Date.now()): number {
 
 type Action =
   | { type: 'tick' }
-  | { type: 'toggle' }
+  | { type: 'toggle'; ifThenPlanId?: string }
   | { type: 'reset' }
   | { type: 'pick'; mode: TimerMode }
   | { type: 'skip' }
@@ -496,15 +502,29 @@ function reducer(s: BloomState, a: Action): BloomState {
       const endsAt = Date.now() + rem * 1000;
       // Only focus sessions are recorded; breaks never open a record.
       let openFocus = s.openFocus;
+      let ifThenPlans = s.ifThenPlans;
       if (s.mode === 'focus') {
-        openFocus = openFocus
-          ? { ...openFocus, running: true, endsAt }
-          : {
-              ...newOpenSession('focus', dur.focus / 60, resolveActiveTask(s.tasks, s.activeTaskId)?.id),
-              endsAt,
-            };
+        if (openFocus) {
+          // Resuming a paused session keeps its record (and plan) as-is.
+          openFocus = { ...openFocus, running: true, endsAt };
+        } else {
+          const taskId = resolveActiveTask(s.tasks, s.activeTaskId)?.id;
+          // The plan picked in the pre-session planner (PLAN 3.2): stamp it on
+          // the fresh record, bump its usage, and remember it for the active
+          // task so the planner preselects it next time.
+          const plan = a.ifThenPlanId
+            ? ifThenPlans.find((p) => p.id === a.ifThenPlanId)
+            : undefined;
+          openFocus = { ...newOpenSession('focus', dur.focus / 60, taskId, plan?.id), endsAt };
+          if (plan) {
+            ifThenPlans = markIfThenPlanUsed(ifThenPlans, plan.id);
+            if (taskId != null && plan.taskId !== taskId) {
+              ifThenPlans = updateIfThenPlan(ifThenPlans, plan.id, { taskId });
+            }
+          }
+        }
       }
-      return { ...s, running: true, endsAt, remaining: rem, justDone: false, openFocus };
+      return { ...s, running: true, endsAt, remaining: rem, justDone: false, openFocus, ifThenPlans };
     }
     case 'reset': {
       if (s.mode === 'flow') {
@@ -893,10 +913,10 @@ export function useBloom() {
 
   const actions = useMemo(
     () => ({
-      toggle: () => {
+      toggle: (ifThenPlanId?: string) => {
         // First press is a user gesture — unlock audio for ambience + ring.
         audioEngine.resume();
-        dispatch({ type: 'toggle' });
+        dispatch({ type: 'toggle', ifThenPlanId });
       },
       reset: () => dispatch({ type: 'reset' }),
       pick: (m: TimerMode) => dispatch({ type: 'pick', mode: m }),

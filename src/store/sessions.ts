@@ -42,6 +42,8 @@ export interface SessionRecord {
   driftEventIds: string[];
   /** The "one specific doable thing" typed at start, if any. */
   targetText?: string;
+  /** If–then plan the session started with, if any (PLAN 3.2). */
+  ifThenPlanId?: string;
 }
 
 /** Ring-buffer cap: only the most recent records are kept in localStorage. */
@@ -87,7 +89,8 @@ function isValidRecord(r: unknown): r is SessionRecord {
     (x.goalId === undefined || typeof x.goalId === 'number') &&
     Array.isArray(x.driftEventIds) &&
     (x.driftEventIds as unknown[]).every((d) => typeof d === 'string') &&
-    (x.targetText === undefined || typeof x.targetText === 'string')
+    (x.targetText === undefined || typeof x.targetText === 'string') &&
+    (x.ifThenPlanId === undefined || typeof x.ifThenPlanId === 'string')
   );
 }
 
@@ -126,6 +129,8 @@ export interface OpenSession {
   running: boolean;
   /** Companion drift events triaged while this session runs (PLAN 1.3). */
   driftEventIds: string[];
+  /** If–then plan the session started with, if any (PLAN 3.2). */
+  ifThenPlanId?: string;
 }
 
 /** Start bookkeeping for a session that just began running. */
@@ -133,6 +138,7 @@ export function newOpenSession(
   mode: SessionMode,
   plannedMin: number | null,
   taskId: number | undefined,
+  ifThenPlanId?: string,
   now = Date.now(),
 ): OpenSession {
   return {
@@ -146,6 +152,7 @@ export function newOpenSession(
     remainingSec: plannedMin != null ? plannedMin * 60 : 0,
     running: true,
     driftEventIds: [],
+    ifThenPlanId,
   };
 }
 
@@ -167,6 +174,7 @@ export function finalizeSession(
     startHour: open.startHour,
     taskId: open.taskId,
     driftEventIds: [...(open.driftEventIds ?? [])],
+    ifThenPlanId: open.ifThenPlanId,
   };
 }
 
@@ -214,5 +222,7 @@ export function sanitizeOpenSession(raw: unknown): OpenSession | null {
   const driftEventIds = Array.isArray(x.driftEventIds)
     ? (x.driftEventIds as unknown[]).filter((d): d is string => typeof d === 'string')
     : [];
-  return { ...(raw as OpenSession), driftEventIds };
+  // Optional plan link (PLAN 3.2): anything but a string means "no plan".
+  const ifThenPlanId = typeof x.ifThenPlanId === 'string' ? x.ifThenPlanId : undefined;
+  return { ...(raw as OpenSession), driftEventIds, ifThenPlanId };
 }
