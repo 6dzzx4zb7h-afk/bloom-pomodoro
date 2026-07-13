@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { DebriefCard } from '../components/DebriefCard';
 import { IfThenPlanner } from '../components/IfThenPlanner';
 import { PixelPal } from '../components/PixelPal';
+import { RitualCard, RitualSuggestion } from '../components/RitualCard';
 import { SettingsSheet } from '../components/SettingsSheet';
 import { WeeklyReview } from '../components/WeeklyReview';
 import { WEEKLY_WINDOW_DAYS, weekKey } from '../insights/weekly';
@@ -36,6 +37,8 @@ export function FocusScreen({
   const { state, mood, statusLabel, palSprite, activeTask, actions, mmss, clock } = bloom;
   const [showSettings, setShowSettings] = useState(false);
   const [tinyMinutes, setTinyMinutes] = useState<TinyStartMinutes>(TINY_START_OPTIONS[0]);
+  const [ritualOpen, setRitualOpen] = useState(false);
+  const [ritualSuggestionOpen, setRitualSuggestionOpen] = useState(false);
 
   // Post-session debrief (PLAN 2.1): watch the session log for a record
   // finalized while this screen is up. Seeding the ref with the log's current
@@ -62,8 +65,13 @@ export function FocusScreen({
     if (state.running) {
       setDebrief(null);
       setWeekly(false);
+      setRitualOpen(false);
     }
   }, [state.running]);
+
+  // Changing timer tabs abandons the pending pre-start ritual, so it never
+  // accidentally starts a different mode than the one the user chose.
+  useEffect(() => setRitualOpen(false), [state.mode]);
 
   useEffect(() => {
     if (state.running || state.justDone || debrief || weekly || showSettings) return;
@@ -98,6 +106,54 @@ export function FocusScreen({
   const rawPlanId = chosenPlanId === undefined ? rememberedPlanId : chosenPlanId;
   // A remembered plan that has since been deleted counts as no plan.
   const planId = state.ifThenPlans.some((p) => p.id === rawPlanId) ? rawPlanId : null;
+
+  const freshWorkStart =
+    !state.running &&
+    !state.justDone &&
+    ((state.mode === 'focus' || state.mode === 'tiny') ? !state.openFocus : state.mode === 'flow' ? !state.openFlow : false);
+
+  const ritualSuggestionEligible =
+    state.mode === 'focus' &&
+    freshWorkStart &&
+    !state.ritual.enabled &&
+    !state.ritual.suggestionSeen &&
+    !ritualOpen &&
+    !showSettings &&
+    !debrief &&
+    !weekly;
+
+  // Offer this exactly once. The persisted flag is set when it is presented,
+  // while local UI state keeps the little pet prompt visible for this visit.
+  useEffect(() => {
+    if (ritualSuggestionEligible && !ritualSuggestionOpen) {
+      setRitualSuggestionOpen(true);
+      actions.patchRitual({ suggestionSeen: true });
+    }
+  }, [actions, ritualSuggestionEligible, ritualSuggestionOpen]);
+
+  useEffect(() => {
+    if (showSettings || ritualOpen || state.mode !== 'focus' || state.running || state.justDone || debrief || weekly) {
+      setRitualSuggestionOpen(false);
+    }
+  }, [showSettings, ritualOpen, state.mode, state.running, state.justDone, debrief, weekly]);
+
+  const showRitualSuggestion =
+    ritualSuggestionOpen &&
+    state.mode === 'focus' &&
+    freshWorkStart &&
+    !ritualOpen &&
+    !showSettings &&
+    !debrief &&
+    !weekly;
+
+  function beginSession() {
+    const ifThenPlanId = showPlanner && planId ? planId : undefined;
+    if (state.ritual.enabled && freshWorkStart) {
+      setRitualOpen(true);
+      return;
+    }
+    actions.toggle(ifThenPlanId);
+  }
 
   const isFlow = state.mode === 'flow';
   const isTiny = state.mode === 'tiny';
@@ -241,7 +297,7 @@ export function FocusScreen({
         </button>
         <button
           className="ctrl-play"
-          onClick={() => actions.toggle(showPlanner && planId ? planId : undefined)}
+          onClick={beginSession}
           aria-label={state.running ? 'Pause' : 'Start'}
         >
           {state.running ? (
@@ -286,6 +342,21 @@ export function FocusScreen({
             </div>
           </div>
         </div>
+      )}
+
+      {ritualOpen && freshWorkStart && (
+        <RitualCard
+          items={state.ritual.items}
+          sprite={palSprite}
+          onStart={() => {
+            setRitualOpen(false);
+            actions.toggle(showPlanner && planId ? planId : undefined);
+          }}
+          onSkip={() => {
+            setRitualOpen(false);
+            actions.toggle(showPlanner && planId ? planId : undefined);
+          }}
+        />
       )}
 
       {showPlanner && (
@@ -338,11 +409,28 @@ export function FocusScreen({
         <WeeklyReview records={records} palSprite={palSprite} onDismiss={() => setWeekly(false)} />
       )}
 
+      {showRitualSuggestion && (
+        <RitualSuggestion
+          sprite={palSprite}
+          onEnable={() => {
+            setRitualSuggestionOpen(false);
+            actions.patchRitual({ enabled: true, suggestionSeen: true });
+          }}
+          onDismiss={() => {
+            setRitualSuggestionOpen(false);
+            actions.patchRitual({ suggestionSeen: true });
+          }}
+        />
+      )}
+
       {showSettings && (
         <SettingsSheet
           settings={state.settings}
+          ritual={state.ritual}
           running={state.running}
           onPatch={actions.patchSettings}
+          onPatchRitual={actions.patchRitual}
+          onUpdateRitualItem={actions.updateRitualItem}
           onClose={() => setShowSettings(false)}
           onShowWeekly={() => {
             setShowSettings(false);

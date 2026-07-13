@@ -23,6 +23,7 @@ import {
   type OpenSession,
   type SessionRecord,
 } from './sessions';
+import { DEFAULT_RITUAL, sanitizeRitual, updateRitualItem, type RitualSettings } from './ritual';
 
 /** 'flow' is the opt-in count-up stopwatch; the rest count down. */
 export type TimerMode = 'focus' | 'tiny' | 'short' | 'long' | 'flow';
@@ -104,6 +105,8 @@ interface BloomState {
   lastWeeklyReviewWeek: string | null;
   /** Saved if–then plans — the starting toolkit's implementation intentions (PLAN 3.1). */
   ifThenPlans: IfThenPlan[];
+  /** Optional pre-session environment reset (PLAN 3.4). */
+  ritual: RitualSettings;
   settings: Settings;
 }
 
@@ -146,6 +149,7 @@ const DEFAULT_STATE: BloomState = {
   openFlow: null,
   lastWeeklyReviewWeek: null,
   ifThenPlans: [],
+  ritual: DEFAULT_RITUAL,
   settings: DEFAULT_SETTINGS,
 };
 
@@ -163,7 +167,7 @@ const DEFAULT_STATE: BloomState = {
 const STORAGE_KEY = 'bloom-state';
 /** Older keys we still read from once, newest first. */
 const LEGACY_KEYS = ['bloom-state-v2', 'bloom-state-v1'];
-const SCHEMA_VERSION = 9;
+const SCHEMA_VERSION = 10;
 
 interface PersistedShape {
   version: number;
@@ -185,6 +189,8 @@ interface PersistedShape {
   lastWeeklyReviewWeek: string | null;
   /** Saved if–then plans (PLAN 3.1). */
   ifThenPlans: IfThenPlan[];
+  /** Optional pre-session environment reset (PLAN 3.4). */
+  ritual: RitualSettings;
   settings: Settings;
 }
 
@@ -240,6 +246,9 @@ const MIGRATIONS: Array<(blob: Record<string, unknown>) => Record<string, unknow
   // proportional (fractional) pal XP. Both fit the existing fields, so no
   // rewrite is needed and every existing value passes through losslessly.
   (blob) => blob,
+  // v9 -> v10: Environment reset ritual (PLAN 3.4). Existing users get the
+  // feature off, with the four bundled defaults ready if they opt in.
+  (blob) => ({ ...blob, ritual: DEFAULT_RITUAL }),
 ];
 
 function dayStr(d = new Date()): string {
@@ -297,6 +306,7 @@ function withDefaults(blob: Record<string, unknown>): PersistedShape {
     lastWeeklyReviewWeek:
       typeof b.lastWeeklyReviewWeek === 'string' ? (b.lastWeeklyReviewWeek as string) : null,
     ifThenPlans: sanitizeIfThenPlans(b.ifThenPlans),
+    ritual: sanitizeRitual(b.ritual),
     settings,
   };
 }
@@ -364,6 +374,7 @@ function loadState(): BloomState {
     openFlow: p.openFlow,
     lastWeeklyReviewWeek: p.lastWeeklyReviewWeek,
     ifThenPlans: p.ifThenPlans,
+    ritual: p.ritual,
   };
   // A flow run that was live when the app closed keeps counting (that's what
   // a stopwatch does) — unless it's been so long it was clearly abandoned, in
@@ -405,6 +416,7 @@ function persist(s: BloomState) {
     openFlow: s.openFlow,
     lastWeeklyReviewWeek: s.lastWeeklyReviewWeek,
     ifThenPlans: s.ifThenPlans,
+    ritual: s.ritual,
     settings: s.settings,
   };
   try {
@@ -502,6 +514,8 @@ type Action =
   | { type: 'updateIfThenPlan'; id: string; patch: Partial<Pick<IfThenPlan, 'cueType' | 'cueText' | 'actionText' | 'taskId'>> }
   | { type: 'removeIfThenPlan'; id: string }
   | { type: 'useIfThenPlan'; id: string }
+  | { type: 'patchRitual'; patch: Partial<Pick<RitualSettings, 'enabled' | 'suggestionSeen'>> }
+  | { type: 'updateRitualItem'; id: string; text: string }
   | { type: 'patchSettings'; patch: Partial<Settings> };
 
 function reducer(s: BloomState, a: Action): BloomState {
@@ -883,6 +897,10 @@ function reducer(s: BloomState, a: Action): BloomState {
       return { ...s, ifThenPlans: removeIfThenPlan(s.ifThenPlans, a.id) };
     case 'useIfThenPlan':
       return { ...s, ifThenPlans: markIfThenPlanUsed(s.ifThenPlans, a.id) };
+    case 'patchRitual':
+      return { ...s, ritual: { ...s.ritual, ...a.patch } };
+    case 'updateRitualItem':
+      return { ...s, ritual: { ...s.ritual, items: updateRitualItem(s.ritual.items, a.id, a.text) } };
     case 'logGoal': {
       const goals = s.goals.map((g) =>
         g.id === a.id ? { ...g, done: Math.max(0, Math.min(g.target, g.done + a.delta)) } : g,
@@ -941,7 +959,7 @@ export function useBloom() {
   // per-second tick only touches `remaining`, which is not persisted.
   useEffect(() => {
     persist(state);
-  }, [state.sessions, state.streak, state.lastFocusDay, state.tasks, state.activeTaskId, state.palXp, state.goals, state.flowStart, state.flowAcc, state.running, state.mode, state.sessionRecords, state.openFocus, state.openFlow, state.lastWeeklyReviewWeek, state.ifThenPlans, state.settings]);
+  }, [state.sessions, state.streak, state.lastFocusDay, state.tasks, state.activeTaskId, state.palXp, state.goals, state.flowStart, state.flowAcc, state.running, state.mode, state.sessionRecords, state.openFocus, state.openFlow, state.lastWeeklyReviewWeek, state.ifThenPlans, state.ritual, state.settings]);
 
   // Wall-clock tick: recompute remaining ~4x/sec. Reads Date.now(), so it
   // stays accurate even when the tab is throttled in the background.
@@ -1076,6 +1094,10 @@ export function useBloom() {
       ) => dispatch({ type: 'updateIfThenPlan', id, patch }),
       removeIfThenPlan: (id: string) => dispatch({ type: 'removeIfThenPlan', id }),
       useIfThenPlan: (id: string) => dispatch({ type: 'useIfThenPlan', id }),
+      patchRitual: (patch: Partial<Pick<RitualSettings, 'enabled' | 'suggestionSeen'>>) =>
+        dispatch({ type: 'patchRitual', patch }),
+      updateRitualItem: (id: string, text: string) =>
+        dispatch({ type: 'updateRitualItem', id, text }),
       patchSettings: (patch: Partial<Settings>) => dispatch({ type: 'patchSettings', patch }),
     }),
     [],

@@ -3,6 +3,7 @@ import type { DurationMode, Settings } from '../store/useBloom';
 import { audioEngine, BG_SOUNDS, requestNotifyPermission, type BgSound } from '../engine/audio';
 import { AWAY_CHOICES, CHECKIN_CHOICES, clearEvents, loadEvents } from '../store/companion';
 import { friendByName } from '../data/friends';
+import type { RitualSettings } from '../store/ritual';
 import { PixelPal } from './PixelPal';
 
 interface SettingsSheetProps {
@@ -10,6 +11,9 @@ interface SettingsSheetProps {
   /** Whether a session is currently running (previews only fire when idle). */
   running: boolean;
   onPatch: (patch: Partial<Settings>) => void;
+  ritual: RitualSettings;
+  onPatchRitual: (patch: Partial<Pick<RitualSettings, 'enabled' | 'suggestionSeen'>>) => void;
+  onUpdateRitualItem: (id: string, text: string) => void;
   onClose: () => void;
   /** Open the weekly review card on demand (PLAN 2.3); closes the sheet. */
   onShowWeekly?: () => void;
@@ -29,7 +33,16 @@ const DURATION_ROWS: DurationRowSpec[] = [
   { key: 'long', label: 'Long break', step: 5, min: 5, max: 45 },
 ];
 
-export function SettingsSheet({ settings, running, onPatch, onClose, onShowWeekly }: SettingsSheetProps) {
+export function SettingsSheet({
+  settings,
+  ritual,
+  running,
+  onPatch,
+  onPatchRitual,
+  onUpdateRitualItem,
+  onClose,
+  onShowWeekly,
+}: SettingsSheetProps) {
   // 'unknown' until asked; used to nudge the user if they blocked notifications.
   const [notifyDenied, setNotifyDenied] = useState(false);
   const companion = settings.companion;
@@ -202,6 +215,41 @@ export function SettingsSheet({ settings, running, onPatch, onClose, onShowWeekl
             <span className="knob" />
           </button>
         </div>
+
+        <div className="set-row">
+          <span className="set-label">
+            Environment reset
+            <span className="set-sub">an optional 15–30 second tidy-up before a session</span>
+          </span>
+          <button
+            className={`switch${ritual.enabled ? ' on' : ''}`}
+            onClick={() => onPatchRitual({ enabled: !ritual.enabled })}
+            role="switch"
+            aria-checked={ritual.enabled}
+            aria-label="Environment reset ritual"
+          >
+            <span className="knob" />
+          </button>
+        </div>
+
+        {ritual.enabled && (
+          <div className="ritual-subs">
+            <div className="ritual-edit-note">Edit the little checks to fit your space.</div>
+            {ritual.items.map((item) => (
+              <label className="ritual-edit-row" key={item.id}>
+                <span className="ritual-edit-dot">•</span>
+                <input
+                  className="ritual-edit-input"
+                  value={item.text}
+                  maxLength={60}
+                  onChange={(e) => onUpdateRitualItem(item.id, e.target.value)}
+                  aria-label={`Ritual item: ${item.text}`}
+                />
+              </label>
+            ))}
+            <div className="ritual-edit-note">You can skip the reset whenever you like.</div>
+          </div>
+        )}
 
         <div className="set-row">
           <span className="set-label">

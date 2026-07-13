@@ -1515,6 +1515,106 @@ button {
 
 /* Pre-session if–then planner (PLAN 3.2): one airy optional line above the
    intention input; expands into a small panel to pick or write a plan. */
+/* Optional environment reset ritual (PLAN 3.4): a short, satisfying
+   tap-through before a fresh work session. The final item starts the timer. */
+.ritual-card {
+  position: absolute;
+  left: 50%;
+  bottom: calc(88px + env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  width: min(350px, calc(100% - 24px));
+  max-height: calc(100% - 24px);
+  overflow-y: auto;
+  background: rgba(255, 255, 255, 0.96);
+  border: 1.5px solid rgba(199, 159, 230, 0.4);
+  border-radius: 20px;
+  padding: 13px 14px 11px;
+  box-shadow: 0 14px 30px -14px rgba(110, 85, 119, 0.55);
+  z-index: 56;
+  animation: pop-up 0.3s cubic-bezier(0.3, 1.3, 0.5, 1);
+}
+.ritual-head {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-bottom: 9px;
+}
+.ritual-pal {
+  flex: none;
+}
+.ritual-title {
+  font: 700 16px var(--font-display);
+  color: var(--plum);
+}
+.ritual-sub,
+.ritual-note {
+  font: 600 11px var(--font-body);
+  color: var(--soft2);
+  line-height: 1.4;
+}
+.ritual-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.ritual-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  border: none;
+  border-radius: 12px;
+  padding: 9px 10px;
+  background: #f7effc;
+  color: var(--plum);
+  font: 700 12.5px var(--font-body);
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s, transform 0.1s ease;
+}
+.ritual-item:active {
+  transform: scale(0.98);
+}
+.ritual-item.done {
+  background: linear-gradient(150deg, rgba(255, 176, 212, 0.4), rgba(199, 159, 230, 0.4));
+}
+.ritual-check {
+  width: 20px;
+  height: 20px;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid #dfc9ed;
+  border-radius: 7px;
+  color: #fff;
+  font: 700 13px var(--font-display);
+}
+.ritual-item.done .ritual-check {
+  border-color: var(--pink);
+  background: var(--pink);
+}
+.ritual-note {
+  margin-top: 9px;
+  text-align: center;
+}
+.ritual-skip {
+  display: block;
+  margin: 5px auto 0;
+  border: none;
+  background: transparent;
+  color: var(--soft2);
+  font: 700 11px var(--font-display);
+  cursor: pointer;
+  padding: 3px 5px;
+}
+.ritual-skip:hover {
+  color: var(--plum);
+}
+.ritual-suggestion {
+  z-index: 56;
+}
+
 .ifthen-ask {
   margin: 12px auto 0;
   display: block;
@@ -1718,6 +1818,45 @@ button {
   color: #7381ad;
   font: 600 11.5px var(--font-body);
   line-height: 1.4;
+}
+
+/* Settings: the ritual keeps its editable labels close to its opt-in toggle. */
+.ritual-subs {
+  margin: 2px 0 4px;
+  padding: 8px 12px 7px;
+  border-radius: 14px;
+  background: rgba(199, 159, 230, 0.1);
+}
+.ritual-edit-note {
+  font: 600 10.5px var(--font-body);
+  color: var(--soft3);
+  line-height: 1.35;
+  margin-bottom: 6px;
+}
+.ritual-edit-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 5px 0;
+}
+.ritual-edit-dot {
+  color: var(--pink-3);
+  font: 700 17px var(--font-display);
+  line-height: 1;
+}
+.ritual-edit-input {
+  flex: 1;
+  min-width: 0;
+  border: 1.5px solid #eaddf5;
+  border-radius: 10px;
+  padding: 6px 9px;
+  background: rgba(255, 255, 255, 0.78);
+  outline: none;
+  color: var(--plum);
+  font: 600 11.5px var(--font-body);
+}
+.ritual-edit-input:focus {
+  border-color: var(--pink-2);
 }
 
 /* Settings: companion sub-rows sit in a softly tinted inset block. */
@@ -2106,6 +2245,27 @@ body.night {
   background: rgba(46, 37, 87, 0.96);
   border-color: rgba(120, 100, 180, 0.35);
   box-shadow: 0 14px 30px -14px rgba(8, 5, 20, 0.9);
+}
+.night .ritual-card {
+  background: rgba(46, 37, 87, 0.97);
+  border-color: rgba(120, 100, 180, 0.35);
+  box-shadow: 0 14px 30px -14px rgba(8, 5, 20, 0.9);
+}
+.night .ritual-item {
+  background: #352c5e;
+}
+.night .ritual-item.done {
+  background: linear-gradient(150deg, rgba(255, 156, 194, 0.25), rgba(183, 159, 227, 0.25));
+}
+.night .ritual-check {
+  border-color: #4a3f80;
+}
+.night .ritual-subs {
+  background: rgba(16, 11, 34, 0.35);
+}
+.night .ritual-edit-input {
+  background: #2e2557;
+  border-color: #3f3570;
 }
 .night .pop-btn {
   background: #383060;
