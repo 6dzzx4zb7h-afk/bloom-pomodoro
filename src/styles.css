@@ -1723,6 +1723,113 @@ button {
   color: var(--soft3);
 }
 
+/* PLAN 5.1: a tiny capture during work; the text itself stays hidden until
+   the owning session reaches a pause. */
+.parking-capture {
+  min-height: 28px;
+  margin: 8px auto 0;
+  width: min(310px, calc(100% - 40px));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  flex: none;
+}
+.parking-open,
+.parking-save,
+.parking-cancel {
+  border: none;
+  cursor: pointer;
+  font-family: var(--font-display);
+}
+.parking-open {
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.55);
+  color: var(--soft2);
+  font-size: 11px;
+  font-weight: 700;
+}
+.parking-form {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 6px 5px 10px;
+  border: 1.5px solid rgba(199, 159, 230, 0.42);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.72);
+}
+.parking-input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--plum);
+  font: 600 12px var(--font-body);
+}
+.parking-input::placeholder {
+  color: var(--text-faint);
+}
+.parking-count {
+  color: var(--text-faint);
+  font: 700 9px var(--font-body);
+}
+.parking-save {
+  padding: 6px 9px;
+  border-radius: 10px;
+  background: #f4eafb;
+  color: var(--plum);
+  font-size: 10px;
+  font-weight: 700;
+}
+.parking-save:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.parking-cancel {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  background: transparent;
+  color: var(--soft3);
+  font-size: 17px;
+}
+.parking-saved {
+  color: var(--soft2);
+  font: 600 10.5px var(--font-body);
+}
+.parking-return {
+  z-index: 57;
+}
+.parking-return-note {
+  display: block;
+  margin: -4px 0 9px;
+}
+.parking-items {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 210px;
+  overflow-y: auto;
+}
+.parking-item {
+  padding-top: 8px;
+  border-top: 1px dashed rgba(160, 112, 140, 0.18);
+}
+.parking-item-text {
+  margin-bottom: 7px;
+  color: var(--plum);
+  font: 700 12.5px var(--font-display);
+  overflow-wrap: anywhere;
+}
+.parking-item-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
 /* Optional session target: an airy line under the controls, faint echo while
    the session runs. It also feeds Companion's intention when that mode is on. */
 .intention-input {
@@ -2556,6 +2663,16 @@ body.night {
 .night .pop-jot-input {
   background: #2e2557;
   border-color: #3f3570;
+}
+.night .parking-open,
+.night .parking-form {
+  background: rgba(46, 37, 87, 0.7);
+}
+.night .parking-form {
+  border-color: rgba(120, 100, 180, 0.45);
+}
+.night .parking-save {
+  background: #383060;
 }
 .night .intention-input {
   background: rgba(46, 37, 87, 0.55);

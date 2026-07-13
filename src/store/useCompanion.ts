@@ -400,9 +400,9 @@ export function useCompanion(bloom: Bloom) {
         clearDismiss();
         dismissTimer.current = setTimeout(() => setPrompt(null), TIP_AUTODISMISS_MS);
       },
-      /** "park it for later" inside a tip — becomes a task. */
+      /** "park it for later" inside a tip — hidden until the session pauses. */
       jot: (text: string) => {
-        bloom.actions.addTask(text, 1);
+        bloom.actions.parkThought(text);
       },
       /** One tap keeps every remaining pre-slump cue quiet for this local day. */
       silencePreSlumpForDay: () => {

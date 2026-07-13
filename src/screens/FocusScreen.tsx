@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { DebriefCard } from '../components/DebriefCard';
 import { IfThenPlanner } from '../components/IfThenPlanner';
+import { ParkingLot } from '../components/ParkingLot';
 import { PixelPal } from '../components/PixelPal';
 import { RitualCard, RitualSuggestion } from '../components/RitualCard';
 import { SettingsSheet } from '../components/SettingsSheet';
@@ -51,6 +52,8 @@ export function FocusScreen({
   // session the user just ended (completed or abandoned) does.
   const [debrief, setDebrief] = useState<SessionRecord | null>(null);
   const records = state.sessionRecords;
+  const returnedParking = state.parking.filter((item) => item.revealedAt !== null);
+  const hasReturnedParking = returnedParking.length > 0;
   const lastSeenId = useRef<string | null>(
     records.length ? records[records.length - 1].id : null,
   );
@@ -88,14 +91,14 @@ export function FocusScreen({
   useEffect(() => setRitualOpen(false), [state.mode]);
 
   useEffect(() => {
-    if (state.running || state.justDone || debrief || weekly || showSettings) return;
+    if (state.running || state.justDone || debrief || weekly || showSettings || hasReturnedParking) return;
     const week = weekKey();
     if (state.lastWeeklyReviewWeek === week) return;
     const cutoff = Date.now() - WEEKLY_WINDOW_DAYS * 86400000;
     if (!records.some((r) => r.endedAt >= cutoff)) return;
     setWeekly(true);
     actions.markWeeklyReview(week);
-  }, [state.running, state.justDone, debrief, weekly, showSettings, records, state.lastWeeklyReviewWeek, actions]);
+  }, [state.running, state.justDone, debrief, weekly, showSettings, hasReturnedParking, records, state.lastWeeklyReviewWeek, actions]);
 
   // Pre-session intention: optional, skippable, only in Companion Mode.
   const wantsIntention =
@@ -139,7 +142,8 @@ export function FocusScreen({
     !showSettings &&
     !debrief &&
     !recordAwaitingDebrief &&
-    !weekly;
+    !weekly &&
+    !hasReturnedParking;
 
   useEffect(() => {
     if (!woopEligible || woopOpen) return;
@@ -157,7 +161,8 @@ export function FocusScreen({
     !debrief &&
     !weekly &&
     !woopTriggered &&
-    !woopOpen;
+    !woopOpen &&
+    !hasReturnedParking;
 
   // Offer this exactly once. The persisted flag is set when it is presented,
   // while local UI state keeps the little pet prompt visible for this visit.
@@ -237,6 +242,10 @@ export function FocusScreen({
 
   const lastRecord = records.length ? records[records.length - 1] : undefined;
   const showTinyOffer = state.justDone && isTiny && isTinyFirstRung(lastRecord);
+  const workSessionOpen =
+    Boolean(isFlow ? state.openFlow : state.openFocus) &&
+    (state.mode === 'focus' || state.mode === 'tiny' || state.mode === 'flow') &&
+    !state.justDone;
 
   return (
     <div className="screen focus-bg">
@@ -379,6 +388,16 @@ export function FocusScreen({
         )}
       </div>
 
+      <ParkingLot
+        canPark={workSessionOpen}
+        showReturned={!state.running && !showTinyOffer}
+        returned={returnedParking}
+        palSprite={palSprite}
+        onPark={actions.parkThought}
+        onSendToTasks={actions.sendParkedToTasks}
+        onDismiss={actions.dismissParked}
+      />
+
       {showTinyOffer && (
         <div className="companion-pop tiny-rung-card" role="status" aria-label="Tiny start complete">
           <PixelPal sprite={palSprite} mode="idle" scale={3} size={64} className="pop-pal" />
@@ -468,7 +487,7 @@ export function FocusScreen({
         </div>
       </div>
 
-      {debrief && !state.running && !state.justDone && (
+      {debrief && !state.running && !state.justDone && !hasReturnedParking && (
         <DebriefCard
           record={debrief}
           records={records}
@@ -479,7 +498,7 @@ export function FocusScreen({
       )}
 
       {/* The debrief takes precedence — one card at a time, never mid-session. */}
-      {weekly && !debrief && !state.running && !state.justDone && (
+      {weekly && !debrief && !state.running && !state.justDone && !hasReturnedParking && (
         <WeeklyReview
           records={records}
           palSprite={palSprite}

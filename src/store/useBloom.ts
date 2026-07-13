@@ -41,6 +41,14 @@ import {
   type TargetOutcome,
 } from './sessions';
 import { DEFAULT_RITUAL, sanitizeRitual, updateRitualItem, type RitualSettings } from './ritual';
+import {
+  addParkedThought,
+  removeParkedThought,
+  revealAllParkedThoughts,
+  revealParkedThoughts,
+  sanitizeParkedThoughts,
+  type ParkedThought,
+} from './parking';
 
 /** 'flow' is the opt-in count-up stopwatch; the rest count down. */
 export type TimerMode = 'focus' | 'tiny' | 'short' | 'long' | 'flow';
@@ -136,6 +144,8 @@ interface BloomState {
   preSlump: PreSlumpCaps;
   /** Weekly learned cadence cache + reversible applied-rung history (PLAN 4.6). */
   personalCadence: PersonalCadenceMemory;
+  /** Thoughts hidden during a session and returned at its next pause (PLAN 5.1). */
+  parking: ParkedThought[];
   settings: Settings;
 }
 
@@ -184,6 +194,7 @@ const DEFAULT_STATE: BloomState = {
   lastWoopOfferAt: null,
   preSlump: EMPTY_PRE_SLUMP_CAPS,
   personalCadence: EMPTY_PERSONAL_CADENCE,
+  parking: [],
   settings: DEFAULT_SETTINGS,
 };
 
@@ -201,7 +212,7 @@ const DEFAULT_STATE: BloomState = {
 const STORAGE_KEY = 'bloom-state';
 /** Older keys we still read from once, newest first. */
 const LEGACY_KEYS = ['bloom-state-v2', 'bloom-state-v1'];
-const SCHEMA_VERSION = 15;
+const SCHEMA_VERSION = 16;
 
 interface PersistedShape {
   version: number;
@@ -231,6 +242,8 @@ interface PersistedShape {
   preSlump: PreSlumpCaps;
   /** Weekly learned cadence cache and prior applied work/break pairs. */
   personalCadence: PersonalCadenceMemory;
+  /** Persisted distraction parking lot (PLAN 5.1). */
+  parking: ParkedThought[];
   settings: Settings;
 }
 
@@ -324,6 +337,9 @@ const MIGRATIONS: Array<(blob: Record<string, unknown>) => Record<string, unknow
   // stay untouched. The weekly cache starts empty and history starts blank;
   // the first natural-pause surface learns from the records already present.
   (blob) => ({ ...blob, personalCadence: EMPTY_PERSONAL_CADENCE }),
+  // v15 -> v16: distraction parking lot (PLAN 5.1). Existing users begin
+  // with an empty lot; every prior field passes through untouched.
+  (blob) => ({ ...blob, parking: [] }),
 ];
 
 function dayStr(d = new Date()): string {
@@ -396,6 +412,7 @@ function withDefaults(blob: Record<string, unknown>): PersistedShape {
         : null,
     preSlump: sanitizePreSlumpCaps(b.preSlump),
     personalCadence: sanitizePersonalCadenceMemory(b.personalCadence),
+    parking: sanitizeParkedThoughts(b.parking),
     settings,
   };
 }
@@ -460,6 +477,9 @@ function loadState(): BloomState {
   // flow stopwatch deliberately survives reloads, so its record stays open.
   const swept = p.openFocus ? sweepStaleOpenSession(p.openFocus) : null;
   const sessionRecords = swept ? appendSessionRecord(p.sessionRecords, swept) : p.sessionRecords;
+  const parking = swept
+    ? revealParkedThoughts(p.parking, swept.id, swept.endedAt)
+    : p.parking;
   const base: BloomState = {
     ...DEFAULT_STATE,
     settings: p.settings,
@@ -481,6 +501,7 @@ function loadState(): BloomState {
     lastWoopOfferAt: p.lastWoopOfferAt,
     preSlump: p.preSlump,
     personalCadence: p.personalCadence,
+    parking,
   };
   // A flow run that was live when the app closed keeps counting (that's what
   // a stopwatch does) — unless it's been so long it was clearly abandoned, in
@@ -526,6 +547,7 @@ function persist(s: BloomState) {
     lastWoopOfferAt: s.lastWoopOfferAt,
     preSlump: s.preSlump,
     personalCadence: s.personalCadence,
+    parking: s.parking,
     settings: s.settings,
   };
   try {
@@ -631,6 +653,9 @@ type Action =
   | { type: 'cachePersonalCadence'; recommendation: PersonalCadenceRecommendation; at: number }
   | { type: 'applyCadence'; pair: CadencePair }
   | { type: 'setTargetOutcome'; sessionId: string; targetOutcome: TargetOutcome }
+  | { type: 'parkThought'; text: string }
+  | { type: 'sendParkedToTasks'; id: string }
+  | { type: 'dismissParked'; id: string }
   | { type: 'patchSettings'; patch: Partial<Settings> };
 
 function reducer(s: BloomState, a: Action): BloomState {
@@ -722,7 +747,8 @@ function reducer(s: BloomState, a: Action): BloomState {
               finalizeSession(s.openFlow, 'abandoned', flowElapsed(s) / 60),
             )
           : s.sessionRecords;
-        return { ...s, running: false, flowStart: null, flowAcc: 0, remaining: 0, justDone: false, sessionRecords, openFlow: null };
+        const parking = revealParkedThoughts(s.parking, s.openFlow?.id);
+        return { ...s, running: false, flowStart: null, flowAcc: 0, remaining: 0, justDone: false, sessionRecords, openFlow: null, parking };
       }
       // Resetting a started focus/tiny countdown abandons its session record.
       const tinyResetMin = tinyResetMinutes(s.openFocus?.plannedMin, s.remaining);
@@ -736,7 +762,8 @@ function reducer(s: BloomState, a: Action): BloomState {
             finalizeSession(s.openFocus, 'abandoned', focusElapsedMin(s)),
           )
         : s.sessionRecords;
-      return { ...s, running: false, endsAt: null, justDone: false, remaining: resetSec, sessionRecords, openFocus: null };
+      const parking = revealParkedThoughts(s.parking, s.openFocus?.id);
+      return { ...s, running: false, endsAt: null, justDone: false, remaining: resetSec, sessionRecords, openFocus: null, parking };
     }
     case 'pick': {
       // Never wipe a live stopwatch by re-tapping its tab.
@@ -745,15 +772,23 @@ function reducer(s: BloomState, a: Action): BloomState {
       // (re-picking its tab resets it, which is the same thing for the record).
       let sessionRecords = s.sessionRecords;
       let openFocus = s.openFocus;
+      let parking = s.parking;
       if ((s.mode === 'focus' || s.mode === 'tiny') && openFocus) {
+        const endedSessionId = openFocus.id;
         sessionRecords = appendSessionRecord(
           sessionRecords,
           finalizeSession(openFocus, 'abandoned', focusElapsedMin(s)),
         );
         openFocus = null;
+        parking = revealParkedThoughts(parking, endedSessionId);
+      }
+      // A break is the promised natural pause even if another work mode
+      // (notably Flow) is merely banked in the background rather than ended.
+      if (a.mode === 'short' || a.mode === 'long') {
+        parking = revealAllParkedThoughts(parking);
       }
       if (a.mode === 'flow') {
-        return { ...s, sessionRecords, openFocus, mode: 'flow', running: false, endsAt: null, justDone: false, remaining: Math.floor(s.flowAcc) };
+        return { ...s, sessionRecords, openFocus, parking, mode: 'flow', running: false, endsAt: null, justDone: false, remaining: Math.floor(s.flowAcc) };
       }
       // Leaving flow banks the elapsed time; the stopwatch waits, paused —
       // its open record waits with it.
@@ -765,7 +800,7 @@ function reducer(s: BloomState, a: Action): BloomState {
         a.mode === 'tiny'
           ? (a.tinyMinutes ?? TINY_START_OPTIONS[0]) * 60
           : dur[a.mode];
-      return { ...base, sessionRecords, openFocus, mode: a.mode, running: false, endsAt: null, justDone: false, remaining };
+      return { ...base, sessionRecords, openFocus, parking, mode: a.mode, running: false, endsAt: null, justDone: false, remaining };
     }
     case 'skip': {
       if (s.mode === 'flow') return s; // flow has finish, not skip
@@ -783,13 +818,14 @@ function reducer(s: BloomState, a: Action): BloomState {
             finalizeSession(s.openFlow, 'completed', elapsed / 60),
           )
         : s.sessionRecords;
+      const parking = revealParkedThoughts(s.parking, s.openFlow?.id);
       const focusLen = Math.max(60, dur.focus);
       // Nearest focus-length wins: half a session or more banks the first
       // bloom. Capped so a stopwatch left running can't mint a day of XP.
       const credited = Math.min(FLOW_CREDIT_CAP, Math.round(elapsed / focusLen));
       if (credited < 1) {
         // Too short to bank — zero out quietly, no celebration.
-        return { ...s, running: false, flowStart: null, flowAcc: 0, remaining: 0, justDone: false, sessionRecords, openFlow: null };
+        return { ...s, running: false, flowStart: null, flowAcc: 0, remaining: 0, justDone: false, sessionRecords, openFlow: null, parking };
       }
       const streak = bumpStreak(s.streak, s.lastFocusDay);
       // Credit pomodoros one by one so they cascade across tasks exactly like
@@ -822,6 +858,7 @@ function reducer(s: BloomState, a: Action): BloomState {
         palXp: { ...s.palXp, [s.settings.pal]: (s.palXp[s.settings.pal] ?? 0) + credited },
         sessionRecords,
         openFlow: null,
+        parking,
       };
     }
     case 'extendTiny': {
@@ -898,6 +935,9 @@ function reducer(s: BloomState, a: Action): BloomState {
               finalizeSession(s.openFocus, 'completed', s.openFocus.plannedMin ?? dur.focus / 60),
             )
           : s.sessionRecords;
+      const parking = wasWork
+        ? revealParkedThoughts(s.parking, s.openFocus?.id)
+        : s.parking;
       return {
         ...s,
         running: false,
@@ -912,6 +952,7 @@ function reducer(s: BloomState, a: Action): BloomState {
         palXp,
         sessionRecords,
         openFocus: wasWork ? null : s.openFocus,
+        parking,
       };
     }
     case 'clearDone': {
@@ -1099,6 +1140,27 @@ function reducer(s: BloomState, a: Action): BloomState {
           a.targetOutcome,
         ),
       };
+    case 'parkThought': {
+      const open = s.mode === 'flow' ? s.openFlow : s.openFocus;
+      const isWorkMode = s.mode === 'focus' || s.mode === 'tiny' || s.mode === 'flow';
+      if (!isWorkMode || !open || s.justDone) return s;
+      return { ...s, parking: addParkedThought(s.parking, a.text, open.id) };
+    }
+    case 'sendParkedToTasks': {
+      const item = s.parking.find((thought) => thought.id === a.id && thought.revealedAt !== null);
+      if (!item) return s;
+      const id = s.tasks.reduce((m, task) => Math.max(m, task.id), 0) + 1;
+      return {
+        ...s,
+        tasks: [...s.tasks, { id, t: item.text, done: false, pomos: 0, goal: 1 }],
+        activeTaskId: s.activeTaskId ?? id,
+        parking: removeParkedThought(s.parking, a.id),
+      };
+    }
+    case 'dismissParked':
+      return s.parking.some((thought) => thought.id === a.id && thought.revealedAt !== null)
+        ? { ...s, parking: removeParkedThought(s.parking, a.id) }
+        : s;
     case 'logGoal': {
       const goals = s.goals.map((g) =>
         g.id === a.id ? { ...g, done: Math.max(0, Math.min(g.target, g.done + a.delta)) } : g,
@@ -1134,6 +1196,7 @@ function reducer(s: BloomState, a: Action): BloomState {
           flowAcc: 0,
           sessionRecords,
           openFlow: null,
+          parking: revealParkedThoughts(s.parking, s.openFlow?.id),
         };
       }
       // Duration edits apply immediately to a stopped timer; a running one
@@ -1157,7 +1220,7 @@ export function useBloom() {
   // per-second tick only touches `remaining`, which is not persisted.
   useEffect(() => {
     persist(state);
-  }, [state.sessions, state.streak, state.lastFocusDay, state.tasks, state.activeTaskId, state.palXp, state.goals, state.flowStart, state.flowAcc, state.running, state.mode, state.sessionRecords, state.openFocus, state.openFlow, state.lastWeeklyReviewWeek, state.ifThenPlans, state.ritual, state.lastWoopOfferAt, state.preSlump, state.personalCadence, state.settings]);
+  }, [state.sessions, state.streak, state.lastFocusDay, state.tasks, state.activeTaskId, state.palXp, state.goals, state.flowStart, state.flowAcc, state.running, state.mode, state.sessionRecords, state.openFocus, state.openFlow, state.lastWeeklyReviewWeek, state.ifThenPlans, state.ritual, state.lastWoopOfferAt, state.preSlump, state.personalCadence, state.parking, state.settings]);
 
   // Wall-clock tick: recompute remaining ~4x/sec. Reads Date.now(), so it
   // stays accurate even when the tab is throttled in the background.
@@ -1306,6 +1369,9 @@ export function useBloom() {
       applyCadence: (pair: CadencePair) => dispatch({ type: 'applyCadence', pair }),
       setTargetOutcome: (sessionId: string, targetOutcome: TargetOutcome) =>
         dispatch({ type: 'setTargetOutcome', sessionId, targetOutcome }),
+      parkThought: (text: string) => dispatch({ type: 'parkThought', text }),
+      sendParkedToTasks: (id: string) => dispatch({ type: 'sendParkedToTasks', id }),
+      dismissParked: (id: string) => dispatch({ type: 'dismissParked', id }),
       patchSettings: (patch: Partial<Settings>) => dispatch({ type: 'patchSettings', patch }),
     }),
     [],

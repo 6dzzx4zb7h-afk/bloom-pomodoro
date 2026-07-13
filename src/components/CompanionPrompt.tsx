@@ -3,6 +3,7 @@ import { PixelPal } from './PixelPal';
 import { TRIAGE } from '../store/companion';
 import type { Companion } from '../store/useCompanion';
 import type { AnimalKind } from '../engine/pixelpals';
+import { limitParkingDraft } from '../store/parking';
 
 interface CompanionPromptProps {
   companion: Companion;
@@ -184,7 +185,7 @@ export function CompanionPrompt({ companion, palSprite, focusLabel }: CompanionP
             <div className="pop-tip">{prompt.text}</div>
             {(prompt.kind === 'rabbit' || prompt.kind === 'urge') &&
               (jotted ? (
-                <div className="pop-soft">parked on your list ♡</div>
+                <div className="pop-soft">tucked away until your next pause ♡</div>
               ) : (
                 <form
                   className="pop-jot"
@@ -196,8 +197,8 @@ export function CompanionPrompt({ companion, palSprite, focusLabel }: CompanionP
                   <input
                     className="pop-jot-input"
                     value={jotText}
-                    onChange={(e) => setJotText(e.target.value.slice(0, 60))}
-                    placeholder="park the thing for later…"
+                    onChange={(e) => setJotText(limitParkingDraft(e.target.value))}
+                    placeholder="five words for later…"
                     aria-label="Park a thought for later"
                   />
                   <button type="submit" className="pop-btn" disabled={!jotText.trim()}>

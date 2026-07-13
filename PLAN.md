@@ -251,7 +251,7 @@ Rules of thumb:
 
 > The report's core recovery claim: most focus apps stop at timer logic, but the decisive moment is the minute after disruption — reduce residue, capture the thought, restore context, restart without shame (§Recovering, closing paragraph).
 
-### - [ ] 5.1 Distraction parking lot
+### - [x] 5.1 Distraction parking lot
 
 - **Goal:** During a session, a one-tap "park it 🌱" affordance opens a tiny 5-word input; the thought disappears from view and *returns at the next break or session end* (never immediately — that would just be a todo list). Parked items persist (version bump) and can be sent to Tasks or dismissed. Copy frames it as an experiment, not a proven fix.
 - **Science:** §Recovering — cognitive offloading row (Risko & Gilbert 2016; Scullin et al. 2018: writing specific to-dos reduced mental carryover; report explicitly grades direct focus-session evidence as *indirect* → honest experimental framing required); feature rank #4; article brief "Use a parking lot for urge-to-check thoughts".
