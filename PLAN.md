@@ -177,7 +177,7 @@ Rules of thumb:
 - **Done when:** Tiny session runs, completes, optionally extends up the ladder; a declined extension still records `completed`; streak/XP treat it as a real session.
 - **Depends on:** 1.2.
 
-### - [ ] 3.4 Environment reset ritual card
+### - [x] 3.4 Environment reset ritual card
 
 - **Goal:** Optional 15–30-second pre-session checklist card: *phone away · task named · first action named · distracting tabs closed* — user-editable items, persisted; a single satisfying tap-through, then straight into the timer. Off by default; discoverable in Settings and via a one-time gentle pet suggestion.
 - **Science:** §Starting — pre-work ritual row (Sonnentag & Kühnel 2016: morning reattachment predicts day-level engagement; Ward et al. 2017: mere phone presence taxes cognition — friction reduction, not motivation speeches); feature rank #7.
