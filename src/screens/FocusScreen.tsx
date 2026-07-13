@@ -5,6 +5,8 @@ import { PixelPal } from '../components/PixelPal';
 import { RitualCard, RitualSuggestion } from '../components/RitualCard';
 import { SettingsSheet } from '../components/SettingsSheet';
 import { WeeklyReview } from '../components/WeeklyReview';
+import { WoopCard } from '../components/WoopCard';
+import { shouldOfferWoop } from '../insights/triggers';
 import { WEEKLY_WINDOW_DAYS, weekKey } from '../insights/weekly';
 import type { SessionRecord } from '../store/sessions';
 import {
@@ -39,6 +41,7 @@ export function FocusScreen({
   const [tinyMinutes, setTinyMinutes] = useState<TinyStartMinutes>(TINY_START_OPTIONS[0]);
   const [ritualOpen, setRitualOpen] = useState(false);
   const [ritualSuggestionOpen, setRitualSuggestionOpen] = useState(false);
+  const [woopOpen, setWoopOpen] = useState(false);
 
   // Post-session debrief (PLAN 2.1): watch the session log for a record
   // finalized while this screen is up. Seeding the ref with the log's current
@@ -49,6 +52,14 @@ export function FocusScreen({
   const lastSeenId = useRef<string | null>(
     records.length ? records[records.length - 1].id : null,
   );
+  const recordAwaitingDebrief = (() => {
+    const last = records.length ? records[records.length - 1] : null;
+    return Boolean(
+      last &&
+        last.id !== lastSeenId.current &&
+        (last.outcome === 'completed' || last.outcome === 'abandoned'),
+    );
+  })();
   useEffect(() => {
     const last = records.length ? records[records.length - 1] : null;
     if (!last || last.id === lastSeenId.current) return;
@@ -66,6 +77,7 @@ export function FocusScreen({
       setDebrief(null);
       setWeekly(false);
       setRitualOpen(false);
+      setWoopOpen(false);
     }
   }, [state.running]);
 
@@ -112,6 +124,27 @@ export function FocusScreen({
     !state.justDone &&
     ((state.mode === 'focus' || state.mode === 'tiny') ? !state.openFocus : state.mode === 'flow' ? !state.openFlow : false);
 
+  // Conditional WOOP offer (PLAN 3.5): the pure trigger requires three
+  // trailing abandons, a new abandon since the prior offer, and a seven-day
+  // cooldown. The persisted timestamp is marked when the card is presented,
+  // not when it is completed, so dismissing it can never cause another nudge.
+  const woopTriggered = shouldOfferWoop(records, state.lastWoopOfferAt);
+  const woopEligible =
+    woopTriggered &&
+    state.mode === 'focus' &&
+    freshWorkStart &&
+    !ritualOpen &&
+    !showSettings &&
+    !debrief &&
+    !recordAwaitingDebrief &&
+    !weekly;
+
+  useEffect(() => {
+    if (!woopEligible || woopOpen) return;
+    setWoopOpen(true);
+    actions.markWoopOffered(Date.now());
+  }, [actions, woopEligible, woopOpen]);
+
   const ritualSuggestionEligible =
     state.mode === 'focus' &&
     freshWorkStart &&
@@ -120,7 +153,9 @@ export function FocusScreen({
     !ritualOpen &&
     !showSettings &&
     !debrief &&
-    !weekly;
+    !weekly &&
+    !woopTriggered &&
+    !woopOpen;
 
   // Offer this exactly once. The persisted flag is set when it is presented,
   // while local UI state keeps the little pet prompt visible for this visit.
@@ -144,7 +179,8 @@ export function FocusScreen({
     !ritualOpen &&
     !showSettings &&
     !debrief &&
-    !weekly;
+    !weekly &&
+    !woopOpen;
 
   function beginSession() {
     const ifThenPlanId = showPlanner && planId ? planId : undefined;
@@ -359,7 +395,7 @@ export function FocusScreen({
         />
       )}
 
-      {showPlanner && (
+      {showPlanner && !woopOpen && (
         <IfThenPlanner
           plans={state.ifThenPlans}
           selectedId={planId}
@@ -369,6 +405,21 @@ export function FocusScreen({
             actions.addIfThenPlan(cueType, cueText, actionText)
           }
           onRemove={(id) => actions.removeIfThenPlan(id)}
+        />
+      )}
+
+      {woopOpen && !state.running && !state.justDone && (
+        <WoopCard
+          plans={state.ifThenPlans}
+          selectedId={planId}
+          palSprite={palSprite}
+          onSelectPlan={(id) => setChosenPlanId(id)}
+          onClearPlan={() => setChosenPlanId(null)}
+          onCreatePlan={(cueType, cueText, actionText) =>
+            actions.addIfThenPlan(cueType, cueText, actionText)
+          }
+          onRemovePlan={(id) => actions.removeIfThenPlan(id)}
+          onDismiss={() => setWoopOpen(false)}
         />
       )}
 

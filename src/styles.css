@@ -1445,6 +1445,88 @@ button {
   margin-right: 2px;
 }
 
+/* Conditional WOOP reset (PLAN 3.5): a four-step, dismissible card. It uses
+   the same gentle speech-bubble shell and the existing if–then planner. */
+.woop-card {
+  width: min(370px, calc(100% - 24px));
+  max-height: calc(100% - 108px - env(safe-area-inset-bottom));
+  overflow-y: auto;
+  z-index: 57;
+}
+.woop-note {
+  margin: -3px 0 10px;
+  font: 600 10.5px var(--font-body);
+  color: var(--soft2);
+  line-height: 1.4;
+}
+.woop-steps {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 4px;
+  margin-bottom: 11px;
+}
+.woop-step {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+  color: var(--soft3);
+  font: 700 9px var(--font-display);
+}
+.woop-step.on {
+  color: var(--plum);
+}
+.woop-step-dot {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  background: rgba(199, 159, 230, 0.16);
+  font-size: 8.5px;
+}
+.woop-step.on .woop-step-dot {
+  color: #fff;
+  background: linear-gradient(150deg, var(--play-grad-a), var(--play-grad-b));
+}
+.woop-entry,
+.woop-plan {
+  display: flex;
+  flex-direction: column;
+}
+.woop-question {
+  margin-bottom: 7px;
+  color: var(--plum);
+  font: 700 12.5px var(--font-display);
+  line-height: 1.35;
+}
+.woop-input {
+  width: 100%;
+  margin-bottom: 9px;
+}
+.woop-echo {
+  margin: -2px 0 2px;
+  color: var(--soft2);
+  font: 600 10.5px var(--font-body);
+  font-style: italic;
+}
+.woop-nav {
+  display: flex;
+  justify-content: flex-end;
+  gap: 7px;
+}
+.woop-plan .ifthen-panel {
+  width: 100%;
+  margin: 7px 0 9px;
+  background: rgba(199, 159, 230, 0.1);
+}
+.woop-dismiss {
+  display: block;
+  margin: 8px auto 0;
+}
+
 /* The next rung appears only at the natural pause after a completed tiny
    start. Both choices are equally available; stopping keeps all credit. */
 .tiny-rung-card {
@@ -2272,6 +2354,12 @@ body.night {
 }
 .night .debrief-chip {
   background: #383060;
+}
+.night .woop-step-dot {
+  background: #383060;
+}
+.night .woop-plan .ifthen-panel {
+  background: rgba(16, 11, 34, 0.35);
 }
 .night .pop-opt {
   background: #352c5e;

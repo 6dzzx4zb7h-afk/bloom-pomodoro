@@ -107,6 +107,8 @@ interface BloomState {
   ifThenPlans: IfThenPlan[];
   /** Optional pre-session environment reset (PLAN 3.4). */
   ritual: RitualSettings;
+  /** Last time the conditional WOOP card surfaced (PLAN 3.5 cooldown). */
+  lastWoopOfferAt: number | null;
   settings: Settings;
 }
 
@@ -150,6 +152,7 @@ const DEFAULT_STATE: BloomState = {
   lastWeeklyReviewWeek: null,
   ifThenPlans: [],
   ritual: DEFAULT_RITUAL,
+  lastWoopOfferAt: null,
   settings: DEFAULT_SETTINGS,
 };
 
@@ -167,7 +170,7 @@ const DEFAULT_STATE: BloomState = {
 const STORAGE_KEY = 'bloom-state';
 /** Older keys we still read from once, newest first. */
 const LEGACY_KEYS = ['bloom-state-v2', 'bloom-state-v1'];
-const SCHEMA_VERSION = 10;
+const SCHEMA_VERSION = 11;
 
 interface PersistedShape {
   version: number;
@@ -191,6 +194,8 @@ interface PersistedShape {
   ifThenPlans: IfThenPlan[];
   /** Optional pre-session environment reset (PLAN 3.4). */
   ritual: RitualSettings;
+  /** Last conditional WOOP offer; null for users who have never seen it. */
+  lastWoopOfferAt: number | null;
   settings: Settings;
 }
 
@@ -249,6 +254,9 @@ const MIGRATIONS: Array<(blob: Record<string, unknown>) => Record<string, unknow
   // v9 -> v10: Environment reset ritual (PLAN 3.4). Existing users get the
   // feature off, with the four bundled defaults ready if they opt in.
   (blob) => ({ ...blob, ritual: DEFAULT_RITUAL }),
+  // v10 -> v11: conditional WOOP offer cooldown (PLAN 3.5). Existing users
+  // have never been offered the card; all existing data passes through.
+  (blob) => ({ ...blob, lastWoopOfferAt: null }),
 ];
 
 function dayStr(d = new Date()): string {
@@ -307,6 +315,10 @@ function withDefaults(blob: Record<string, unknown>): PersistedShape {
       typeof b.lastWeeklyReviewWeek === 'string' ? (b.lastWeeklyReviewWeek as string) : null,
     ifThenPlans: sanitizeIfThenPlans(b.ifThenPlans),
     ritual: sanitizeRitual(b.ritual),
+    lastWoopOfferAt:
+      typeof b.lastWoopOfferAt === 'number' && Number.isFinite(b.lastWoopOfferAt)
+        ? b.lastWoopOfferAt
+        : null,
     settings,
   };
 }
@@ -375,6 +387,7 @@ function loadState(): BloomState {
     lastWeeklyReviewWeek: p.lastWeeklyReviewWeek,
     ifThenPlans: p.ifThenPlans,
     ritual: p.ritual,
+    lastWoopOfferAt: p.lastWoopOfferAt,
   };
   // A flow run that was live when the app closed keeps counting (that's what
   // a stopwatch does) — unless it's been so long it was clearly abandoned, in
@@ -417,6 +430,7 @@ function persist(s: BloomState) {
     lastWeeklyReviewWeek: s.lastWeeklyReviewWeek,
     ifThenPlans: s.ifThenPlans,
     ritual: s.ritual,
+    lastWoopOfferAt: s.lastWoopOfferAt,
     settings: s.settings,
   };
   try {
@@ -516,6 +530,7 @@ type Action =
   | { type: 'useIfThenPlan'; id: string }
   | { type: 'patchRitual'; patch: Partial<Pick<RitualSettings, 'enabled' | 'suggestionSeen'>> }
   | { type: 'updateRitualItem'; id: string; text: string }
+  | { type: 'markWoopOffered'; at: number }
   | { type: 'patchSettings'; patch: Partial<Settings> };
 
 function reducer(s: BloomState, a: Action): BloomState {
@@ -901,6 +916,8 @@ function reducer(s: BloomState, a: Action): BloomState {
       return { ...s, ritual: { ...s.ritual, ...a.patch } };
     case 'updateRitualItem':
       return { ...s, ritual: { ...s.ritual, items: updateRitualItem(s.ritual.items, a.id, a.text) } };
+    case 'markWoopOffered':
+      return { ...s, lastWoopOfferAt: a.at };
     case 'logGoal': {
       const goals = s.goals.map((g) =>
         g.id === a.id ? { ...g, done: Math.max(0, Math.min(g.target, g.done + a.delta)) } : g,
@@ -959,7 +976,7 @@ export function useBloom() {
   // per-second tick only touches `remaining`, which is not persisted.
   useEffect(() => {
     persist(state);
-  }, [state.sessions, state.streak, state.lastFocusDay, state.tasks, state.activeTaskId, state.palXp, state.goals, state.flowStart, state.flowAcc, state.running, state.mode, state.sessionRecords, state.openFocus, state.openFlow, state.lastWeeklyReviewWeek, state.ifThenPlans, state.ritual, state.settings]);
+  }, [state.sessions, state.streak, state.lastFocusDay, state.tasks, state.activeTaskId, state.palXp, state.goals, state.flowStart, state.flowAcc, state.running, state.mode, state.sessionRecords, state.openFocus, state.openFlow, state.lastWeeklyReviewWeek, state.ifThenPlans, state.ritual, state.lastWoopOfferAt, state.settings]);
 
   // Wall-clock tick: recompute remaining ~4x/sec. Reads Date.now(), so it
   // stays accurate even when the tab is throttled in the background.
@@ -1098,6 +1115,7 @@ export function useBloom() {
         dispatch({ type: 'patchRitual', patch }),
       updateRitualItem: (id: string, text: string) =>
         dispatch({ type: 'updateRitualItem', id, text }),
+      markWoopOffered: (at: number) => dispatch({ type: 'markWoopOffered', at }),
       patchSettings: (patch: Partial<Settings>) => dispatch({ type: 'patchSettings', patch }),
     }),
     [],

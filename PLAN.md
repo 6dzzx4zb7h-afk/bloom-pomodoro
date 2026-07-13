@@ -185,7 +185,7 @@ Rules of thumb:
 - **Done when:** Toggle in Settings; when on, card precedes session start and is completable in <30s; items editable; skippable.
 - **Depends on:** 1.2.
 
-### - [ ] 3.5 WOOP script for repeated start-failures (conditional, gentle)
+### - [x] 3.5 WOOP script for repeated start-failures (conditional, gentle)
 
 - **Goal:** If `abandonStreakInfo()` shows ≥3 recent abandons/failed starts, the pet offers — once, dismissible, never repeated within 7 days — a 60-second guided WOOP card: Wish → Outcome → Obstacle → Plan (the Plan step reuses the if–then planner). Entirely optional.
 - **Science:** §Starting — mental contrasting row (Wang et al. 2021 meta-analysis: MCII g = 0.336 overall; guided delivery g = 0.465 vs. document-only g = 0.277 — hence a *guided, stepwise* card rather than a text dump); the trigger design respects §Do not build — always-on nudging (low-frequency, explainable).

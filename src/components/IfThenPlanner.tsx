@@ -29,6 +29,7 @@ const CUE_LABEL: Record<CueType, string> = {
 export function IfThenPlanner({
   plans,
   selectedId,
+  initialOpen = false,
   onSelect,
   onClear,
   onCreate,
@@ -37,12 +38,14 @@ export function IfThenPlanner({
   plans: IfThenPlan[];
   /** The plan the next session will start with, if any. */
   selectedId: string | null;
+  /** WOOP's Plan step opens the same planner immediately (PLAN 3.5). */
+  initialOpen?: boolean;
   onSelect: (id: string) => void;
   onClear: () => void;
   onCreate: (cueType: CueType, cueText: string, actionText: string) => void;
   onRemove: (id: string) => void;
 }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(initialOpen);
   const [cueType, setCueType] = useState<CueType>('time');
   const [cueText, setCueText] = useState('');
   const [actionText, setActionText] = useState('');
