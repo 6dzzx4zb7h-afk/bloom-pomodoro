@@ -3,6 +3,7 @@ import {
   finalizeSession,
   newOpenSession,
   sanitizeOpenSession,
+  setSessionTargetOutcome,
   sweepStaleOpenSession,
 } from './sessions';
 import { isTinyFirstRung, tinyResetMinutes, tinyXpFor } from './useBloom';
@@ -72,5 +73,41 @@ describe('tiny reset length', () => {
     expect(tinyResetMinutes(undefined, 5 * 60)).toBe(5);
     expect(tinyResetMinutes(5, 4 * 60)).toBe(5);
     expect(tinyResetMinutes(10, 9 * 60)).toBe(2);
+  });
+});
+
+describe('session target lifecycle', () => {
+  const now = new Date(2026, 6, 13, 10, 0, 0).getTime();
+
+  it('carries a target from the open session into its finalized record', () => {
+    const open = {
+      ...newOpenSession('focus', 25, 4, undefined, now),
+      targetText: 'outline the intro section',
+    };
+
+    const record = finalizeSession(open, 'completed', 25, now + 25 * 60_000);
+    expect(record).toMatchObject({
+      targetText: 'outline the intro section',
+    });
+    expect(record.targetOutcome).toBeUndefined();
+    expect(sanitizeOpenSession(open)?.targetText).toBe('outline the intro section');
+  });
+
+  it('stores a debrief answer only on the matching targeted record', () => {
+    const targeted = finalizeSession(
+      { ...newOpenSession('focus', 25, 4, undefined, now), targetText: 'draft two paragraphs' },
+      'completed',
+      25,
+    );
+    const untargeted = finalizeSession(
+      newOpenSession('flow', null, 5, undefined, now + 1),
+      'completed',
+      12,
+    );
+
+    const updated = setSessionTargetOutcome([targeted, untargeted], targeted.id, 'partly');
+
+    expect(updated[0].targetOutcome).toBe('partly');
+    expect(updated[1]).toBe(untargeted);
   });
 });

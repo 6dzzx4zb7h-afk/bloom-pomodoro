@@ -8,8 +8,9 @@ import { WeeklyReview } from '../components/WeeklyReview';
 import { WoopCard } from '../components/WoopCard';
 import { shouldOfferWoop } from '../insights/triggers';
 import { WEEKLY_WINDOW_DAYS, weekKey } from '../insights/weekly';
-import type { SessionRecord } from '../store/sessions';
+import type { SessionRecord, TargetOutcome } from '../store/sessions';
 import {
+  SESSION_TARGET_MAX,
   TINY_EXTENSION_MIN,
   TINY_START_OPTIONS,
   isTinyFirstRung,
@@ -42,6 +43,7 @@ export function FocusScreen({
   const [ritualOpen, setRitualOpen] = useState(false);
   const [ritualSuggestionOpen, setRitualSuggestionOpen] = useState(false);
   const [woopOpen, setWoopOpen] = useState(false);
+  const [targetDraft, setTargetDraft] = useState(companion.intention);
 
   // Post-session debrief (PLAN 2.1): watch the session log for a record
   // finalized while this screen is up. Seeding the ref with the log's current
@@ -188,11 +190,26 @@ export function FocusScreen({
       setRitualOpen(true);
       return;
     }
-    actions.toggle(ifThenPlanId);
+    startSession(ifThenPlanId);
+  }
+
+  function startSession(ifThenPlanId?: string) {
+    actions.toggle(ifThenPlanId, targetDraft);
+    // The active record owns the target from here; leave Companion's copy in
+    // place so its check-ins can still refer to it during focus sessions.
+    setTargetDraft('');
+  }
+
+  function answerTarget(recordId: string, targetOutcome: TargetOutcome) {
+    actions.setTargetOutcome(recordId, targetOutcome);
+    setDebrief((current) =>
+      current?.id === recordId ? { ...current, targetOutcome } : current,
+    );
   }
 
   const isFlow = state.mode === 'flow';
   const isTiny = state.mode === 'tiny';
+  const activeSessionTarget = (isFlow ? state.openFlow : state.openFocus)?.targetText;
   const focusLen = state.settings.durations.focus || 1;
   // Flow: `remaining` holds elapsed seconds and the ring fills once per
   // focus-length, lap after lap — the stopwatch's quiet nod to the pomodoro.
@@ -319,8 +336,8 @@ export function FocusScreen({
                 : 'a stopwatch instead of a countdown — just press play'}
           </div>
         )}
-        {wantsIntention && state.running && companion.intention && (
-          <div className="intention-line">✦ {companion.intention}</div>
+        {activeSessionTarget && !state.justDone && (
+          <div className="intention-line">✦ target: {activeSessionTarget}</div>
         )}
         {companion.summary && !(state.running && state.mode === 'focus') && (
           <div className="intention-line">{companion.summary}</div>
@@ -386,11 +403,11 @@ export function FocusScreen({
           sprite={palSprite}
           onStart={() => {
             setRitualOpen(false);
-            actions.toggle(showPlanner && planId ? planId : undefined);
+            startSession(showPlanner && planId ? planId : undefined);
           }}
           onSkip={() => {
             setRitualOpen(false);
-            actions.toggle(showPlanner && planId ? planId : undefined);
+            startSession(showPlanner && planId ? planId : undefined);
           }}
         />
       )}
@@ -423,13 +440,18 @@ export function FocusScreen({
         />
       )}
 
-      {wantsIntention && !state.running && (
+      {freshWorkStart && (
         <input
           className="intention-input"
-          value={companion.intention}
-          onChange={(e) => companion.setIntention(e.target.value.slice(0, 60))}
-          placeholder="what will you do this session? (optional)"
-          aria-label="Session intention"
+          value={targetDraft}
+          maxLength={SESSION_TARGET_MAX}
+          onChange={(e) => {
+            const next = e.target.value.slice(0, SESSION_TARGET_MAX);
+            setTargetDraft(next);
+            if (wantsIntention) companion.setIntention(next);
+          }}
+          placeholder="one specific doable thing (optional)"
+          aria-label="Session target"
         />
       )}
 
@@ -451,13 +473,26 @@ export function FocusScreen({
           record={debrief}
           records={records}
           palSprite={palSprite}
+          onTargetOutcome={(targetOutcome) => answerTarget(debrief.id, targetOutcome)}
           onDismiss={() => setDebrief(null)}
         />
       )}
 
       {/* The debrief takes precedence — one card at a time, never mid-session. */}
       {weekly && !debrief && !state.running && !state.justDone && (
-        <WeeklyReview records={records} palSprite={palSprite} onDismiss={() => setWeekly(false)} />
+        <WeeklyReview
+          records={records}
+          palSprite={palSprite}
+          currentCadence={{
+            focusMin: Math.round(state.settings.durations.focus / 60),
+            breakMin: Math.round(state.settings.durations.short / 60),
+          }}
+          personalCadence={state.personalCadence}
+          chronotype={state.settings.chronotype}
+          onCacheCadence={actions.cachePersonalCadence}
+          onApplyCadence={actions.applyCadence}
+          onDismiss={() => setWeekly(false)}
+        />
       )}
 
       {showRitualSuggestion && (
@@ -477,9 +512,13 @@ export function FocusScreen({
       {showSettings && (
         <SettingsSheet
           settings={state.settings}
+          records={records}
+          personalCadence={state.personalCadence}
           ritual={state.ritual}
           running={state.running}
           onPatch={actions.patchSettings}
+          onCacheCadence={actions.cachePersonalCadence}
+          onApplyCadence={actions.applyCadence}
           onPatchRitual={actions.patchRitual}
           onUpdateRitualItem={actions.updateRitualItem}
           onClose={() => setShowSettings(false)}

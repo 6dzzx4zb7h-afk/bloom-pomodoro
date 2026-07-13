@@ -12,6 +12,9 @@
 // imports helpers from this file): the shared evidence vocabulary (PLAN 2.4).
 import type { EvidenceKey } from '../insights/why';
 
+/** A gentle self-description, never a diagnosis or a fixed identity. */
+export type Chronotype = 'betterEarlier' | 'betterLater' | 'notSure';
+
 export interface CompanionSettings {
   /** Master toggle. Off = the app behaves exactly as without the feature. */
   on: boolean;
@@ -216,12 +219,17 @@ export interface Insights {
   gentleNote: boolean;
 }
 
-function timeBucket(ts: number): string {
-  const h = new Date(ts).getHours();
+type TimeBucket = 'mornings' | 'afternoons' | 'evenings' | 'nights';
+
+function timeBucketForHour(h: number): TimeBucket {
   if (h >= 5 && h < 12) return 'mornings';
   if (h >= 12 && h < 17) return 'afternoons';
   if (h >= 17 && h < 22) return 'evenings';
   return 'nights';
+}
+
+function timeBucket(ts: number): TimeBucket {
+  return timeBucketForHour(new Date(ts).getHours());
 }
 
 /** Per-bucket focused/drift tallies over a set of events. */
@@ -335,6 +343,44 @@ export interface RecipeItem {
 /** Signals (answers + aways) needed before the recipe says anything. */
 export const RECIPE_MIN_SIGNALS = 5;
 
+/** The subset of completionRateByStartHour() consumed by the recipe. */
+export interface StartHourCompletion {
+  hour: number;
+  total: number;
+  completed: number;
+  rate: number;
+}
+
+export interface AttentionPlanContext {
+  chronotype: Chronotype;
+  completionByStartHour: StartHourCompletion[];
+}
+
+const CHRONOTYPE_LABEL: Record<Chronotype, string> = {
+  betterEarlier: 'better earlier',
+  betterLater: 'better later',
+  notSure: 'not sure yet',
+};
+
+const TIME_BUCKET_PHRASE: Record<TimeBucket, string> = {
+  mornings: 'morning',
+  afternoons: 'afternoon',
+  evenings: 'evening',
+  nights: 'night',
+};
+
+/**
+ * A two-session prior gently breaks close calls while observed completions
+ * stay in charge as the log grows. `notSure` is neutral in every bucket.
+ */
+function chronotypePrior(chronotype: Chronotype, bucket: TimeBucket): number {
+  if (chronotype === 'notSure') return 0.5;
+  if (chronotype === 'betterEarlier') {
+    return { mornings: 0.8, afternoons: 0.6, evenings: 0.35, nights: 0.25 }[bucket];
+  }
+  return { mornings: 0.25, afternoons: 0.4, evenings: 0.8, nights: 0.6 }[bucket];
+}
+
 /** How each drift style is best met — richer than the in-session micro-tips. */
 const RECIPE_STRATEGY: Record<DriftKind, { emoji: string; text: string; evidenceKey: EvidenceKey }> = {
   rabbit: {
@@ -386,6 +432,10 @@ export function computeAttentionPlan(
   focusLenMins: number,
   now = Date.now(),
   windowDays = 28,
+  context: AttentionPlanContext = {
+    chronotype: 'notSure',
+    completionByStartHour: [],
+  },
 ): RecipeItem[] {
   const window = events.filter((e) => now - e.ts <= windowDays * 86400000);
   const drifts = window.filter(isDriftEvent);
@@ -427,33 +477,42 @@ export function computeAttentionPlan(
     });
   }
 
-  // 2) The clock: guard the strong hours, spare the weak ones.
-  const buckets = bucketStats(window);
-  let best: { name: string; ratio: number; f: number; total: number } | null = null;
-  let worst: { name: string; ratio: number; f: number; total: number } | null = null;
-  for (const [name, b] of buckets) {
-    const total = b.f + b.d;
-    if (total < 3 || b.f === 0) {
-      if (total >= 3 && b.f === 0) worst = { name, ratio: 0, f: 0, total };
-      continue;
-    }
-    const ratio = b.f / total;
-    if (!best || ratio > best.ratio) best = { name, ratio, f: b.f, total };
-    if (!worst || ratio < worst.ratio) worst = { name, ratio, f: b.f, total };
+  // 2) The clock: blend the self-tag as a light prior with observed session
+  // completion by start hour. Three sessions are still required in a bucket,
+  // and the because-sentence always names both inputs (PLAN 4.4).
+  const completionBuckets = new Map<TimeBucket, { completed: number; total: number }>();
+  for (const hour of context.completionByStartHour) {
+    const name = timeBucketForHour(hour.hour);
+    const bucket = completionBuckets.get(name) ?? { completed: 0, total: 0 };
+    bucket.completed += hour.completed;
+    bucket.total += hour.total;
+    completionBuckets.set(name, bucket);
   }
-  if (best && best.ratio >= 0.6) {
+  let best: { name: TimeBucket; score: number; completed: number; total: number } | null = null;
+  let worst: { name: TimeBucket; score: number; completed: number; total: number } | null = null;
+  for (const [name, bucket] of completionBuckets) {
+    if (bucket.total < 3) continue;
+    const score =
+      (bucket.completed + chronotypePrior(context.chronotype, name) * 2) /
+      (bucket.total + 2);
+    const candidate = { name, score, completed: bucket.completed, total: bucket.total };
+    if (!best || score > best.score) best = candidate;
+    if (!worst || score < worst.score) worst = candidate;
+  }
+  const tagLabel = CHRONOTYPE_LABEL[context.chronotype];
+  if (best && best.score >= 0.6) {
     items.push({
       emoji: '🌤️',
-      text: `${best.name} are your golden hours — give them your hardest task, before anything else gets a turn.`,
-      because: `${best.f} of your ${best.total} ${best.name} check-ins were focused (${pctOf(best.f, best.total)}%).`,
+      text: `${best.name} look like your golden hours — perhaps give them the task that asks the most of you.`,
+      because: `you chose “${tagLabel}”, and ${best.completed} of your ${best.total} sessions started in the ${TIME_BUCKET_PHRASE[best.name]} were completed (${pctOf(best.completed, best.total)}%); the tag is a gentle first guess, blended with what you’ve finished.`,
       evidenceKey: 'golden-hours',
     });
   }
-  if (worst && best && worst.name !== best.name && worst.ratio <= 0.45) {
+  if (worst && best && worst.name !== best.name && worst.score <= 0.45) {
     items.push({
       emoji: '🌙',
-      text: `${worst.name} run foggier for you — save easy wins (tidying notes, small errands) for then instead of the big stuff.`,
-      because: `only ${worst.f} of your ${worst.total} ${worst.name} check-ins were focused (${pctOf(worst.f, worst.total)}%).`,
+      text: `${worst.name} may run foggier for you — that timing mismatch is normal, not weakness; lighter tasks might fit there.`,
+      because: `you chose “${tagLabel}”, and ${worst.completed} of your ${worst.total} sessions started in the ${TIME_BUCKET_PHRASE[worst.name]} were completed (${pctOf(worst.completed, worst.total)}%); your recent sessions have the louder voice as the log grows.`,
       evidenceKey: 'golden-hours',
     });
   }

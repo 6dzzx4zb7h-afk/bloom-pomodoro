@@ -4,9 +4,11 @@ import { WHY_EVIDENCE_ANCHORS, EVIDENCE_EXPLAINERS } from '../insights/why';
 import {
   computeAttentionPlan,
   RECIPE_MIN_SIGNALS,
+  type AttentionPlanContext,
   type CompanionEvent,
   type DriftKind,
   type RecipeItem,
+  type StartHourCompletion,
 } from './companion';
 
 /* ------------------------------------------------------------------ *
@@ -40,8 +42,18 @@ const focusedAt = (hour: number, n: number) =>
 const driftsOf = (kind: DriftKind, n: number, min: number, hour = 9) =>
   Array.from({ length: n }, () => ev(kind, { min, hour }));
 
-const plan = (events: CompanionEvent[], focusLen = 25) =>
-  computeAttentionPlan(events, focusLen, NOW);
+const completionAt = (hour: number, completed: number, total: number): StartHourCompletion => ({
+  hour,
+  completed,
+  total,
+  rate: completed / total,
+});
+
+const plan = (
+  events: CompanionEvent[],
+  focusLen = 25,
+  context?: AttentionPlanContext,
+) => computeAttentionPlan(events, focusLen, NOW, 28, context);
 
 /* ------------------------------------------------------------------ *
  * PLAN 2.4 — every recommendation is explainable
@@ -57,7 +69,12 @@ function oneOfEach(): RecipeItem[] {
   // stretch (8 focused, no drifts)
   out.push(...plan(focusedAt(9, 8)));
   // golden + foggy hours
-  out.push(...plan([...focusedAt(9, 4), ...driftsOf('urge', 3, 10, 23)]));
+  out.push(
+    ...plan([...focusedAt(9, 4), ...driftsOf('urge', 3, 10, 23)], 25, {
+      chronotype: 'betterEarlier',
+      completionByStartHour: [completionAt(9, 4, 4), completionAt(23, 0, 3)],
+    }),
+  );
   // quiet tab-aways
   out.push(...plan([...focusedAt(9, 4), ev('away'), ev('away'), ev('away')]));
   return out;
@@ -102,12 +119,44 @@ describe('computeAttentionPlan — explainability (PLAN 2.4)', () => {
   });
 
   it('the golden-hours line cites the bucket’s own tallies', () => {
-    const items = plan([...focusedAt(9, 4), ...driftsOf('urge', 3, 10, 23)]);
+    const items = plan([...focusedAt(9, 4), ...driftsOf('urge', 3, 10, 23)], 25, {
+      chronotype: 'betterEarlier',
+      completionByStartHour: [completionAt(9, 4, 4), completionAt(23, 0, 3)],
+    });
     const golden = items.find((i) => i.emoji === '🌤️');
     const foggy = items.find((i) => i.emoji === '🌙');
-    expect(golden!.because).toContain('4 of your 4 mornings');
+    expect(golden!.because).toContain('you chose “better earlier”');
+    expect(golden!.because).toContain('4 of your 4 sessions started in the morning');
     expect(golden!.evidenceKey).toBe('golden-hours');
-    expect(foggy!.because).toContain('0 of your 3 nights');
+    expect(foggy!.because).toContain('you chose “better earlier”');
+    expect(foggy!.because).toContain('0 of your 3 sessions started in the night');
+  });
+
+  it('uses the self-tag as a light prior when observed completion rates tie', () => {
+    const events = focusedAt(9, RECIPE_MIN_SIGNALS);
+    const observed = [completionAt(9, 2, 3), completionAt(19, 2, 3)];
+    const earlier = plan(events, 25, {
+      chronotype: 'betterEarlier',
+      completionByStartHour: observed,
+    }).find((i) => i.emoji === '🌤️');
+    const later = plan(events, 25, {
+      chronotype: 'betterLater',
+      completionByStartHour: observed,
+    }).find((i) => i.emoji === '🌤️');
+
+    expect(earlier?.text).toContain('mornings');
+    expect(later?.text).toContain('evenings');
+  });
+
+  it('lets strong observed history outweigh the self-tag', () => {
+    const golden = plan(focusedAt(9, RECIPE_MIN_SIGNALS), 25, {
+      chronotype: 'betterLater',
+      completionByStartHour: [completionAt(9, 8, 10), completionAt(19, 1, 3)],
+    }).find((i) => i.emoji === '🌤️');
+
+    expect(golden?.text).toContain('mornings');
+    expect(golden?.because).toContain('you chose “better later”');
+    expect(golden?.because).toContain('8 of your 10 sessions started in the morning');
   });
 
   it('recipe copy avoids the never-ship lexicon (docs/voice.md)', () => {

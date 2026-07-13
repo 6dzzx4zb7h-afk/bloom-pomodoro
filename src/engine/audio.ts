@@ -10,10 +10,22 @@
 export type BgSound = 'off' | 'calm' | 'coffee' | 'white';
 
 export const BG_SOUNDS: { key: BgSound; label: string; hint: string }[] = [
-  { key: 'off', label: 'No sound', hint: 'silence in the background' },
-  { key: 'calm', label: 'Calm music', hint: 'soft, drifting pads' },
-  { key: 'coffee', label: 'Coffee shop', hint: 'warm room hum & clinks' },
-  { key: 'white', label: 'White noise', hint: 'steady, even hush' },
+  { key: 'off', label: 'No sound', hint: 'Silence is a lovely option for any task.' },
+  {
+    key: 'calm',
+    label: 'Calm music',
+    hint: 'Lyric-free pads may suit routine work; dense reading may prefer silence.',
+  },
+  {
+    key: 'coffee',
+    label: 'Coffee shop',
+    hint: 'Room noise may suit brainstorming; dense reading may prefer quiet.',
+  },
+  {
+    key: 'white',
+    label: 'White noise',
+    hint: 'A steady hush can mask small noises; the effect varies by task and person.',
+  },
 ];
 
 interface Stoppable {
@@ -29,6 +41,9 @@ class AudioEngine {
   private ambience: Ambience | null = null;
   private playing: BgSound = 'off';
   private previewTimer: ReturnType<typeof setTimeout> | null = null;
+  // Audio stays locked across hydration and effects. Only an explicit user
+  // gesture may open this gate, so a restored running session cannot autoplay.
+  private userUnlocked = false;
 
   private ensure(): AudioContext | null {
     if (typeof window === 'undefined') return null;
@@ -50,6 +65,7 @@ class AudioEngine {
 
   /** Resume/unlock the audio context. Must be called from a user gesture. */
   resume() {
+    this.userUnlocked = true;
     const ctx = this.ensure();
     if (ctx && ctx.state === 'suspended') ctx.resume().catch(() => {});
   }
@@ -255,6 +271,7 @@ class AudioEngine {
     this.stopInternal();
     this.playing = kind;
     if (kind === 'off') return;
+    if (!this.userUnlocked) return;
     const ctx = this.ensure();
     if (!ctx) return;
     if (ctx.state === 'suspended') ctx.resume().catch(() => {});
@@ -281,7 +298,7 @@ class AudioEngine {
 
   /** Play a short taste of an ambience, then stop — for the settings picker. */
   previewAmbience(kind: BgSound) {
-    this.resume();
+    if (!this.userUnlocked) return;
     this.setAmbience(kind);
     if (kind !== 'off') {
       this.previewTimer = setTimeout(() => this.stopAmbience(), 5000);
@@ -292,6 +309,7 @@ class AudioEngine {
 
   /** A warm rising two-phrase chime played when a session ends. */
   playRing() {
+    if (!this.userUnlocked) return;
     const ctx = this.ensure();
     if (!ctx) return;
     if (ctx.state === 'suspended') ctx.resume().catch(() => {});

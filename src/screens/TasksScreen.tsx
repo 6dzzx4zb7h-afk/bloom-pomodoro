@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { PixelPal } from '../components/PixelPal';
 import type { useBloom } from '../store/useBloom';
 import {
@@ -9,6 +9,12 @@ import {
   RECIPE_MIN_SIGNALS,
 } from '../store/companion';
 import { EVIDENCE_EXPLAINERS, type EvidenceKey } from '../insights/why';
+import {
+  personalCadenceForSurface,
+  shouldRecomputePersonalCadence,
+  type CadencePair,
+} from '../insights/cadence';
+import { completionRateByStartHour } from '../store/sessionStats';
 
 const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
@@ -30,24 +36,67 @@ export function TasksScreen({ bloom }: { bloom: ReturnType<typeof useBloom> }) {
   // put when the mode is off — just hidden. Recomputed per visit; the log is
   // small and local.
   const companionOn = state.settings.companion.on;
+  const localEvents = useMemo(() => loadEvents(), []);
   const [patternsWindow, setPatternsWindow] = useState<'today' | 'week'>('week');
   const insights = useMemo(
     () =>
-      companionOn ? computeInsights(loadEvents(), Date.now(), patternsWindow === 'today' ? 1 : 7) : null,
-    [companionOn, patternsWindow],
+      companionOn ? computeInsights(localEvents, Date.now(), patternsWindow === 'today' ? 1 : 7) : null,
+    [companionOn, localEvents, patternsWindow],
   );
   const phaseWord = { early: 'early on', mid: 'mid-session', late: 'in the late stretch' } as const;
 
   // Attention recipe: the personal what-to-try layer, built from a wider
   // window (4 weeks) so it shifts slowly and never scolds about one rough day.
   const focusLenMins = Math.max(1, Math.round(state.settings.durations.focus / 60));
-  const recipe = useMemo(
-    () => (companionOn ? computeAttentionPlan(loadEvents(), focusLenMins) : []),
-    [companionOn, focusLenMins],
+  const completionByStartHour = useMemo(
+    () => completionRateByStartHour(state.sessionRecords),
+    [state.sessionRecords],
   );
+  const recipe = useMemo(
+    () =>
+      companionOn
+        ? computeAttentionPlan(localEvents, focusLenMins, Date.now(), 28, {
+            chronotype: state.settings.chronotype,
+            completionByStartHour,
+          })
+        : [],
+    [companionOn, completionByStartHour, focusLenMins, localEvents, state.settings.chronotype],
+  );
+  const currentCadence = useMemo(
+    () => ({
+      focusMin: Math.round(state.settings.durations.focus / 60),
+      breakMin: Math.round(state.settings.durations.short / 60),
+    }),
+    [state.settings.durations.focus, state.settings.durations.short],
+  );
+  const cadence = useMemo(
+    () => personalCadenceForSurface(
+      state.personalCadence,
+      state.sessionRecords,
+      localEvents,
+      state.settings.chronotype,
+      currentCadence,
+    ),
+    [currentCadence, localEvents, state.personalCadence, state.sessionRecords, state.settings.chronotype],
+  );
+  const cadenceNeedsRefresh = shouldRecomputePersonalCadence(state.personalCadence);
+  useEffect(() => {
+    if (companionOn && cadenceNeedsRefresh) actions.cachePersonalCadence(cadence, Date.now());
+  }, [actions, cadence, cadenceNeedsRefresh, companionOn]);
   // The recipe's tappable "why?" (PLAN 2.4): a plain explainer sheet for now;
   // 6.3 upgrades the same keys into Field Guide deep-links.
   const [evidence, setEvidence] = useState<EvidenceKey | null>(null);
+
+  function cadenceIsSet(preset: CadencePair): boolean {
+    return (
+      state.settings.durations.focus === preset.focusMin * 60 &&
+      state.settings.durations.short === preset.breakMin * 60
+    );
+  }
+
+  function applyCadence(preset: CadencePair) {
+    actions.applyCadence(preset);
+  }
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -180,10 +229,51 @@ export function TasksScreen({ bloom }: { bloom: ReturnType<typeof useBloom> }) {
           <div className="patterns-card recipe-card">
             <div className="patterns-title">{state.settings.name}'s attention recipe</div>
             <div className="patterns-sub">made from your own last weeks — no two recipes alike</div>
+            <div className="recipe-item cadence-recipe" data-evidence={cadence.evidenceKey}>
+              <span className="recipe-emoji" aria-hidden="true">⏱️</span>
+              <span className="recipe-text">
+                {cadence.text}
+                <span className="recipe-because">
+                  {cadence.because}{' '}
+                  <button
+                    className="recipe-why"
+                    onClick={() => setEvidence(cadence.evidenceKey)}
+                    aria-label="Why this cadence suggestion?"
+                  >
+                    why?
+                  </button>
+                </span>
+                <span className="cadence-ladder" aria-label="Personal cadence ladder">
+                  {[cadence.rungs.shorter, cadence.rungs.current, cadence.rungs.longer].map((rung) => (
+                    <span key={rung.id}>{rung.focusMin}/{rung.breakMin}</span>
+                  ))}
+                </span>
+                <button
+                  className="cadence-apply"
+                  onClick={() => applyCadence(cadence.preset)}
+                  disabled={cadenceIsSet(cadence.preset)}
+                >
+                  {cadenceIsSet(cadence.preset)
+                    ? `${cadence.preset.focusMin}/${cadence.preset.breakMin} is set ♡`
+                    : `try ${cadence.preset.focusMin}/${cadence.preset.breakMin}`}
+                </button>
+                {state.personalCadence.history.length > 0 && (
+                  <button
+                    className="cadence-apply cadence-back"
+                    onClick={() => applyCadence(
+                      state.personalCadence.history[state.personalCadence.history.length - 1],
+                    )}
+                  >
+                    back to {state.personalCadence.history[state.personalCadence.history.length - 1].focusMin}/
+                    {state.personalCadence.history[state.personalCadence.history.length - 1].breakMin}
+                  </button>
+                )}
+              </span>
+            </div>
             {recipe.length === 0 ? (
               <div className="patterns-line">
-                still learning how your attention works — answer a few check-ins ({RECIPE_MIN_SIGNALS}
-                + moments) and a recipe made just for you appears here ♡
+                the rest of your recipe is still sprouting — answer a few check-ins ({RECIPE_MIN_SIGNALS}
+                + moments) and more personal ideas appear here ♡
               </div>
             ) : (
               recipe.map((item, i) => (

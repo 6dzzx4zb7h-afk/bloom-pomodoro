@@ -1,16 +1,36 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { DurationMode, Settings } from '../store/useBloom';
 import { audioEngine, BG_SOUNDS, requestNotifyPermission, type BgSound } from '../engine/audio';
-import { AWAY_CHOICES, CHECKIN_CHOICES, clearEvents, loadEvents } from '../store/companion';
+import {
+  AWAY_CHOICES,
+  CHECKIN_CHOICES,
+  clearEvents,
+  loadEvents,
+  type Chronotype,
+} from '../store/companion';
 import { friendByName } from '../data/friends';
 import type { RitualSettings } from '../store/ritual';
 import { PixelPal } from './PixelPal';
+import {
+  CADENCE_PRESETS,
+  personalCadenceForSurface,
+  shouldRecomputePersonalCadence,
+  type CadencePair,
+  type CadencePreset,
+  type PersonalCadenceMemory,
+  type PersonalCadenceRecommendation,
+} from '../insights/cadence';
+import type { SessionRecord } from '../store/sessions';
 
 interface SettingsSheetProps {
   settings: Settings;
+  records: SessionRecord[];
+  personalCadence: PersonalCadenceMemory;
   /** Whether a session is currently running (previews only fire when idle). */
   running: boolean;
   onPatch: (patch: Partial<Settings>) => void;
+  onCacheCadence: (recommendation: PersonalCadenceRecommendation, at: number) => void;
+  onApplyCadence: (pair: CadencePair) => void;
   ritual: RitualSettings;
   onPatchRitual: (patch: Partial<Pick<RitualSettings, 'enabled' | 'suggestionSeen'>>) => void;
   onUpdateRitualItem: (id: string, text: string) => void;
@@ -33,11 +53,21 @@ const DURATION_ROWS: DurationRowSpec[] = [
   { key: 'long', label: 'Long break', step: 5, min: 5, max: 45 },
 ];
 
+const CHRONOTYPE_CHOICES: { value: Chronotype; label: string }[] = [
+  { value: 'betterEarlier', label: 'better earlier' },
+  { value: 'betterLater', label: 'better later' },
+  { value: 'notSure', label: 'not sure' },
+];
+
 export function SettingsSheet({
   settings,
+  records,
+  personalCadence,
   ritual,
   running,
   onPatch,
+  onCacheCadence,
+  onApplyCadence,
   onPatchRitual,
   onUpdateRitualItem,
   onClose,
@@ -50,6 +80,28 @@ export function SettingsSheet({
   const [waving, setWaving] = useState(false);
   const waveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [eventCount, setEventCount] = useState(() => loadEvents().length);
+  const cadenceEvents = useMemo(() => loadEvents(), []);
+  const currentCadence = useMemo(
+    () => ({
+      focusMin: Math.round(settings.durations.focus / 60),
+      breakMin: Math.round(settings.durations.short / 60),
+    }),
+    [settings.durations.focus, settings.durations.short],
+  );
+  const learnedCadence = useMemo(
+    () => personalCadenceForSurface(
+      personalCadence,
+      records,
+      cadenceEvents,
+      settings.chronotype,
+      currentCadence,
+    ),
+    [cadenceEvents, currentCadence, personalCadence, records, settings.chronotype],
+  );
+  const cadenceNeedsRefresh = shouldRecomputePersonalCadence(personalCadence);
+  useEffect(() => {
+    if (cadenceNeedsRefresh) onCacheCadence(learnedCadence, Date.now());
+  }, [cadenceNeedsRefresh, learnedCadence, onCacheCadence]);
   const [clearedNote, setClearedNote] = useState(false);
   useEffect(
     () => () => {
@@ -80,6 +132,10 @@ export function SettingsSheet({
     onPatch({ durations: { ...settings.durations, [key]: clamped * 60 } });
   }
 
+  function applyCadence(preset: CadencePreset) {
+    onApplyCadence(preset);
+  }
+
   async function toggleRing() {
     const next = !settings.sound;
     onPatch({ sound: next });
@@ -93,6 +149,9 @@ export function SettingsSheet({
   }
 
   function pickBg(kind: BgSound) {
+    // The picker is an explicit user gesture. No effect or hydration path is
+    // allowed to unlock audio on its own (PLAN 4.3).
+    audioEngine.resume();
     onPatch({ bgSound: kind });
     // While a session runs the store live-switches ambience; when idle, play a
     // short taste so the choice can be heard.
@@ -114,6 +173,94 @@ export function SettingsSheet({
             placeholder="your name"
             aria-label="Your name"
           />
+        </div>
+
+        <div className="set-block chronotype-setting">
+          <span className="set-label">
+            When are you usually sharpest?
+            <span className="set-sub">a gentle first guess — your finished sessions help refine it</span>
+          </span>
+          <div className="chronotype-options" aria-label="When are you usually sharpest?">
+            {CHRONOTYPE_CHOICES.map((choice) => (
+              <button
+                key={choice.value}
+                type="button"
+                className={`chronotype-choice${settings.chronotype === choice.value ? ' on' : ''}`}
+                aria-pressed={settings.chronotype === choice.value}
+                onClick={() => onPatch({ chronotype: choice.value })}
+              >
+                {choice.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="set-block cadence-presets">
+          <span className="set-label">
+            Your cadence ladder
+            <span className="set-sub">
+              learned from your local focus history · refreshed no more than weekly
+            </span>
+          </span>
+          <div className="cadence-learned-card">
+            <strong>{learnedCadence.text}</strong>
+            <span>{learnedCadence.because}</span>
+            <div className="cadence-ladder" aria-label="Personal cadence ladder">
+              {[learnedCadence.rungs.shorter, learnedCadence.rungs.current, learnedCadence.rungs.longer]
+                .map((rung) => (
+                  <span key={rung.id}>{rung.focusMin}/{rung.breakMin}</span>
+                ))}
+            </div>
+            <button
+              type="button"
+              className="cadence-apply"
+              onClick={() => applyCadence(learnedCadence.preset)}
+              disabled={
+                currentCadence.focusMin === learnedCadence.preset.focusMin &&
+                currentCadence.breakMin === learnedCadence.preset.breakMin
+              }
+            >
+              {currentCadence.focusMin === learnedCadence.preset.focusMin &&
+              currentCadence.breakMin === learnedCadence.preset.breakMin
+                ? `${learnedCadence.preset.focusMin}/${learnedCadence.preset.breakMin} is set ♡`
+                : `try ${learnedCadence.preset.focusMin}/${learnedCadence.preset.breakMin} ♡`}
+            </button>
+          </div>
+          {personalCadence.history.length > 0 && (
+            <div className="cadence-history">
+              <span className="set-sub">previous rungs · one tap back</span>
+              <div className="cadence-history-list">
+                {[...personalCadence.history].reverse().map((pair) => (
+                  <button
+                    type="button"
+                    key={`${pair.focusMin}-${pair.breakMin}`}
+                    onClick={() => onApplyCadence(pair)}
+                  >
+                    {pair.focusMin}/{pair.breakMin}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+          <span className="set-sub cadence-manual-label">or choose a starting pair yourself</span>
+          <div className="cadence-preset-grid" aria-label="Timer cadence presets">
+            {CADENCE_PRESETS.map((preset) => {
+              const active =
+                settings.durations.focus === preset.focusMin * 60 &&
+                settings.durations.short === preset.breakMin * 60;
+              return (
+                <button
+                  key={preset.id}
+                  className={`cadence-preset${active ? ' on' : ''}`}
+                  onClick={() => applyCadence(preset)}
+                  aria-pressed={active}
+                >
+                  <span>{preset.label}</span>
+                  <small>work / break</small>
+                </button>
+              );
+            })}
+          </div>
         </div>
 
         {DURATION_ROWS.map((row) => {
@@ -170,7 +317,7 @@ export function SettingsSheet({
         <div className="set-block">
           <span className="set-label">
             Background sound
-            <span className="set-sub">plays while a session runs</span>
+            <span className="set-sub">optional · starts only after you choose or begin a session</span>
           </span>
           <div className="bg-grid">
             {BG_SOUNDS.map((s) => (
@@ -184,6 +331,17 @@ export function SettingsSheet({
                 <span className="bg-opt-hint">{s.hint}</span>
               </button>
             ))}
+          </div>
+          <div className="set-note sound-focus-note">
+            <strong>Sound &amp; focus</strong>
+            <span>
+              Sound works differently by task and person. Bloom’s sounds have no lyrics; lyrics in
+              your own music can make reading and writing harder.
+            </span>
+            {/* Step 6.3 activates this as a deep-link to the bundled Field Guide article. */}
+            <button className="sound-guide-link" type="button" disabled>
+              music &amp; focus guide · coming with the Field Guide
+            </button>
           </div>
         </div>
 
@@ -315,6 +473,29 @@ export function SettingsSheet({
           >
             <span className="knob" />
           </button>
+        </div>
+
+        <div className="set-block">
+          <div className="set-row">
+            <span className="set-label">
+              Gentle pre-slump check
+              <span className="set-sub">an optional breath or stretch hello during focus</span>
+            </span>
+            <button
+              className={`switch${settings.preSlumpCheck ? ' on' : ''}`}
+              onClick={() => onPatch({ preSlumpCheck: !settings.preSlumpCheck })}
+              role="switch"
+              aria-checked={settings.preSlumpCheck}
+              aria-label="Gentle pre-slump check"
+            >
+              <span className="knob" />
+            </button>
+          </div>
+          <div className="set-note">
+            Based on when your drifts usually start. Once Bloom has enough of your focus history,
+            your pet may offer one soft cue shortly beforehand — never more than once a session or
+            twice a day. You can silence it for the day from the cue.
+          </div>
         </div>
 
         {companion.on && (

@@ -617,6 +617,112 @@ button {
 .set-block {
   padding: 9px 0;
 }
+.chronotype-options {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 7px;
+  margin-top: 9px;
+}
+.chronotype-choice {
+  border: 2px solid #eaddf5;
+  border-radius: 13px;
+  background: #fff;
+  color: var(--soft3);
+  padding: 9px 5px;
+  cursor: pointer;
+  font: 700 11px var(--font-display);
+  transition: border-color 0.15s, background 0.15s, color 0.15s, transform 0.12s ease;
+}
+.chronotype-choice.on {
+  border-color: var(--pink-2);
+  background: linear-gradient(150deg, #fff2f8, #f6effc);
+  color: var(--plum);
+}
+.chronotype-choice:active {
+  transform: scale(0.97);
+}
+.cadence-preset-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 7px;
+  margin-top: 9px;
+}
+.cadence-preset {
+  border: 2px solid #eaddf5;
+  border-radius: 13px;
+  background: #fff;
+  color: var(--plum);
+  padding: 8px 4px 7px;
+  cursor: pointer;
+  font: 700 12px var(--font-display);
+  transition: border-color 0.15s, background 0.15s, transform 0.12s ease;
+}
+.cadence-preset small {
+  display: block;
+  margin-top: 2px;
+  color: var(--soft3);
+  font: 600 9px var(--font-body);
+}
+.cadence-preset.on {
+  border-color: var(--pink-2);
+  background: linear-gradient(150deg, #fff2f8, #f6effc);
+}
+.cadence-preset:active {
+  transform: scale(0.96);
+}
+.cadence-learned-card {
+  margin-top: 10px;
+  padding: 11px 12px;
+  border: 1px solid rgba(183, 145, 204, 0.28);
+  border-radius: 14px;
+  background: linear-gradient(145deg, rgba(255, 244, 249, 0.96), rgba(245, 239, 252, 0.96));
+  color: var(--soft);
+  font: 600 11.5px/1.5 var(--font-body);
+}
+.cadence-learned-card strong,
+.cadence-learned-card > span {
+  display: block;
+}
+.cadence-learned-card strong {
+  margin-bottom: 4px;
+  color: var(--plum);
+  font-family: var(--font-display);
+}
+.cadence-ladder {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 7px;
+}
+.cadence-ladder > span {
+  border-radius: 999px;
+  padding: 3px 7px;
+  background: rgba(255, 255, 255, 0.72);
+  color: var(--soft3);
+  font: 700 10px var(--font-display);
+}
+.cadence-history {
+  margin-top: 10px;
+}
+.cadence-history-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 5px;
+}
+.cadence-history-list button {
+  border: 1px solid #eaddf5;
+  border-radius: 999px;
+  background: #fff;
+  color: var(--plum);
+  padding: 5px 9px;
+  cursor: pointer;
+  font: 700 10px var(--font-display);
+}
+.cadence-manual-label {
+  display: block;
+  margin-top: 11px;
+}
 .bg-grid {
   margin-top: 10px;
   display: grid;
@@ -647,9 +753,33 @@ button {
 }
 .bg-opt-hint {
   display: block;
-  margin-top: 2px;
+  margin-top: 4px;
   font: 600 10.5px var(--font-body);
   color: var(--soft3);
+  line-height: 1.3;
+}
+.sound-focus-note {
+  margin-top: 9px;
+}
+.sound-focus-note strong,
+.sound-focus-note > span {
+  display: block;
+}
+.sound-focus-note strong {
+  margin-bottom: 3px;
+  color: var(--plum);
+  font-family: var(--font-display);
+}
+.sound-guide-link {
+  margin-top: 6px;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--soft3);
+  font: 700 10.5px var(--font-body);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: default;
 }
 
 .name-input {
@@ -1437,12 +1567,44 @@ button {
   color: var(--soft2);
   font-style: italic;
 }
+.debrief-target {
+  padding: 7px 0;
+  border-top: 1px dashed rgba(160, 112, 140, 0.18);
+  border-bottom: 1px dashed rgba(160, 112, 140, 0.18);
+}
+.debrief-target-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}
+.debrief-target-btn {
+  border: 2px solid #eadcf4;
+  border-radius: 10px;
+  padding: 5px 9px;
+  background: rgba(255, 255, 255, 0.78);
+  color: var(--soft2);
+  font: 700 10px var(--font-display);
+  cursor: pointer;
+}
+.debrief-target-btn.on {
+  border-color: var(--pink-2);
+  background: #fff2f8;
+  color: var(--plum);
+}
 /* Weekly review card (PLAN 2.3) shares the debrief shell; only the two
    question labels are its own. Warm neutrals — no red/failure styling ever. */
 .weekly-q {
   font: 700 11px var(--font-display);
   color: var(--plum);
   margin-right: 2px;
+}
+.cadence-because {
+  color: var(--soft3);
+  font-size: 11px;
+}
+.cadence-weekly-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
 }
 
 /* Conditional WOOP reset (PLAN 3.5): a four-step, dismissible card. It uses
@@ -1561,8 +1723,8 @@ button {
   color: var(--soft3);
 }
 
-/* Pre-session intention: an airy line under the controls, faint echo while
-   the session runs. */
+/* Optional session target: an airy line under the controls, faint echo while
+   the session runs. It also feeds Companion's intention when that mode is on. */
 .intention-input {
   margin: 12px auto 0;
   width: min(280px, calc(100% - 44px));
@@ -2014,6 +2176,30 @@ button {
   text-decoration: underline;
   text-underline-offset: 2px;
   cursor: pointer;
+}
+.cadence-recipe {
+  padding-bottom: 7px;
+  border-bottom: 1px dashed rgba(160, 112, 140, 0.2);
+}
+.cadence-apply {
+  display: inline-flex;
+  margin-top: 7px;
+  border: none;
+  border-radius: 10px;
+  padding: 6px 10px;
+  background: #fff;
+  color: var(--plum);
+  box-shadow: 0 5px 12px -8px rgba(110, 85, 119, 0.8);
+  font: 700 10.5px var(--font-display);
+  cursor: pointer;
+}
+.cadence-apply:disabled {
+  opacity: 0.65;
+  cursor: default;
+}
+.cadence-back {
+  margin-left: 6px;
+  background: rgba(255, 255, 255, 0.55);
 }
 .evidence-text {
   font: 600 13px var(--font-body);

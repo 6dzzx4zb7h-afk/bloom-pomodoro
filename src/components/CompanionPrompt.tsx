@@ -70,6 +70,24 @@ export function CompanionPrompt({ companion, palSprite, focusLabel }: CompanionP
           </>
         )}
 
+        {prompt.type === 'preSlump' && (
+          <>
+            <div className="pop-text">tiny breath or shoulder roll?</div>
+            <div className="pop-tip">
+              Your first drifts often start around minute{' '}
+              {Math.round(prompt.typicalFirstDriftMin)}, so this is a soft little hello beforehand.
+            </div>
+            <div className="pop-actions">
+              <button className="pop-btn primary" onClick={actions.close}>
+                all good ♡
+              </button>
+              <button className="pop-btn" onClick={actions.silencePreSlumpForDay}>
+                quiet for today
+              </button>
+            </div>
+          </>
+        )}
+
         {prompt.type === 'away' && (
           <>
             <div className="pop-text">welcome back — was that on purpose?</div>

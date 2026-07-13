@@ -2,7 +2,22 @@ import { useCallback, useEffect, useMemo, useReducer, useRef } from 'react';
 import { friendByName } from '../data/friends';
 import type { AnimalKind } from '../engine/pixelpals';
 import { audioEngine, notify, type BgSound } from '../engine/audio';
-import { DEFAULT_COMPANION, type CompanionSettings } from './companion';
+import {
+  EMPTY_PRE_SLUMP_CAPS,
+  PRE_SLUMP_DAILY_CAP,
+  localDayKey,
+  type PreSlumpCaps,
+} from '../insights/triggers';
+import {
+  EMPTY_PERSONAL_CADENCE,
+  PERSONAL_CADENCE_RECOMPUTE_MS,
+  rememberPreviousCadence,
+  sanitizePersonalCadenceMemory,
+  type CadencePair,
+  type PersonalCadenceMemory,
+  type PersonalCadenceRecommendation,
+} from '../insights/cadence';
+import { DEFAULT_COMPANION, type Chronotype, type CompanionSettings } from './companion';
 import { GOAL_TARGET_MAX, type Goal } from './goals';
 import {
   addIfThenPlan,
@@ -19,9 +34,11 @@ import {
   newOpenSession,
   sanitizeOpenSession,
   sanitizeSessionRecords,
+  setSessionTargetOutcome,
   sweepStaleOpenSession,
   type OpenSession,
   type SessionRecord,
+  type TargetOutcome,
 } from './sessions';
 import { DEFAULT_RITUAL, sanitizeRitual, updateRitualItem, type RitualSettings } from './ritual';
 
@@ -34,6 +51,8 @@ export type DurationMode = 'focus' | 'short' | 'long';
 export const TINY_START_OPTIONS = [2, 5] as const;
 export type TinyStartMinutes = (typeof TINY_START_OPTIONS)[number];
 export const TINY_EXTENSION_MIN = 10;
+/** A target stays a quiet single line in the timer and debrief. */
+export const SESSION_TARGET_MAX = 80;
 
 export interface Task {
   id: number;
@@ -66,6 +85,10 @@ export interface Settings {
   flow: boolean;
   /** Goals & deadlines: the opt-in goal/deadline planner tab. */
   planner: boolean;
+  /** Self-tag used as a light prior for time-of-day suggestions (PLAN 4.4). */
+  chronotype: Chronotype;
+  /** Optional data-timed breath/stretch cue (PLAN 4.5); off unless chosen. */
+  preSlumpCheck: boolean;
 }
 
 interface BloomState {
@@ -109,6 +132,10 @@ interface BloomState {
   ritual: RitualSettings;
   /** Last time the conditional WOOP card surfaced (PLAN 3.5 cooldown). */
   lastWoopOfferAt: number | null;
+  /** Persisted per-session/day caps for the opt-in pre-slump cue (PLAN 4.5). */
+  preSlump: PreSlumpCaps;
+  /** Weekly learned cadence cache + reversible applied-rung history (PLAN 4.6). */
+  personalCadence: PersonalCadenceMemory;
   settings: Settings;
 }
 
@@ -123,6 +150,8 @@ const DEFAULT_SETTINGS: Settings = {
   companion: DEFAULT_COMPANION,
   flow: false,
   planner: false,
+  chronotype: 'notSure',
+  preSlumpCheck: false,
 };
 
 const DEFAULT_TASKS: Task[] = [
@@ -153,6 +182,8 @@ const DEFAULT_STATE: BloomState = {
   ifThenPlans: [],
   ritual: DEFAULT_RITUAL,
   lastWoopOfferAt: null,
+  preSlump: EMPTY_PRE_SLUMP_CAPS,
+  personalCadence: EMPTY_PERSONAL_CADENCE,
   settings: DEFAULT_SETTINGS,
 };
 
@@ -170,7 +201,7 @@ const DEFAULT_STATE: BloomState = {
 const STORAGE_KEY = 'bloom-state';
 /** Older keys we still read from once, newest first. */
 const LEGACY_KEYS = ['bloom-state-v2', 'bloom-state-v1'];
-const SCHEMA_VERSION = 11;
+const SCHEMA_VERSION = 15;
 
 interface PersistedShape {
   version: number;
@@ -196,6 +227,10 @@ interface PersistedShape {
   ritual: RitualSettings;
   /** Last conditional WOOP offer; null for users who have never seen it. */
   lastWoopOfferAt: number | null;
+  /** Daily/session pre-slump caps; kept outside Settings as runtime history. */
+  preSlump: PreSlumpCaps;
+  /** Weekly learned cadence cache and prior applied work/break pairs. */
+  personalCadence: PersonalCadenceMemory;
   settings: Settings;
 }
 
@@ -257,6 +292,38 @@ const MIGRATIONS: Array<(blob: Record<string, unknown>) => Record<string, unknow
   // v10 -> v11: conditional WOOP offer cooldown (PLAN 3.5). Existing users
   // have never been offered the card; all existing data passes through.
   (blob) => ({ ...blob, lastWoopOfferAt: null }),
+  // v11 -> v12: session targets + target outcome (PLAN 4.2). Both fields are
+  // optional on records and open sessions, so existing data passes through
+  // losslessly and simply has no target answer yet.
+  (blob) => blob,
+  // v12 -> v13: chronotype self-tag (PLAN 4.4). Preserve the complete settings
+  // object and add the neutral answer for existing users; no history changes.
+  (blob) => ({
+    ...blob,
+    settings: {
+      ...(blob.settings && typeof blob.settings === 'object'
+        ? (blob.settings as Record<string, unknown>)
+        : {}),
+      chronotype: 'notSure',
+    },
+  }),
+  // v13 -> v14: pre-slump gentle check (PLAN 4.5). It is opt-in, so existing
+  // users stay off. Fresh cap state records no prompts and preserves every
+  // existing setting and history field unchanged.
+  (blob) => ({
+    ...blob,
+    preSlump: EMPTY_PRE_SLUMP_CAPS,
+    settings: {
+      ...(blob.settings && typeof blob.settings === 'object'
+        ? (blob.settings as Record<string, unknown>)
+        : {}),
+      preSlumpCheck: false,
+    },
+  }),
+  // v14 -> v15: learned personal cadence (PLAN 4.6). Existing timer settings
+  // stay untouched. The weekly cache starts empty and history starts blank;
+  // the first natural-pause surface learns from the records already present.
+  (blob) => ({ ...blob, personalCadence: EMPTY_PERSONAL_CADENCE }),
 ];
 
 function dayStr(d = new Date()): string {
@@ -269,6 +336,7 @@ function withDefaults(blob: Record<string, unknown>): PersistedShape {
   // Legacy v1 stored durations at the top level, not under `settings`.
   const legacyDurations = (b.durations as Partial<Durations> | undefined) ?? {};
   const validBg: BgSound[] = ['off', 'calm', 'coffee', 'white'];
+  const validChronotypes: Chronotype[] = ['betterEarlier', 'betterLater', 'notSure'];
   const settings: Settings = {
     ...DEFAULT_SETTINGS,
     ...bSettings,
@@ -276,6 +344,13 @@ function withDefaults(blob: Record<string, unknown>): PersistedShape {
     bgSound: validBg.includes(bSettings.bgSound as BgSound)
       ? (bSettings.bgSound as BgSound)
       : DEFAULT_SETTINGS.bgSound,
+    chronotype: validChronotypes.includes(bSettings.chronotype as Chronotype)
+      ? (bSettings.chronotype as Chronotype)
+      : DEFAULT_SETTINGS.chronotype,
+    preSlumpCheck:
+      typeof bSettings.preSlumpCheck === 'boolean'
+        ? bSettings.preSlumpCheck
+        : DEFAULT_SETTINGS.preSlumpCheck,
     durations: {
       ...DEFAULT_SETTINGS.durations,
       ...legacyDurations,
@@ -319,7 +394,23 @@ function withDefaults(blob: Record<string, unknown>): PersistedShape {
       typeof b.lastWoopOfferAt === 'number' && Number.isFinite(b.lastWoopOfferAt)
         ? b.lastWoopOfferAt
         : null,
+    preSlump: sanitizePreSlumpCaps(b.preSlump),
+    personalCadence: sanitizePersonalCadenceMemory(b.personalCadence),
     settings,
+  };
+}
+
+function sanitizePreSlumpCaps(raw: unknown): PreSlumpCaps {
+  if (!raw || typeof raw !== 'object') return EMPTY_PRE_SLUMP_CAPS;
+  const value = raw as Partial<PreSlumpCaps>;
+  return {
+    day: typeof value.day === 'string' ? value.day : null,
+    count:
+      typeof value.count === 'number' && Number.isFinite(value.count)
+        ? Math.max(0, Math.min(PRE_SLUMP_DAILY_CAP, Math.floor(value.count)))
+        : 0,
+    silenced: value.silenced === true,
+    lastSessionId: typeof value.lastSessionId === 'string' ? value.lastSessionId : null,
   };
 }
 
@@ -388,6 +479,8 @@ function loadState(): BloomState {
     ifThenPlans: p.ifThenPlans,
     ritual: p.ritual,
     lastWoopOfferAt: p.lastWoopOfferAt,
+    preSlump: p.preSlump,
+    personalCadence: p.personalCadence,
   };
   // A flow run that was live when the app closed keeps counting (that's what
   // a stopwatch does) — unless it's been so long it was clearly abandoned, in
@@ -431,6 +524,8 @@ function persist(s: BloomState) {
     ifThenPlans: s.ifThenPlans,
     ritual: s.ritual,
     lastWoopOfferAt: s.lastWoopOfferAt,
+    preSlump: s.preSlump,
+    personalCadence: s.personalCadence,
     settings: s.settings,
   };
   try {
@@ -506,7 +601,7 @@ export function isTinyFirstRung(record: SessionRecord | undefined): boolean {
 
 type Action =
   | { type: 'tick' }
-  | { type: 'toggle'; ifThenPlanId?: string }
+  | { type: 'toggle'; ifThenPlanId?: string; targetText?: string }
   | { type: 'reset' }
   | { type: 'pick'; mode: TimerMode; tinyMinutes?: TinyStartMinutes }
   | { type: 'skip' }
@@ -531,6 +626,11 @@ type Action =
   | { type: 'patchRitual'; patch: Partial<Pick<RitualSettings, 'enabled' | 'suggestionSeen'>> }
   | { type: 'updateRitualItem'; id: string; text: string }
   | { type: 'markWoopOffered'; at: number }
+  | { type: 'recordPreSlump'; sessionId: string; at: number }
+  | { type: 'silencePreSlump'; at: number }
+  | { type: 'cachePersonalCadence'; recommendation: PersonalCadenceRecommendation; at: number }
+  | { type: 'applyCadence'; pair: CadencePair }
+  | { type: 'setTargetOutcome'; sessionId: string; targetOutcome: TargetOutcome }
   | { type: 'patchSettings'; patch: Partial<Settings> };
 
 function reducer(s: BloomState, a: Action): BloomState {
@@ -560,7 +660,10 @@ function reducer(s: BloomState, a: Action): BloomState {
         // First press of a fresh stopwatch opens its session record; a
         // resume just keeps the existing one.
         const openFlow =
-          s.openFlow ?? newOpenSession('flow', null, resolveActiveTask(s.tasks, s.activeTaskId)?.id);
+          s.openFlow ?? {
+            ...newOpenSession('flow', null, resolveActiveTask(s.tasks, s.activeTaskId)?.id),
+            targetText: a.targetText,
+          };
         return { ...s, running: true, flowStart: Date.now(), remaining: Math.floor(s.flowAcc), justDone: false, openFlow };
       }
       if (s.running) {
@@ -598,6 +701,7 @@ function reducer(s: BloomState, a: Action): BloomState {
           openFocus = {
             ...newOpenSession(s.mode, plannedMin, taskId, plan?.id),
             endsAt,
+            targetText: a.targetText,
           };
           if (plan) {
             ifThenPlans = markIfThenPlanUsed(ifThenPlans, plan.id);
@@ -732,6 +836,7 @@ function reducer(s: BloomState, a: Action): BloomState {
       const openFocus = {
         ...newOpenSession('tiny', TINY_EXTENSION_MIN, taskId),
         endsAt,
+        targetText: lastRecord.targetText,
       };
       return {
         ...s,
@@ -918,6 +1023,82 @@ function reducer(s: BloomState, a: Action): BloomState {
       return { ...s, ritual: { ...s.ritual, items: updateRitualItem(s.ritual.items, a.id, a.text) } };
     case 'markWoopOffered':
       return { ...s, lastWoopOfferAt: a.at };
+    case 'recordPreSlump': {
+      if (s.preSlump.lastSessionId === a.sessionId) return s;
+      const day = localDayKey(a.at);
+      const sameDay = s.preSlump.day === day;
+      const count = sameDay ? s.preSlump.count : 0;
+      if ((sameDay && s.preSlump.silenced) || count >= PRE_SLUMP_DAILY_CAP) return s;
+      return {
+        ...s,
+        preSlump: {
+          day,
+          count: count + 1,
+          silenced: false,
+          lastSessionId: a.sessionId,
+        },
+      };
+    }
+    case 'silencePreSlump': {
+      const day = localDayKey(a.at);
+      const sameDay = s.preSlump.day === day;
+      return {
+        ...s,
+        preSlump: {
+          day,
+          count: sameDay ? s.preSlump.count : 0,
+          silenced: true,
+          lastSessionId: s.preSlump.lastSessionId,
+        },
+      };
+    }
+    case 'cachePersonalCadence': {
+      const computedAt = s.personalCadence.computedAt;
+      if (computedAt != null && a.at - computedAt < PERSONAL_CADENCE_RECOMPUTE_MS) return s;
+      return {
+        ...s,
+        personalCadence: {
+          ...s.personalCadence,
+          computedAt: a.at,
+          recommendation: a.recommendation,
+        },
+      };
+    }
+    case 'applyCadence': {
+      const next: CadencePair = {
+        focusMin: Math.max(5, Math.min(90, Math.round(a.pair.focusMin))),
+        breakMin: Math.max(1, Math.min(30, Math.round(a.pair.breakMin))),
+      };
+      const current: CadencePair = {
+        focusMin: Math.round(s.settings.durations.focus / 60),
+        breakMin: Math.round(s.settings.durations.short / 60),
+      };
+      if (current.focusMin === next.focusMin && current.breakMin === next.breakMin) return s;
+      return {
+        ...s,
+        settings: {
+          ...s.settings,
+          durations: {
+            ...s.settings.durations,
+            focus: next.focusMin * 60,
+            short: next.breakMin * 60,
+          },
+        },
+        personalCadence: {
+          ...s.personalCadence,
+          history: rememberPreviousCadence(s.personalCadence.history, current, next),
+        },
+      };
+    }
+    case 'setTargetOutcome':
+      return {
+        ...s,
+        sessionRecords: setSessionTargetOutcome(
+          s.sessionRecords,
+          a.sessionId,
+          a.targetOutcome,
+        ),
+      };
     case 'logGoal': {
       const goals = s.goals.map((g) =>
         g.id === a.id ? { ...g, done: Math.max(0, Math.min(g.target, g.done + a.delta)) } : g,
@@ -976,7 +1157,7 @@ export function useBloom() {
   // per-second tick only touches `remaining`, which is not persisted.
   useEffect(() => {
     persist(state);
-  }, [state.sessions, state.streak, state.lastFocusDay, state.tasks, state.activeTaskId, state.palXp, state.goals, state.flowStart, state.flowAcc, state.running, state.mode, state.sessionRecords, state.openFocus, state.openFlow, state.lastWeeklyReviewWeek, state.ifThenPlans, state.ritual, state.lastWoopOfferAt, state.settings]);
+  }, [state.sessions, state.streak, state.lastFocusDay, state.tasks, state.activeTaskId, state.palXp, state.goals, state.flowStart, state.flowAcc, state.running, state.mode, state.sessionRecords, state.openFocus, state.openFlow, state.lastWeeklyReviewWeek, state.ifThenPlans, state.ritual, state.lastWoopOfferAt, state.preSlump, state.personalCadence, state.settings]);
 
   // Wall-clock tick: recompute remaining ~4x/sec. Reads Date.now(), so it
   // stays accurate even when the tab is throttled in the background.
@@ -1076,10 +1257,11 @@ export function useBloom() {
 
   const actions = useMemo(
     () => ({
-      toggle: (ifThenPlanId?: string) => {
+      toggle: (ifThenPlanId?: string, targetText?: string) => {
         // First press is a user gesture — unlock audio for ambience + ring.
         audioEngine.resume();
-        dispatch({ type: 'toggle', ifThenPlanId });
+        const target = targetText?.trim().slice(0, SESSION_TARGET_MAX) || undefined;
+        dispatch({ type: 'toggle', ifThenPlanId, targetText: target });
       },
       reset: () => dispatch({ type: 'reset' }),
       pick: (m: TimerMode) => dispatch({ type: 'pick', mode: m }),
@@ -1116,6 +1298,14 @@ export function useBloom() {
       updateRitualItem: (id: string, text: string) =>
         dispatch({ type: 'updateRitualItem', id, text }),
       markWoopOffered: (at: number) => dispatch({ type: 'markWoopOffered', at }),
+      recordPreSlump: (sessionId: string, at: number) =>
+        dispatch({ type: 'recordPreSlump', sessionId, at }),
+      silencePreSlumpForDay: (at: number) => dispatch({ type: 'silencePreSlump', at }),
+      cachePersonalCadence: (recommendation: PersonalCadenceRecommendation, at: number) =>
+        dispatch({ type: 'cachePersonalCadence', recommendation, at }),
+      applyCadence: (pair: CadencePair) => dispatch({ type: 'applyCadence', pair }),
+      setTargetOutcome: (sessionId: string, targetOutcome: TargetOutcome) =>
+        dispatch({ type: 'setTargetOutcome', sessionId, targetOutcome }),
       patchSettings: (patch: Partial<Settings>) => dispatch({ type: 'patchSettings', patch }),
     }),
     [],

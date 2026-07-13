@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { preSlumpSuggestion } from '../insights/triggers';
 import {
   appendEvent,
   isDriftEvent,
@@ -19,14 +20,16 @@ export type CompanionPromptState =
   | { type: 'triage'; min: number; shownAt: number; src: 'checkin' | 'return' }
   | { type: 'onset'; min: number; shownAt: number; kind: DriftKind; eventId?: string }
   | { type: 'tip'; kind: DriftKind; phase: Phase; text: string }
+  | { type: 'preSlump'; typicalFirstDriftMin: number; cueMin: number }
   | null;
 
 const TIP_AUTODISMISS_MS = 12000;
+const PRE_SLUMP_AUTODISMISS_MS = 12000;
 
 /**
  * Companion Mode — live behaviour. Owns the check-in schedule, tab-away
- * detection, the triage flow, and the pre-session intention. Renders nothing;
- * CompanionPrompt draws whatever `prompt` says.
+ * detection, the triage flow, the pre-session intention, and the separately
+ * opt-in pre-slump cue. Renders nothing; CompanionPrompt draws `prompt`.
  *
  * Tone contract: prompts only ever appear while the user is present and a
  * focus session is running; nothing interrupts them while away. The check-in
@@ -145,14 +148,68 @@ export function useCompanion(bloom: Bloom) {
     return () => clearInterval(iv);
   }, [active, conf.quiet, conf.checkinMins, elapsed, sessionLenMins, activeSessionId]);
 
+  /* ---------------- pre-slump gentle check ---------------- */
+
+  useEffect(() => {
+    if (!focusRunning || !state.settings.preSlumpCheck) return;
+
+    // History is sampled once at session start. Crossing the signal threshold
+    // mid-session waits until the next session rather than creating a surprise.
+    const events = loadEvents();
+    const fast = localStorage.getItem('bloom-companion-fast') === '1';
+    const maybeShow = () => {
+      const cur = ref.current;
+      if (
+        !cur.state.running ||
+        cur.state.mode !== 'focus' ||
+        !cur.state.settings.preSlumpCheck ||
+        cur.prompt ||
+        document.hidden ||
+        awayStartRef.current != null
+      ) {
+        return;
+      }
+      const sessionId = cur.state.openFocus?.id ?? null;
+      const suggestion = preSlumpSuggestion({
+        optedIn: cur.state.settings.preSlumpCheck,
+        sessionId,
+        // Existing local preview shortcut: minutes become seconds only when
+        // explicitly enabled in devtools, keeping production timing unchanged.
+        elapsedMin: elapsed() / (fast ? 1 : 60),
+        records: cur.state.sessionRecords,
+        events,
+        caps: cur.state.preSlump,
+      });
+      if (!suggestion || !sessionId) return;
+
+      bloom.actions.recordPreSlump(sessionId, Date.now());
+      clearDismiss();
+      setPrompt({
+        type: 'preSlump',
+        typicalFirstDriftMin: suggestion.typicalFirstDriftMin,
+        cueMin: suggestion.cueMin,
+      });
+      dismissTimer.current = setTimeout(
+        () => setPrompt((current) => (current?.type === 'preSlump' ? null : current)),
+        PRE_SLUMP_AUTODISMISS_MS,
+      );
+    };
+
+    maybeShow();
+    const interval = setInterval(maybeShow, 1000);
+    return () => clearInterval(interval);
+  }, [focusRunning, state.settings.preSlumpCheck, state.openFocus?.id, elapsed, bloom.actions]);
+
   // Going away (hidden tab or blurred window) withdraws an unanswered
   // check-in as a skip — independent of the tabDetect toggle (PLAN 1.5a).
   useEffect(() => {
     const withdraw = () => {
       const p = ref.current.prompt;
-      if (p?.type !== 'checkin') return;
-      logSkip(p);
-      setPrompt(null);
+      if (p?.type === 'checkin') logSkip(p);
+      if (p?.type === 'checkin' || p?.type === 'preSlump') {
+        clearDismiss();
+        setPrompt(null);
+      }
     };
     const onVis = () => {
       if (document.hidden) withdraw();
@@ -346,6 +403,12 @@ export function useCompanion(bloom: Bloom) {
       /** "park it for later" inside a tip — becomes a task. */
       jot: (text: string) => {
         bloom.actions.addTask(text, 1);
+      },
+      /** One tap keeps every remaining pre-slump cue quiet for this local day. */
+      silencePreSlumpForDay: () => {
+        if (ref.current.prompt?.type !== 'preSlump') return;
+        bloom.actions.silencePreSlumpForDay(Date.now());
+        close();
       },
       close,
     }),

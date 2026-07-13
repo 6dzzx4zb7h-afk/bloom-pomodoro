@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import { PixelPal } from './PixelPal';
 import { driftOnsetMin, loadEvents, phaseOf, type Phase } from '../store/companion';
-import type { SessionRecord } from '../store/sessions';
+import type { SessionRecord, TargetOutcome } from '../store/sessions';
 import type { AnimalKind } from '../engine/pixelpals';
 import { driftsForRecord, whyFor } from '../insights/why';
 
@@ -27,12 +27,14 @@ export function DebriefCard({
   record,
   records,
   palSprite,
+  onTargetOutcome,
   onDismiss,
 }: {
   record: SessionRecord;
   /** The full session log — the why-engine reads aggregate patterns from it. */
   records: SessionRecord[];
   palSprite: AnimalKind;
+  onTargetOutcome: (outcome: TargetOutcome) => void;
   onDismiss: () => void;
 }) {
   const events = useMemo(() => loadEvents(), [record]);
@@ -78,6 +80,27 @@ export function DebriefCard({
               </span>
             )}
           </div>
+          {record.targetText && (
+            <div className="debrief-row debrief-target">
+              <div>🎯 target: {record.targetText} — done?</div>
+              <div className="debrief-target-actions" role="group" aria-label="Target result">
+                {([
+                  ['done', 'done'],
+                  ['partly', 'partly'],
+                  ['no', 'not yet'],
+                ] as const).map(([outcome, label]) => (
+                  <button
+                    key={outcome}
+                    className={`debrief-target-btn${record.targetOutcome === outcome ? ' on' : ''}`}
+                    aria-pressed={record.targetOutcome === outcome}
+                    onClick={() => onTargetOutcome(outcome)}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
           {/* Exactly one insight per debrief (PLAN 2.2). data-evidence keeps
               the science.md link addressable for the 2.4/6.3 "why?" links. */}
           <div className="debrief-row debrief-why" data-evidence={why.evidenceKey}>

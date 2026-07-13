@@ -20,6 +20,9 @@ export type SessionMode = 'focus' | 'flow' | 'tiny';
 
 export type SessionOutcome = 'completed' | 'abandoned' | 'interrupted';
 
+/** Optional self-report for the session's concrete target (PLAN 4.2). */
+export type TargetOutcome = 'done' | 'partly' | 'no';
+
 export interface SessionRecord {
   id: string;
   /** Epoch ms. */
@@ -42,6 +45,8 @@ export interface SessionRecord {
   driftEventIds: string[];
   /** The "one specific doable thing" typed at start, if any. */
   targetText?: string;
+  /** How the user says that target went; absent until they answer the debrief. */
+  targetOutcome?: TargetOutcome;
   /** If–then plan the session started with, if any (PLAN 3.2). */
   ifThenPlanId?: string;
 }
@@ -67,6 +72,7 @@ export function appendSessionRecord(
 
 const MODES: SessionMode[] = ['focus', 'flow', 'tiny'];
 const OUTCOMES: SessionOutcome[] = ['completed', 'abandoned', 'interrupted'];
+const TARGET_OUTCOMES: TargetOutcome[] = ['done', 'partly', 'no'];
 
 function isValidRecord(r: unknown): r is SessionRecord {
   if (!r || typeof r !== 'object') return false;
@@ -90,6 +96,7 @@ function isValidRecord(r: unknown): r is SessionRecord {
     Array.isArray(x.driftEventIds) &&
     (x.driftEventIds as unknown[]).every((d) => typeof d === 'string') &&
     (x.targetText === undefined || typeof x.targetText === 'string') &&
+    (x.targetOutcome === undefined || TARGET_OUTCOMES.includes(x.targetOutcome as TargetOutcome)) &&
     (x.ifThenPlanId === undefined || typeof x.ifThenPlanId === 'string')
   );
 }
@@ -102,6 +109,19 @@ function isValidRecord(r: unknown): r is SessionRecord {
 export function sanitizeSessionRecords(raw: unknown): SessionRecord[] {
   if (!Array.isArray(raw)) return [];
   return raw.filter(isValidRecord).slice(-SESSION_LOG_CAP);
+}
+
+/** Save one target answer without disturbing the record's captured session data. */
+export function setSessionTargetOutcome(
+  records: SessionRecord[],
+  sessionId: string,
+  targetOutcome: TargetOutcome,
+): SessionRecord[] {
+  return records.map((record) =>
+    record.id === sessionId && record.targetText
+      ? { ...record, targetOutcome }
+      : record,
+  );
 }
 
 /**
@@ -129,6 +149,8 @@ export interface OpenSession {
   running: boolean;
   /** Companion drift events triaged while this session runs (PLAN 1.3). */
   driftEventIds: string[];
+  /** The concrete target captured when this session began (PLAN 4.2). */
+  targetText?: string;
   /** If–then plan the session started with, if any (PLAN 3.2). */
   ifThenPlanId?: string;
 }
@@ -174,6 +196,7 @@ export function finalizeSession(
     startHour: open.startHour,
     taskId: open.taskId,
     driftEventIds: [...(open.driftEventIds ?? [])],
+    targetText: open.targetText,
     ifThenPlanId: open.ifThenPlanId,
   };
 }
@@ -224,5 +247,7 @@ export function sanitizeOpenSession(raw: unknown): OpenSession | null {
     : [];
   // Optional plan link (PLAN 3.2): anything but a string means "no plan".
   const ifThenPlanId = typeof x.ifThenPlanId === 'string' ? x.ifThenPlanId : undefined;
-  return { ...(raw as OpenSession), driftEventIds, ifThenPlanId };
+  // Optional target (PLAN 4.2): old open sessions simply have none.
+  const targetText = typeof x.targetText === 'string' ? x.targetText : undefined;
+  return { ...(raw as OpenSession), driftEventIds, targetText, ifThenPlanId };
 }

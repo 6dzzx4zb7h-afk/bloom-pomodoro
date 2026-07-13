@@ -197,7 +197,7 @@ Rules of thumb:
 
 ## Phase 4 — STAYING features
 
-### - [ ] 4.1 Adaptive cadence suggestions (never "optimal cadence" claims)
+### - [x] 4.1 Adaptive cadence suggestions (never "optimal cadence" claims)
 
 - **Goal:** Keep 25/5 as default. In the attention recipe / weekly review, suggest *experiments* grounded in the user's data: e.g. if median-first-drift ≈ 18 min → "try a 20/5 week"; if long sessions complete fine → offer 40/8 or 50/10. Copy always frames cadence as personal experiment ("compare distraction tags and finish rates, not vibes"), never as science-proven.
 - **Science:** §Staying — breaks row (Albulescu et al. 2022 meta-analysis: breaks help; no universally best cadence); §Staying — 25/5 myth row + §Do not build rows on 25/5, 52/17 and 90-minute ultradian claims; §Staying — article brief "Breaks are fuel, not failure" (the two-cadence A/B exercise).
@@ -205,7 +205,7 @@ Rules of thumb:
 - **Done when:** Suggestions derive from real stats with a low-signal fallback; one-tap applies the suggested preset; no copy anywhere claims a cadence is scientifically optimal (grep check).
 - **Depends on:** 2.4, 1.4.
 
-### - [ ] 4.2 Session target field ("one specific doable thing")
+### - [x] 4.2 Session target field ("one specific doable thing")
 
 - **Goal:** Optional single-line target when starting ("outline the intro section"), shown quietly during the session and echoed in the debrief ("target: outline the intro — done?"), stored on the record (`targetText`). This is the flow lever: clear goal + immediate feedback.
 - **Science:** §Staying — flow row (Fong et al. 2015: challenge–skill balance moderately predicts flow; clear goals and immediate feedback are the actionable antecedents); §Staying — article brief "What flow really needs" (hard enough to matter, small enough to finish in the block).
@@ -213,7 +213,7 @@ Rules of thumb:
 - **Done when:** Target set → visible mid-session → debrief asks about it (self-report tap: done / partly / no, stored on record); fully skippable.
 - **Depends on:** 2.1.
 
-### - [ ] 4.3 Honest soundscape labeling
+### - [x] 4.3 Honest soundscape labeling
 
 - **Goal:** Audit the Web-Audio soundscapes: no autoplay ever; each ambient option gets an honest one-line label (e.g. rain/noise: "often better for brainstorming than dense reading"); Settings gains a short "sound & focus" note linking the guide's music article (link activates after 6.3). Since all audio is synthesized there are no lyrics — the guide article carries the lyrics warning for users' own external music.
 - **Science:** §Staying — background music row (Cheah et al. 2022 systematic review: effects roughly null on average, masking task/person differences; lyrics often hurt language tasks); §Staying — ambient noise row (Mehta et al. 2012: ~70 dB moderate noise helped creative tasks, 85 dB hurt); §Do not build — forced soundtracks.
@@ -221,7 +221,7 @@ Rules of thumb:
 - **Done when:** No autoplay path exists; every soundscape shows its label; copy passes voice.md check.
 - **Depends on:** 0.2.
 
-### - [ ] 4.4 Chronotype self-tag
+### - [x] 4.4 Chronotype self-tag
 
 - **Goal:** Settings question: "When are you usually sharpest?" → `betterEarlier | betterLater | notSure` (persisted, version bump). Feeds golden/foggy-hours logic as a prior blended with observed `completionRateByStartHour()`, and shapes expectation copy ("evening types fighting 8 a.m. analysis is normal, not weakness").
 - **Science:** §Staying — chronotype row (May & Hasher 2023 integrative review: synchrony effects strongest for analytical work and distraction suppression, especially in strong morning/evening types).
@@ -229,7 +229,7 @@ Rules of thumb:
 - **Done when:** Tag persists and migrates; recipe's golden-hours line cites both the tag and observed data in its because-sentence.
 - **Depends on:** 2.4.
 
-### - [ ] 4.5 Pre-slump gentle check (opt-in, strictly capped)
+### - [x] 4.5 Pre-slump gentle check (opt-in, strictly capped)
 
 - **Goal:** Opt-in (default OFF): if the user's data shows a typical first-drift time (e.g. ~min 18), the pet gives one soft, non-blocking breath/stretch cue shortly *before* that point — max once per session, max twice per day, one tap to silence for the day, and the toggle explains exactly why it fires ("based on when your drifts usually start").
 - **Science:** §Staying — time-on-task row ("prompt users before the likely slump, not after"); §Measurement — JITAI row (Wang & Miller 2020: promising but heterogeneous; report verdict: *conservative, low-burden, transparent rule engine only*); hard guard from §Do not build — always-on nudging.
@@ -237,7 +237,7 @@ Rules of thumb:
 - **Done when:** Fires only when opted in, only with sufficient signal, respects both caps; the explanation string is visible in Settings; trigger unit-tested.
 - **Depends on:** 1.4, 2.4.
 
-### - [ ] 4.6 Learned personal cadence: a starting ratio that grows with you
+### - [x] 4.6 Learned personal cadence: a starting ratio that grows with you
 
 - **Goal:** Turn 4.1's one-off experiment suggestions into a continuously-learned *personal starting point*. `suggestPersonalCadence()` in `src/insights/cadence.ts` blends the user's own signals — `medianMinutesToFirstDrift()`, `completionRateByPlannedLength()`, `driftPhaseDistribution()`, and the 4.4 chronotype tag — into one recommended focus/break pair (e.g. drifts cluster at ~min 16 → start at 15/4; long sessions complete cleanly → current fit is 40/8), always with a `{ because, evidenceKey }` per 2.4. Include a **stretch ladder**: when the user completes ≥ ~80% of sessions at their current length over a rolling window, offer (never auto-apply) the next rung up (+5 min focus, break scaled ~1:5), so the ratio grows as their attention does; a rough patch quietly re-offers a shorter rung with kind, no-failure framing. Recommendation recomputes at most weekly, surfaces only at natural pauses (weekly review, recipe card, settings), one-tap apply, one-tap back to any previous rung. With thin data the answer is always "25/5 is a lovely starting point while I learn your rhythm" (PLACEHOLDER_COPY until the copy pass). Copy rule, greppable in the done-check: the app may say "best fit *for you right now*" and "an experiment" — never "optimal", "ideal", or "what science recommends".
 - **Science:** §Staying — breaks row (Albulescu et al. 2022: breaks help, *no universally best cadence* — which is exactly why a personal, data-derived fit is honest where a universal claim would not be); §Staying — time-on-task + mind-wandering rows (Zanesco et al. 2024: drift timing is the signal to fit session length to); §Staying — chronotype row (May & Hasher 2023, as a prior); §Measurement — JITAI row (transparent, low-burden rule engine; recompute weekly, not per-session); §Do not build — the 25/5-optimal, 52/17 and ultradian rows (hard guardrail on the copy).
