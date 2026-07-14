@@ -407,9 +407,20 @@ export function FocusScreen({
 
       <ParkingLot
         canPark={workSessionOpen}
-        showReturned={!state.running && !showTinyOffer && !hasResumeCue}
+        // Breaks are the parking lot's moment: the card stays up while a break
+        // runs so the items can actually be done during it, and never gates
+        // the timer — "start my break ▸" / "not now ♡" live on the card.
+        showReturned={
+          (!state.running || state.mode === 'short' || state.mode === 'long') &&
+          !showTinyOffer &&
+          !hasResumeCue
+        }
         returned={returnedParking}
         palSprite={palSprite}
+        breakIdle={
+          (state.mode === 'short' || state.mode === 'long') && !state.running && !state.justDone
+        }
+        onStartBreak={beginSession}
         onPark={actions.parkThought}
         onSendToTasks={actions.sendParkedToTasks}
         onDismiss={actions.dismissParked}

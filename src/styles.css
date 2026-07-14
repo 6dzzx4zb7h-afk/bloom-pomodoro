@@ -1892,6 +1892,18 @@ button {
   gap: 6px;
   flex-wrap: wrap;
 }
+.parking-return-footer {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+  padding-top: 9px;
+  border-top: 1px dashed rgba(160, 112, 140, 0.18);
+}
+.parking-return-carry {
+  display: block;
+  margin-top: 8px;
+}
 
 /* Optional session target: an airy line under the controls, faint echo while
    the session runs. It also feeds Companion's intention when that mode is on. */

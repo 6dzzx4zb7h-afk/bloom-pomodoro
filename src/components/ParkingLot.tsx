@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { AnimalKind } from '../engine/pixelpals';
 import {
   PARKING_TEXT_MAX,
@@ -14,6 +14,9 @@ interface ParkingLotProps {
   showReturned: boolean;
   returned: ParkedThought[];
   palSprite: AnimalKind;
+  /** A break is selected but not started — offer to start it from the card. */
+  breakIdle?: boolean;
+  onStartBreak?: () => void;
   onPark: (text: string) => void;
   onSendToTasks: (id: string) => void;
   onDismiss: (id: string) => void;
@@ -24,6 +27,8 @@ export function ParkingLot({
   showReturned,
   returned,
   palSprite,
+  breakIdle,
+  onStartBreak,
   onPark,
   onSendToTasks,
   onDismiss,
@@ -31,6 +36,19 @@ export function ParkingLot({
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState('');
   const [parkedNote, setParkedNote] = useState(false);
+  // "not now ♡" tucks the returned card away for this pause; it comes back at
+  // the next natural pause (or when fresh thoughts are revealed).
+  const [snoozed, setSnoozed] = useState(false);
+  const prevReturnedCount = useRef(returned.length);
+
+  useEffect(() => {
+    if (canPark) setSnoozed(false);
+  }, [canPark]);
+
+  useEffect(() => {
+    if (returned.length > prevReturnedCount.current) setSnoozed(false);
+    prevReturnedCount.current = returned.length;
+  }, [returned.length]);
 
   useEffect(() => {
     if (!canPark) {
@@ -100,7 +118,7 @@ export function ParkingLot({
         </div>
       )}
 
-      {showReturned && returned.length > 0 && (
+      {showReturned && !snoozed && returned.length > 0 && (
         <div className="companion-pop parking-return" role="dialog" aria-label="Parked thoughts">
           <PixelPal sprite={palSprite} mode="idle" scale={3} size={64} className="pop-pal" />
           <div className="pop-body">
@@ -115,7 +133,10 @@ export function ParkingLot({
                 <div className="parking-item" key={item.id}>
                   <div className="parking-item-text">{item.text}</div>
                   <div className="parking-item-actions">
-                    <button className="pop-btn primary" onClick={() => onSendToTasks(item.id)}>
+                    <button className="pop-btn primary" onClick={() => onDismiss(item.id)}>
+                      did it ✓
+                    </button>
+                    <button className="pop-btn" onClick={() => onSendToTasks(item.id)}>
                       make a task
                     </button>
                     <button className="pop-btn" onClick={() => onDismiss(item.id)}>
@@ -125,6 +146,19 @@ export function ParkingLot({
                 </div>
               ))}
             </div>
+            <div className="parking-return-footer">
+              {breakIdle && onStartBreak && (
+                <button className="pop-btn primary" onClick={onStartBreak}>
+                  start my break ▸
+                </button>
+              )}
+              <button className="pop-btn" onClick={() => setSnoozed(true)}>
+                not now ♡
+              </button>
+            </div>
+            <span className="pop-soft parking-return-carry">
+              anything left just waits for your next break ♡
+            </span>
           </div>
         </div>
       )}

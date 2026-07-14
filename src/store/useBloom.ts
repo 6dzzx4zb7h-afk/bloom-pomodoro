@@ -513,12 +513,18 @@ function loadState(): BloomState {
     parking,
   };
   if (pendingReturn && p.openFocus?.returnSnapshot) {
+    // The clock kept moving while away; show the live countdown (held at
+    // zero — completion waits for the return question's answer).
+    const live =
+      p.openFocus.running && p.openFocus.endsAt != null
+        ? Math.max(0, Math.ceil((p.openFocus.endsAt - Date.now()) / 1000))
+        : p.openFocus.returnSnapshot.remainingSec;
     return {
       ...base,
       mode: p.openFocus.mode,
       running: p.openFocus.running,
       endsAt: p.openFocus.endsAt,
-      remaining: p.openFocus.returnSnapshot.remainingSec,
+      remaining: live,
     };
   }
   // A flow run that was live when the app closed keeps counting (that's what
@@ -693,9 +699,14 @@ function reducer(s: BloomState, a: Action): BloomState {
         const elapsed = Math.floor(flowElapsed(s));
         return elapsed === s.remaining ? s : { ...s, remaining: elapsed };
       }
-      // A meaningful return waits for the user's answer before wall-clock
-      // catch-up can complete or alter the countdown (PLAN 5.2).
-      if (s.openFocus?.returnSnapshot) return s;
+      // While a return question is pending the countdown keeps moving in real
+      // time, but completion waits for the user's answer — "I drifted" or
+      // "pause it back" rewinds the away time back onto the clock (PLAN 5.2).
+      if (s.openFocus?.returnSnapshot) {
+        if (s.endsAt == null) return s;
+        const remaining = Math.max(0, Math.ceil((s.endsAt - Date.now()) / 1000));
+        return remaining === s.remaining ? s : { ...s, remaining };
+      }
       if (s.endsAt == null) return s;
       // ceil, not round: the session only completes once the full time elapsed.
       const remaining = Math.max(0, Math.ceil((s.endsAt - Date.now()) / 1000));
@@ -1211,11 +1222,12 @@ function reducer(s: BloomState, a: Action): BloomState {
       if (!s.openFocus?.returnSnapshot) return s;
       const result = markTimerReturn(s.openFocus, a.at, a.thresholdSec);
       if (result.shouldPrompt) {
-        return {
-          ...s,
-          openFocus: result.open,
-          remaining: result.open.returnSnapshot?.remainingSec ?? s.remaining,
-        };
+        // The display catches up to wall clock (the timer never stopped) but
+        // holds at zero without completing until the question is answered.
+        const live = s.endsAt
+          ? Math.max(0, Math.ceil((s.endsAt - a.at) / 1000))
+          : s.remaining;
+        return { ...s, openFocus: result.open, remaining: live };
       }
       // Short blips are invisible to the user. Catch the display up now; if
       // the timer ended during the blip, finish it normally without a card.
@@ -1228,7 +1240,8 @@ function reducer(s: BloomState, a: Action): BloomState {
     case 'resolveTabReturn': {
       const snapshot = s.openFocus?.returnSnapshot;
       if (!s.openFocus || !snapshot?.returnedAt) return s;
-      const openFocus = resolveTimerReturn(s.openFocus, a.resolution);
+      const now = Date.now();
+      const openFocus = resolveTimerReturn(s.openFocus, a.resolution, now);
       if (a.resolution === 'pauseBack') {
         return {
           ...s,
@@ -1238,8 +1251,20 @@ function reducer(s: BloomState, a: Action): BloomState {
           openFocus,
         };
       }
+      // Drifting rewinds the away time back onto the clock; the countdown
+      // resumes from what it showed the moment the tab was left.
+      if (a.resolution === 'drifted') {
+        return {
+          ...s,
+          remaining: snapshot.remainingSec,
+          endsAt: s.running ? now + snapshot.remainingSec * 1000 : null,
+          openFocus,
+        };
+      }
+      // "I kept working": the timer already ran in real time — nothing to
+      // adjust, just complete if the full length elapsed while away.
       const remaining = s.endsAt
-        ? Math.max(0, Math.ceil((s.endsAt - Date.now()) / 1000))
+        ? Math.max(0, Math.ceil((s.endsAt - now) / 1000))
         : s.remaining;
       const caughtUp = { ...s, openFocus, remaining };
       return remaining <= 0 ? reducer(caughtUp, { type: 'complete' }) : caughtUp;

@@ -286,18 +286,27 @@ export function markTimerReturn(
 export function resolveTimerReturn(
   open: OpenSession,
   resolution: ReturnResolution,
+  now = Date.now(),
 ): OpenSession {
   const snapshot = open.returnSnapshot;
   if (!snapshot) return open;
   const { returnSnapshot: _resolved, ...rest } = open;
-  return resolution === 'pauseBack'
-    ? {
-        ...rest,
-        running: false,
-        endsAt: null,
-        remainingSec: snapshot.remainingSec,
-      }
-    : rest;
+  if (resolution === 'pauseBack') {
+    return {
+      ...rest,
+      running: false,
+      endsAt: null,
+      remainingSec: snapshot.remainingSec,
+    };
+  }
+  // Drifting away doesn't count as focus: the time lost while gone is added
+  // back onto the clock, restarting from what the timer showed at leave.
+  if (resolution === 'drifted') {
+    return rest.running
+      ? { ...rest, endsAt: now + snapshot.remainingSec * 1000, remainingSec: snapshot.remainingSec }
+      : { ...rest, remainingSec: snapshot.remainingSec };
+  }
+  return rest;
 }
 
 /** Close an open session into a permanent record. Pure. */
