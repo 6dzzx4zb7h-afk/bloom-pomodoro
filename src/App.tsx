@@ -34,6 +34,17 @@ export default function App() {
     if (screen === 'goals' && !showGoals) setScreen('tasks');
   }, [screen, showGoals]);
 
+  // A return question freezes the timer at its captured display until the
+  // user answers. Bring its small re-entry card into view even if they left
+  // Bloom while browsing another in-app screen (PLAN 5.2).
+  useEffect(() => {
+    const activeReturn = Boolean(bloom.state.openFocus?.returnSnapshot?.returnedAt);
+    const interruptedReturn = bloom.state.sessionRecords.some(
+      (record) => record.outcome === 'interrupted' && record.resumeCuePending,
+    );
+    if (activeReturn || interruptedReturn) setScreen('focus');
+  }, [bloom.state.openFocus?.returnSnapshot?.returnedAt, bloom.state.sessionRecords]);
+
   // Flow and Tiny Start share Focus's sky mood — both are working modes.
   const skyMode = mode === 'flow' || mode === 'tiny' ? 'focus' : mode;
 

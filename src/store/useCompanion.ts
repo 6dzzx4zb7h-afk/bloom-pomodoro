@@ -11,6 +11,7 @@ import {
   type Phase,
 } from './companion';
 import type { useBloom } from './useBloom';
+import { RETURN_GAP_MIN_SEC } from './sessions';
 
 type Bloom = ReturnType<typeof useBloom>;
 
@@ -228,7 +229,11 @@ export function useCompanion(bloom: Bloom) {
     if (!conf.on || !conf.tabDetect) return;
     const goneAway = () => {
       if (ref.current.active && awayStartRef.current == null) {
-        awayStartRef.current = Date.now();
+        const at = Date.now();
+        awayStartRef.current = at;
+        // Quiet Mode promises never to ask. Otherwise capture the timer now,
+        // before the background tab can be throttled (PLAN 5.2).
+        if (!ref.current.conf.quiet) bloom.actions.captureTabLeave(at);
       }
     };
     const cameBack = () => {
@@ -236,9 +241,9 @@ export function useCompanion(bloom: Bloom) {
       awayStartRef.current = null;
       if (start == null || !ref.current.active) return;
       const awaySecs = (Date.now() - start) / 1000;
-      if (awaySecs < ref.current.conf.awaySecs) return;
-      const min = Math.floor(elapsed() / 60);
       if (ref.current.conf.quiet) {
+        if (awaySecs < ref.current.conf.awaySecs) return;
+        const min = Math.floor(elapsed() / 60);
         // A silent tab-away is a drift too: stamp and link it (PLAN 1.3).
         const sessionId = activeSessionId();
         const ev = appendEvent({
@@ -250,8 +255,13 @@ export function useCompanion(bloom: Bloom) {
           sessionId,
         });
         if (sessionId && ev.id) bloom.actions.linkDriftEvent(ev.id, sessionId);
-      } else if (!ref.current.prompt) {
-        setPrompt({ type: 'away', min, shownAt: Date.now() });
+      } else {
+        // Honest return always has a 45-second floor. Existing settings can
+        // make it quieter, never more eager than the plan's blip guard.
+        bloom.actions.markTabReturn(
+          Date.now(),
+          Math.max(RETURN_GAP_MIN_SEC, ref.current.conf.awaySecs),
+        );
       }
     };
     const onVis = () => (document.hidden ? goneAway() : cameBack());
@@ -348,6 +358,22 @@ export function useCompanion(bloom: Bloom) {
           shownAt: p.shownAt,
           src: p.type === 'away' ? 'return' : 'checkin',
         });
+      },
+      /** Honest tab-return answer: preserve one normal triage, then catch up. */
+      returnDrifted: () => {
+        const snapshot = ref.current.state.openFocus?.returnSnapshot;
+        if (!snapshot?.returnedAt) return;
+        const len = sessionLenMins();
+        const gapSec = Math.max(0, (snapshot.returnedAt - snapshot.capturedAt) / 1000);
+        const min = Math.floor(Math.min(len * 60, snapshot.elapsedSec + gapSec) / 60);
+        clearDismiss();
+        setPrompt({
+          type: 'triage',
+          min,
+          shownAt: snapshot.returnedAt,
+          src: 'return',
+        });
+        bloom.actions.resolveTabReturn('drifted');
       },
       /** Second tap: what kind of drift it was. */
       pick: (kind: DriftKind) => {

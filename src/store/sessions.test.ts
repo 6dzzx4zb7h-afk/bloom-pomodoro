@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
+  captureTimerSnapshot,
   finalizeSession,
+  markTimerReturn,
   newOpenSession,
+  resolveTimerReturn,
   sanitizeOpenSession,
   setSessionTargetOutcome,
   sweepStaleOpenSession,
@@ -109,5 +112,88 @@ describe('session target lifecycle', () => {
 
     expect(updated[0].targetOutcome).toBe('partly');
     expect(updated[1]).toBe(untargeted);
+  });
+});
+
+describe('honest tab-return snapshots', () => {
+  const now = new Date(2026, 6, 14, 11, 0, 0).getTime();
+
+  it('ignores short blips without leaving a pending question', () => {
+    const open = captureTimerSnapshot(
+      { ...newOpenSession('focus', 25, 2, undefined, now), endsAt: now + 20 * 60_000 },
+      20 * 60,
+      2,
+      now,
+    );
+
+    const returned = markTimerReturn(open, now + 44_000, 45);
+
+    expect(returned.shouldPrompt).toBe(false);
+    expect(returned.open.returnSnapshot).toBeUndefined();
+  });
+
+  it('restores the exact captured countdown when paused back', () => {
+    const captured = captureTimerSnapshot(
+      { ...newOpenSession('focus', 25, 2, undefined, now), endsAt: now + 1_234_000 },
+      1234,
+      3,
+      now,
+    );
+    const pending = markTimerReturn(captured, now + 60_000, 45).open;
+    const restored = resolveTimerReturn(pending, 'pauseBack');
+
+    expect(restored).toMatchObject({
+      running: false,
+      endsAt: null,
+      remainingSec: 1234,
+    });
+    expect(restored.returnSnapshot).toBeUndefined();
+  });
+
+  it('handles multiple leaves in one session without duplicating a pending leave', () => {
+    const base = {
+      ...newOpenSession('focus', 25, 2, undefined, now),
+      endsAt: now + 20 * 60_000,
+    };
+    const first = captureTimerSnapshot(base, 1200, 1, now);
+    const duplicateLeave = captureTimerSnapshot(first, 1195, 1, now + 5_000);
+    expect(duplicateLeave.returnSnapshot?.capturedAt).toBe(now);
+
+    const firstPending = markTimerReturn(first, now + 60_000, 45).open;
+    const firstResolved = resolveTimerReturn(firstPending, 'focused');
+    const second = captureTimerSnapshot(firstResolved, 1100, 1, now + 120_000);
+    const secondPending = markTimerReturn(second, now + 180_000, 45);
+
+    expect(secondPending.shouldPrompt).toBe(true);
+    expect(secondPending.open.returnSnapshot).toMatchObject({
+      capturedAt: now + 120_000,
+      returnedAt: now + 180_000,
+      remainingSec: 1100,
+      sessionId: base.id,
+    });
+  });
+
+  it('carries the cue and snapshot into an interrupted record', () => {
+    const open = markTimerReturn(
+      captureTimerSnapshot(
+        {
+          ...newOpenSession('focus', 25, 2, undefined, now),
+          nextActionText: 'open the notes',
+        },
+        900,
+        4,
+        now,
+      ),
+      now + 60_000,
+      45,
+    ).open;
+
+    const record = finalizeSession(open, 'interrupted', 10, now + 60_000);
+
+    expect(record).toMatchObject({
+      nextActionText: 'open the notes',
+      resumeCuePending: true,
+      returnSnapshot: { remainingSec: 900, round: 4 },
+    });
   });
 });

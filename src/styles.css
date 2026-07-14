@@ -1723,6 +1723,69 @@ button {
   color: var(--soft3);
 }
 
+/* PLAN 5.2: the re-entry thread sits above every other natural-pause card.
+   It is compact enough to keep the timer visible behind it. */
+.resume-cue {
+  z-index: 60;
+}
+.resume-context {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-bottom: 9px;
+}
+.resume-context-row {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr);
+  gap: 7px;
+  align-items: baseline;
+  color: var(--soft2);
+  font: 700 10px var(--font-display);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.resume-context-row strong {
+  color: var(--plum);
+  font: 600 12px var(--font-body);
+  text-transform: none;
+  letter-spacing: 0;
+  overflow-wrap: anywhere;
+}
+.resume-next-label {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--soft2);
+  font: 700 10px var(--font-display);
+}
+.resume-next-input {
+  width: 100%;
+  border: 1.5px solid rgba(199, 159, 230, 0.42);
+  border-radius: 11px;
+  padding: 8px 10px;
+  background: #fbf7fe;
+  color: var(--plum);
+  font: 600 12px var(--font-body);
+  outline: none;
+}
+.resume-next-input:focus {
+  border-color: var(--pink-2);
+}
+.resume-next-input::placeholder {
+  color: var(--soft3);
+}
+.resume-question {
+  margin: 9px 0 7px;
+  color: var(--soft);
+  font: 600 11.5px var(--font-body);
+}
+.resume-actions {
+  gap: 6px;
+}
+.resume-soft {
+  display: block;
+  margin: 8px 0 7px;
+}
+
 /* PLAN 5.1: a tiny capture during work; the text itself stays hidden until
    the owning session reaches a pause. */
 .parking-capture {
@@ -2661,6 +2724,10 @@ body.night {
   background: #3d346c;
 }
 .night .pop-jot-input {
+  background: #2e2557;
+  border-color: #3f3570;
+}
+.night .resume-next-input {
   background: #2e2557;
   border-color: #3f3570;
 }

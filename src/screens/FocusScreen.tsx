@@ -4,6 +4,7 @@ import { IfThenPlanner } from '../components/IfThenPlanner';
 import { ParkingLot } from '../components/ParkingLot';
 import { PixelPal } from '../components/PixelPal';
 import { RitualCard, RitualSuggestion } from '../components/RitualCard';
+import { ResumeCue } from '../components/ResumeCue';
 import { SettingsSheet } from '../components/SettingsSheet';
 import { WeeklyReview } from '../components/WeeklyReview';
 import { WoopCard } from '../components/WoopCard';
@@ -52,6 +53,19 @@ export function FocusScreen({
   // session the user just ended (completed or abandoned) does.
   const [debrief, setDebrief] = useState<SessionRecord | null>(null);
   const records = state.sessionRecords;
+  const activeReturnSession = state.openFocus?.returnSnapshot?.returnedAt
+    ? state.openFocus
+    : null;
+  const interruptedReturnSession = [...records]
+    .reverse()
+    .find((record) => record.outcome === 'interrupted' && record.resumeCuePending) ?? null;
+  const resumeSession = activeReturnSession ?? interruptedReturnSession;
+  const hasResumeCue = Boolean(resumeSession);
+  const resumeParkedText = resumeSession
+    ? [...state.parking]
+        .reverse()
+        .find((item) => item.sessionId === resumeSession.id)?.text
+    : undefined;
   const returnedParking = state.parking.filter((item) => item.revealedAt !== null);
   const hasReturnedParking = returnedParking.length > 0;
   const lastSeenId = useRef<string | null>(
@@ -91,14 +105,14 @@ export function FocusScreen({
   useEffect(() => setRitualOpen(false), [state.mode]);
 
   useEffect(() => {
-    if (state.running || state.justDone || debrief || weekly || showSettings || hasReturnedParking) return;
+    if (state.running || state.justDone || debrief || weekly || showSettings || hasReturnedParking || hasResumeCue) return;
     const week = weekKey();
     if (state.lastWeeklyReviewWeek === week) return;
     const cutoff = Date.now() - WEEKLY_WINDOW_DAYS * 86400000;
     if (!records.some((r) => r.endedAt >= cutoff)) return;
     setWeekly(true);
     actions.markWeeklyReview(week);
-  }, [state.running, state.justDone, debrief, weekly, showSettings, hasReturnedParking, records, state.lastWeeklyReviewWeek, actions]);
+  }, [state.running, state.justDone, debrief, weekly, showSettings, hasReturnedParking, hasResumeCue, records, state.lastWeeklyReviewWeek, actions]);
 
   // Pre-session intention: optional, skippable, only in Companion Mode.
   const wantsIntention =
@@ -143,6 +157,7 @@ export function FocusScreen({
     !debrief &&
     !recordAwaitingDebrief &&
     !weekly &&
+    !hasResumeCue &&
     !hasReturnedParking;
 
   useEffect(() => {
@@ -162,6 +177,7 @@ export function FocusScreen({
     !weekly &&
     !woopTriggered &&
     !woopOpen &&
+    !hasResumeCue &&
     !hasReturnedParking;
 
   // Offer this exactly once. The persisted flag is set when it is presented,
@@ -187,6 +203,7 @@ export function FocusScreen({
     !showSettings &&
     !debrief &&
     !weekly &&
+    !hasResumeCue &&
     !woopOpen;
 
   function beginSession() {
@@ -390,13 +407,40 @@ export function FocusScreen({
 
       <ParkingLot
         canPark={workSessionOpen}
-        showReturned={!state.running && !showTinyOffer}
+        showReturned={!state.running && !showTinyOffer && !hasResumeCue}
         returned={returnedParking}
         palSprite={palSprite}
         onPark={actions.parkThought}
         onSendToTasks={actions.sendParkedToTasks}
         onDismiss={actions.dismissParked}
       />
+
+      {resumeSession && (
+        <ResumeCue
+          palSprite={palSprite}
+          session={resumeSession}
+          snapshot={activeReturnSession?.returnSnapshot}
+          parkedText={resumeParkedText}
+          onSaveNextAction={(text) => actions.setNextAction(resumeSession.id, text)}
+          onKeptWorking={
+            activeReturnSession ? () => actions.resolveTabReturn('focused') : undefined
+          }
+          onDrifted={activeReturnSession ? companion.actions.returnDrifted : undefined}
+          onPauseBack={
+            activeReturnSession ? () => actions.resolveTabReturn('pauseBack') : undefined
+          }
+          onResumeInterrupted={
+            interruptedReturnSession
+              ? () => actions.resumeInterrupted(interruptedReturnSession.id)
+              : undefined
+          }
+          onDismissInterrupted={
+            interruptedReturnSession
+              ? () => actions.dismissResumeCue(interruptedReturnSession.id)
+              : undefined
+          }
+        />
+      )}
 
       {showTinyOffer && (
         <div className="companion-pop tiny-rung-card" role="status" aria-label="Tiny start complete">
@@ -487,7 +531,7 @@ export function FocusScreen({
         </div>
       </div>
 
-      {debrief && !state.running && !state.justDone && !hasReturnedParking && (
+      {debrief && !state.running && !state.justDone && !hasReturnedParking && !hasResumeCue && (
         <DebriefCard
           record={debrief}
           records={records}
@@ -498,7 +542,7 @@ export function FocusScreen({
       )}
 
       {/* The debrief takes precedence — one card at a time, never mid-session. */}
-      {weekly && !debrief && !state.running && !state.justDone && !hasReturnedParking && (
+      {weekly && !debrief && !state.running && !state.justDone && !hasReturnedParking && !hasResumeCue && (
         <WeeklyReview
           records={records}
           palSprite={palSprite}

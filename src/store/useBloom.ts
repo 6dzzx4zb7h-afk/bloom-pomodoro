@@ -30,13 +30,17 @@ import {
 } from './ifThen';
 import {
   appendSessionRecord,
+  captureTimerSnapshot,
   finalizeSession,
+  markTimerReturn,
   newOpenSession,
+  resolveTimerReturn,
   sanitizeOpenSession,
   sanitizeSessionRecords,
   setSessionTargetOutcome,
   sweepStaleOpenSession,
   type OpenSession,
+  type ReturnResolution,
   type SessionRecord,
   type TargetOutcome,
 } from './sessions';
@@ -212,7 +216,7 @@ const DEFAULT_STATE: BloomState = {
 const STORAGE_KEY = 'bloom-state';
 /** Older keys we still read from once, newest first. */
 const LEGACY_KEYS = ['bloom-state-v2', 'bloom-state-v1'];
-const SCHEMA_VERSION = 16;
+const SCHEMA_VERSION = 17;
 
 interface PersistedShape {
   version: number;
@@ -340,6 +344,10 @@ const MIGRATIONS: Array<(blob: Record<string, unknown>) => Record<string, unknow
   // v15 -> v16: distraction parking lot (PLAN 5.1). Existing users begin
   // with an empty lot; every prior field passes through untouched.
   (blob) => ({ ...blob, parking: [] }),
+  // v16 -> v17: persisted re-entry snapshots and next-action cues (PLAN 5.2).
+  // Every new field is optional, so old open sessions and permanent records
+  // remain valid and acquire no invented history.
+  (blob) => blob,
 ];
 
 function dayStr(d = new Date()): string {
@@ -472,10 +480,11 @@ function loadState(): BloomState {
   // A streak is only alive if the last focus session was today or yesterday.
   const alive =
     p.lastFocusDay === dayStr() || p.lastFocusDay === dayStr(new Date(Date.now() - 86400000));
-  // Stale-open-record sweep: a focus countdown that was live when the app
-  // closed can't resume, so its record is finalized as 'interrupted'. The
-  // flow stopwatch deliberately survives reloads, so its record stays open.
-  const swept = p.openFocus ? sweepStaleOpenSession(p.openFocus) : null;
+  // A return question that was already on screen survives a reload exactly
+  // as-is. Every other stale focus countdown keeps the existing safety rule:
+  // finalize it as interrupted and offer a one-tap re-entry cue.
+  const pendingReturn = Boolean(p.openFocus?.returnSnapshot?.returnedAt);
+  const swept = p.openFocus && !pendingReturn ? sweepStaleOpenSession(p.openFocus) : null;
   const sessionRecords = swept ? appendSessionRecord(p.sessionRecords, swept) : p.sessionRecords;
   const parking = swept
     ? revealParkedThoughts(p.parking, swept.id, swept.endedAt)
@@ -493,7 +502,7 @@ function loadState(): BloomState {
     goals: p.goals,
     flowAcc: p.flow.acc,
     sessionRecords,
-    openFocus: null,
+    openFocus: pendingReturn ? p.openFocus : null,
     openFlow: p.openFlow,
     lastWeeklyReviewWeek: p.lastWeeklyReviewWeek,
     ifThenPlans: p.ifThenPlans,
@@ -503,6 +512,15 @@ function loadState(): BloomState {
     personalCadence: p.personalCadence,
     parking,
   };
+  if (pendingReturn && p.openFocus?.returnSnapshot) {
+    return {
+      ...base,
+      mode: p.openFocus.mode,
+      running: p.openFocus.running,
+      endsAt: p.openFocus.endsAt,
+      remaining: p.openFocus.returnSnapshot.remainingSec,
+    };
+  }
   // A flow run that was live when the app closed keeps counting (that's what
   // a stopwatch does) — unless it's been so long it was clearly abandoned, in
   // which case it comes back paused, banked at the cap.
@@ -656,6 +674,12 @@ type Action =
   | { type: 'parkThought'; text: string }
   | { type: 'sendParkedToTasks'; id: string }
   | { type: 'dismissParked'; id: string }
+  | { type: 'captureTabLeave'; at: number }
+  | { type: 'markTabReturn'; at: number; thresholdSec: number }
+  | { type: 'resolveTabReturn'; resolution: ReturnResolution }
+  | { type: 'setNextAction'; sessionId: string; text: string }
+  | { type: 'resumeInterrupted'; sessionId: string }
+  | { type: 'dismissResumeCue'; sessionId: string }
   | { type: 'patchSettings'; patch: Partial<Settings> };
 
 function reducer(s: BloomState, a: Action): BloomState {
@@ -669,6 +693,9 @@ function reducer(s: BloomState, a: Action): BloomState {
         const elapsed = Math.floor(flowElapsed(s));
         return elapsed === s.remaining ? s : { ...s, remaining: elapsed };
       }
+      // A meaningful return waits for the user's answer before wall-clock
+      // catch-up can complete or alter the countdown (PLAN 5.2).
+      if (s.openFocus?.returnSnapshot) return s;
       if (s.endsAt == null) return s;
       // ceil, not round: the session only completes once the full time elapsed.
       const remaining = Math.max(0, Math.ceil((s.endsAt - Date.now()) / 1000));
@@ -727,6 +754,9 @@ function reducer(s: BloomState, a: Action): BloomState {
             ...newOpenSession(s.mode, plannedMin, taskId, plan?.id),
             endsAt,
             targetText: a.targetText,
+            // The start target is already a concrete action. It is editable
+            // on the re-entry card if a smaller physical step would help.
+            nextActionText: a.targetText,
           };
           if (plan) {
             ifThenPlans = markIfThenPlanUsed(ifThenPlans, plan.id);
@@ -1161,6 +1191,121 @@ function reducer(s: BloomState, a: Action): BloomState {
       return s.parking.some((thought) => thought.id === a.id && thought.revealedAt !== null)
         ? { ...s, parking: removeParkedThought(s.parking, a.id) }
         : s;
+    case 'captureTabLeave': {
+      if (
+        !s.running ||
+        (s.mode !== 'focus' && s.mode !== 'tiny') ||
+        !s.openFocus ||
+        s.openFocus.returnSnapshot
+      ) {
+        return s;
+      }
+      const remaining = s.endsAt
+        ? Math.max(0, Math.ceil((s.endsAt - a.at) / 1000))
+        : s.remaining;
+      const round = (s.sessions % 4) + 1;
+      const openFocus = captureTimerSnapshot(s.openFocus, remaining, round, a.at);
+      return openFocus === s.openFocus ? s : { ...s, openFocus, remaining };
+    }
+    case 'markTabReturn': {
+      if (!s.openFocus?.returnSnapshot) return s;
+      const result = markTimerReturn(s.openFocus, a.at, a.thresholdSec);
+      if (result.shouldPrompt) {
+        return {
+          ...s,
+          openFocus: result.open,
+          remaining: result.open.returnSnapshot?.remainingSec ?? s.remaining,
+        };
+      }
+      // Short blips are invisible to the user. Catch the display up now; if
+      // the timer ended during the blip, finish it normally without a card.
+      const remaining = s.endsAt
+        ? Math.max(0, Math.ceil((s.endsAt - a.at) / 1000))
+        : s.remaining;
+      const caughtUp = { ...s, openFocus: result.open, remaining };
+      return remaining <= 0 ? reducer(caughtUp, { type: 'complete' }) : caughtUp;
+    }
+    case 'resolveTabReturn': {
+      const snapshot = s.openFocus?.returnSnapshot;
+      if (!s.openFocus || !snapshot?.returnedAt) return s;
+      const openFocus = resolveTimerReturn(s.openFocus, a.resolution);
+      if (a.resolution === 'pauseBack') {
+        return {
+          ...s,
+          running: false,
+          endsAt: null,
+          remaining: snapshot.remainingSec,
+          openFocus,
+        };
+      }
+      const remaining = s.endsAt
+        ? Math.max(0, Math.ceil((s.endsAt - Date.now()) / 1000))
+        : s.remaining;
+      const caughtUp = { ...s, openFocus, remaining };
+      return remaining <= 0 ? reducer(caughtUp, { type: 'complete' }) : caughtUp;
+    }
+    case 'setNextAction': {
+      const text = a.text.trim().slice(0, SESSION_TARGET_MAX) || undefined;
+      if (s.openFocus?.id === a.sessionId) {
+        return { ...s, openFocus: { ...s.openFocus, nextActionText: text } };
+      }
+      let changed = false;
+      const sessionRecords = s.sessionRecords.map((record) => {
+        if (record.id !== a.sessionId || !record.resumeCuePending) return record;
+        changed = true;
+        return { ...record, nextActionText: text };
+      });
+      return changed ? { ...s, sessionRecords } : s;
+    }
+    case 'resumeInterrupted': {
+      const record = s.sessionRecords.find(
+        (item) => item.id === a.sessionId && item.outcome === 'interrupted' && item.resumeCuePending,
+      );
+      if (!record || record.mode === 'flow' || record.plannedMin == null) return s;
+      const plannedSec = Math.max(0, record.plannedMin * 60);
+      const remaining = Math.max(
+        1,
+        Math.min(
+          plannedSec,
+          record.returnSnapshot?.remainingSec ?? plannedSec - record.actualMin * 60,
+        ),
+      );
+      const endsAt = Date.now() + remaining * 1000;
+      const openFocus: OpenSession = {
+        id: record.id,
+        startedAt: record.startedAt,
+        mode: record.mode,
+        plannedMin: record.plannedMin,
+        startHour: record.startHour,
+        taskId: record.taskId,
+        endsAt,
+        remainingSec: remaining,
+        running: true,
+        driftEventIds: [...record.driftEventIds],
+        targetText: record.targetText,
+        ifThenPlanId: record.ifThenPlanId,
+        nextActionText: record.nextActionText,
+      };
+      return {
+        ...s,
+        mode: record.mode,
+        running: true,
+        endsAt,
+        remaining,
+        justDone: false,
+        openFocus,
+        sessionRecords: s.sessionRecords.filter((item) => item.id !== record.id),
+      };
+    }
+    case 'dismissResumeCue': {
+      let changed = false;
+      const sessionRecords = s.sessionRecords.map((record) => {
+        if (record.id !== a.sessionId || !record.resumeCuePending) return record;
+        changed = true;
+        return { ...record, resumeCuePending: false };
+      });
+      return changed ? { ...s, sessionRecords } : s;
+    }
     case 'logGoal': {
       const goals = s.goals.map((g) =>
         g.id === a.id ? { ...g, done: Math.max(0, Math.min(g.target, g.done + a.delta)) } : g,
@@ -1372,6 +1517,17 @@ export function useBloom() {
       parkThought: (text: string) => dispatch({ type: 'parkThought', text }),
       sendParkedToTasks: (id: string) => dispatch({ type: 'sendParkedToTasks', id }),
       dismissParked: (id: string) => dispatch({ type: 'dismissParked', id }),
+      captureTabLeave: (at: number) => dispatch({ type: 'captureTabLeave', at }),
+      markTabReturn: (at: number, thresholdSec: number) =>
+        dispatch({ type: 'markTabReturn', at, thresholdSec }),
+      resolveTabReturn: (resolution: ReturnResolution) =>
+        dispatch({ type: 'resolveTabReturn', resolution }),
+      setNextAction: (sessionId: string, text: string) =>
+        dispatch({ type: 'setNextAction', sessionId, text }),
+      resumeInterrupted: (sessionId: string) =>
+        dispatch({ type: 'resumeInterrupted', sessionId }),
+      dismissResumeCue: (sessionId: string) =>
+        dispatch({ type: 'dismissResumeCue', sessionId }),
       patchSettings: (patch: Partial<Settings>) => dispatch({ type: 'patchSettings', patch }),
     }),
     [],

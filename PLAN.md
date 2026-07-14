@@ -259,12 +259,12 @@ Rules of thumb:
 - **Done when:** Park mid-session (≤2 taps + typing) → item hidden → resurfaces at break/end → send-to-task and dismiss both work; drift log optionally records that a park happened instead of a full drift.
 - **Depends on:** 1.3.
 
-### - [ ] 5.2 Resume cue card
+### - [x] 5.2 Resume cue card + honest tab-return
 
-- **Goal:** When Companion Mode detects a tab-away/drift and the user returns, show a small re-entry card *before* the ticking timer regains focus: last parked note (if any) · current session target (4.2) · "next concrete action" (one line the user typed at start or mid-session). One tap resumes. Also offered when reopening the app onto an `interrupted` session.
-- **Science:** §Recovering — attention residue row (Leroy 2009: residue from the prior focus impairs the next task) and resumption cues row (Altmann & Trafton 2004: first post-interruption action ~3.8 s vs 1.9 s baseline; external cues available at resumption reduce the lag — lab-only but highly actionable); feature rank #3 ("best science-backed recovery mechanic").
-- **Files:** `src/components/ResumeCue.tsx` (new), `src/store/companion.ts` (return detection hook), `FocusScreen.tsx`.
-- **Done when:** Tab-away → return shows the card populated from real state; one tap resumes; never appears when nothing was interrupted.
+- **Goal:** When Companion Mode detects a tab-away/drift and the user returns, show a small re-entry card *before* the ticking timer regains focus: last parked note (if any) · current session target (4.2) · "next concrete action" (one line the user typed at start or mid-session). One tap resumes. Also offered when reopening the app onto an `interrupted` session. **Honest tab-return (adapted from Friction Journal's Focus Guard):** on tab-leave during a running session, capture a timer snapshot (elapsed, remaining, mode, Pomodoro round, session id) onto the session record. If the gap was meaningful (≥ ~45 s — short blips never ask), the re-entry card adds one gentle question with three answers: **"I kept working"** (gap counts as focus), **"I drifted"** (gap logs as a drift event on the session and flows into the normal two-tap triage), or **"pause it back"** (timer restores to the exact snapshot and the gap never enters the focus record). The pending question and snapshot persist, so a reload mid-question resumes it without inventing a second gap; repeated leaves in one session re-capture cleanly.
+- **Science:** §Recovering — attention residue row (Leroy 2009: residue from the prior focus impairs the next task) and resumption cues row (Altmann & Trafton 2004: first post-interruption action ~3.8 s vs 1.9 s baseline; external cues available at resumption reduce the lag — lab-only but highly actionable); feature rank #3 ("best science-backed recovery mechanic"). For the tab-return question: §Measurement — progress monitoring row (Harkin 2016 — the wall-clock timer silently counts away-time as focus, feeding false records into every 2.x insight; asking at the moment of return keeps the record honest while the truth is fresh — the same integrity rule as 9.5, applied live instead of repaired later). The answer is user-controlled self-report, never inferred surveillance; a "drifted" answer is data, not failure (§Recovering — self-forgiveness row, Wohl 2010), and the copy must pass docs/voice.md.
+- **Files:** `src/components/ResumeCue.tsx` (new), `src/store/companion.ts` (return detection hook), `FocusScreen.tsx`, timer store + `src/store/sessions.ts` (snapshot fields on the record — version bump + migration).
+- **Done when:** Tab-away → return shows the card populated from real state; one tap resumes; never appears when nothing was interrupted. Snapshot round-trip verified: "pause it back" restores the exact remaining time and excludes the gap from the record; "I drifted" produces exactly one drift event linked to the session; blips under the threshold never prompt; reload mid-question resumes without double-counting; unit tests cover multiple leaves in one session.
 - **Depends on:** 4.2, 5.1.
 
 ### - [ ] 5.3 Kind-restart micro-intervention
@@ -405,15 +405,15 @@ Rules of thumb:
 
 ### - [ ] 8.8 Touch targets and small-screen layouts
 
-- **Goal:** Settings (34 px), steppers (28 px), switches, and delete controls fall below 44×44 px guidance; the goal add form crams name + date + parts + button into one row at 390 px; the Focus screen has no height-based variant and the shell hides overflow (short phones/landscape clip content). Enlarge hit areas (padding, not icon size), make the goal form two rows on mobile, add compact-height breakpoints that shrink the timer ring before hiding anything.
+- **Goal:** Settings (34 px), steppers (28 px), switches, and delete controls fall below 44×44 px guidance; the goal add form crams name + date + parts + button into one row at 390 px; the Focus screen has no height-based variant and the shell hides overflow (short phones/landscape clip content). Enlarge hit areas (padding, not icon size), make the goal form two rows on mobile, add compact-height breakpoints that shrink the timer ring before hiding anything. Also set every text input/textarea/select to **≥16 px font-size on mobile**: iOS Safari force-zooms the whole page when focusing any smaller input, and Bloom's task/goal/target/onboarding fields currently trigger that zoom-jump.
 - **Files:** `src/styles.css`, `GoalsScreen.tsx`, `FocusScreen.tsx`.
-- **Done when:** All targets ≥44 px effective; goal form usable at 390 px; Focus fits a 568 px-tall viewport without clipping controls.
+- **Done when:** All targets ≥44 px effective; goal form usable at 390 px; Focus fits a 568 px-tall viewport without clipping controls; no input triggers the iOS focus zoom (all mobile input font sizes ≥16 px — grep + on-device check).
 
 ### - [ ] 8.9 Readability over the animated sky
 
-- **Goal:** Low-contrast lavender text sits directly on the moving sky and becomes illegible as clouds pass; several essential labels are 10.5–12.5 px. Put instructional text on stable translucent surfaces or darken it to verified contrast; raise supporting text to a practical minimum (~13 px), reserving smaller type for nonessential metadata.
+- **Goal:** Low-contrast lavender text sits directly on the moving sky and becomes illegible as clouds pass; several essential labels are 10.5–12.5 px. Put instructional text on stable translucent surfaces or darken it to verified contrast; raise supporting text to a practical minimum (~13 px), reserving smaller type for nonessential metadata. Also add a `@media (prefers-contrast: more)` layer answering the OS "Increase Contrast" accessibility setting: opaque surfaces instead of translucency, stronger borders, full-contrast text — Bloom's pastel palette currently ignores the request entirely.
 - **Files:** `src/styles.css`, affected screens.
-- **Done when:** Contrast spot-checks pass at the lightest sky moment in both themes; no essential text below the minimum.
+- **Done when:** Contrast spot-checks pass at the lightest sky moment in both themes; no essential text below the minimum; with Increase Contrast enabled, surfaces go opaque and borders/text pass the stricter check on every screen.
 
 ### - [ ] 8.10 Self-host the fonts (offline constraint violation — fix now, don't wait for 7.2)
 
@@ -441,6 +441,68 @@ Rules of thumb:
 - **Files:** `src/store/useBloom.ts`, `src/styles.css`, `Onboarding.tsx`.
 - **Done when:** New users see honest example content; no regression in migrations or visuals.
 
+### - [ ] 8.14 Guard the running timer against accidental resets
+
+- **Goal:** Tapping any other mode tab (Focus/Short/Long/tiny) while a focus or tiny countdown is live silently finalizes the session as `abandoned` and resets the timer (`pick` reducer, `src/store/useBloom.ts` — "Walking away from a started focus/tiny countdown abandons that session"). One stray tap destroys a session with no way back, and there is **no minimum duration anywhere in the chain** — `finalizeSession` records a 10-second bail as `abandoned`, `abandonStreakInfo()` counts it with no duration filter, and three stray taps in a row reach `WOOP_ABANDON_THRESHOLD`. Two-tier fix: **(a) false-start grace** — a live session switched away within ~15 s of starting is *discarded entirely* (no record, no dialog: wrong-tab taps and instant regrets are noise, not abandons); **(b) confirm beyond the grace** — past ~15 s, switching shows a small confirmation: "You're 12 min into this focus — end it and switch?" → **[keep going]** (default) / **[end & switch]**. A confirmed abandon is an intentional one, so every `abandoned` record that reaches the stats is true signal. No dialog when nothing is running or right after completion; Flow keeps its existing bank-and-wait behavior unchanged.
+- **Science:** Error-prevention + record integrity, not behavior change. Every accidental tap writes a **false `abandoned` record**, polluting `completionRateByPlannedLength()` and `abandonStreakInfo()` — the trigger for 3.5's WOOP offer — so stray taps can make the pet believe the user has a starting problem they don't have (§Measurement — progress monitoring row: monitoring only works when records reflect actual behavior). The grace window is deliberately short (~15 s): genuine early bails (15 s+) are the strongest start-failure signal WOOP exists for and must stay in the record once confirmed. Dialog copy is protective, never scolding (docs/voice.md).
+- **Files:** `src/screens/FocusScreen.tsx` (mode-tab interception), `src/store/useBloom.ts` (`pick` reducer: discard-vs-finalize branch; expose live-session/elapsed state for the dialog), `src/store/sessions.ts` if a discard helper is cleaner, reuse 8.4's Sheet/dialog primitive if landed.
+- **Done when:** A switch within the grace window leaves zero session record and no dialog; a switch past it shows the confirm; "keep going" leaves the timer completely untouched; "end & switch" finalizes `abandoned` exactly like today; taps with no live session switch instantly; unit tests cover grace-discard, confirmed-abandon, and that `abandonStreakInfo()` can no longer be fed by sub-grace sessions.
+- **Depends on:** nothing (8.4's primitive is a nice-to-have, not a blocker).
+
+---
+
+## Phase 9 — Own your record (measurement integrity & data stewardship, July 2026)
+
+> These close the feature gap with the Friction Journal app, but each step was vetted against docs/science.md before inclusion — everything here either strengthens the *trustworthiness of the record* (the precondition Harkin 2016 puts on monitoring working at all) or reflects an already-recorded behavior back to the user in the simple, low-frequency form Krukowski 2024 supports. Vetted and **rejected**: a stats-heavy analytics dashboard (fails the "metrics zoo" warning — weekly review + recipe already carry the insight duty), unlimited session editing (undermines record trust and invites self-deception; only the clamped, labeled repair in 9.5 survives), and cloud sync (conflicts with hard constraint #1 — that is a constraint amendment needing its own design decision, not a plan step; 9.4 covers data portability meanwhile).
+
+### - [ ] 9.1 Evidence addendum for measurement-integrity features
+
+- **Goal:** Append a short, honestly-graded section to `docs/science.md` (new anchor `#measurement-integrity`) covering the evidence 9.5/9.6 rest on: **proximal subgoals** (Bandura & Schunk 1981, *J. Personality and Social Psychology* 41(3): proximal goals raised self-efficacy and intrinsic interest in self-directed learning; Locke & Latham 2002, *American Psychologist*: specific goals outperform vague ones); **planning fallacy** (Buehler, Griffin & Ross 1994, *JPSP* 67(3): people underestimate completion times; feedback from past actuals improves calibration); **recall bias in retrospective self-report** (grounds for why 9.5's repairs are labeled estimates). Grade each claim's evidence type per the report's convention, and follow the verification note's rule: open the primary paper before quoting a number.
+- **Science:** The report's own methodology (§How to read this report — graded claims, honest hedging). No new feature may cite evidence that isn't in the repo's source of truth.
+- **Files:** `docs/science.md`.
+- **Done when:** Anchor resolves; each claim has an evidence grade and at least one full citation; a provenance sentence in the verification-note style is included.
+- **Depends on:** 0.1.
+
+### - [ ] 9.2 Custom study-day boundary
+
+- **Goal:** Settings question: "When does your day roll over?" → `dayStartHour` (default midnight; presets 00:00 / 03:00 / 05:00, custom hour). One shared `dayKeyFor(ts)` helper; **every** daily computation routes through it — streak, sessions-today, weekly-review windows, per-day grouping in stats — while raw records keep exact timestamps. Version bump + migration; changing the boundary re-derives summaries losslessly from raw records.
+- **Science:** §Measurement — progress monitoring row (Harkin 2016: monitoring requires records that reflect actual behavior; a 00:30 session belongs to the evening's study day, not "tomorrow"); §Staying — chronotype row (May & Hasher 2023: evening types routinely work past midnight — a midnight boundary systematically distorts their per-day stats and streaks specifically); §Do not build — punitive streak loss (a midnight-split streak reset is a *false* setback, the same family of unfair loss 5.4 removes).
+- **Files:** `SettingsSheet.tsx`, `src/store/useBloom.ts` (version bump + migration), `src/store/sessions.ts` / `sessionStats.ts` (dayKey helper), streak logic.
+- **Done when:** A 00:30 session counts toward the previous study day in streak, history grouping, and weekly review; changing the boundary re-derives all summaries without touching raw records; unit tests cover boundary edges (session at boundary−1 min, at boundary, DST transition).
+- **Depends on:** 1.4; must land before 9.3.
+
+### - [ ] 9.3 History ledger screen
+
+- **Goal:** A browsable record of past study days — a **calm ledger, not an analytics dashboard**. Sessions grouped by study day (9.2): each day row shows focus minutes, session count, drifts, and recoveries; expanding a day shows session cards (mode, planned vs actual, outcome, target, drift-phase chips, parked-thought count); load-more paging. Deliberately **no new aggregate metrics** beyond what `sessionStats` already computes. Also replace the silent 500-record ring-buffer drop: archive older records to a compact slice instead of discarding — a user's history must never silently truncate.
+- **Science:** §Measurement — progress monitoring row (Harkin 2016: d = 0.40 on attainment; works when behavior is *physically recorded and reflected back* — 1.2 built the recording half, this is the reflecting half; the row's design implication says the dashboard should "highlight behavior patterns, not just time totals"); §Measurement — feedback row (Krukowski 2024: simple, low-frequency feedback; hence a ledger and a hard cap on derived metrics); §Article brief "Why tracking helps and when it turns into pressure" (no judgment words, no red/failure styling anywhere).
+- **Files:** `src/screens/HistoryScreen.tsx` (new), `TabBar.tsx`, `src/store/sessions.ts` (archive slice, version bump), `sessionStats.ts`.
+- **Done when:** Fixture data renders grouped days with correct summaries; no derived metric appears that doesn't already exist in `sessionStats`; archive path unit-tested (records past the cap survive); all copy passes docs/voice.md. If this exceeds one session, split UI and archive-storage into sub-steps per the rules of thumb.
+- **Depends on:** 9.2, 1.4.
+
+### - [ ] 9.4 Data export & import
+
+- **Goal:** Settings → "Your data": one-tap **JSON export** of the entire persisted state (schema-version stamped) and a **CSV export** of session records; **import** validates the file, migrates older-schema files forward through the existing migration chain (a v12 file is treated like v12 localStorage), previews what it holds ("this backup has X sessions, Y tasks, Z goals"), then merges by stable id — never a blind overwrite — after automatically backing up the current state.
+- **Science:** Honest framing — this step makes **no behavior-change claim**. It is data stewardship: it operationalizes hard constraint #2 (never lose user data) and Harkin's precondition that monitoring is only as good as the durability of the record; autonomy-supportive per §Measurement — supportive accountability row (the user owns the record; the app is a coach, not a gatekeeper). Fully offline (file download/picker, zero network) — 7.2 must still pass.
+- **Files:** `src/store/exportImport.ts` (new + tests), `SettingsSheet.tsx`; reuses 7.1's version fixtures.
+- **Done when:** Export → wipe localStorage → import round-trips losslessly (automated test); importing an older-schema export migrates forward correctly; a malformed file produces one calm error and zero state change; the CSV opens in a spreadsheet with sane columns.
+- **Depends on:** 1.1; strengthened by 7.1 and 8.11 (not blocked by them).
+
+### - [ ] 9.5 Session repair & retroactive drift notes
+
+- **Goal:** From History (9.3) or the debrief, let the user fix a wrong record: adjust the end time or outcome of an `interrupted`/recent session within **clamped bounds** (cannot exceed the wall-clock gap; cannot overlap another session), or add a retroactive drift note ("was away ~20 min around 3pm"). Repaired fields set `edited: true` and render with the same **estimate label** 1.5 established for `estOnsetMin`. Insights prefer repaired values; **XP, confetti, and streak are never retroactively granted** — records serve truth, celebrations serve the moment, and this removes any incentive to flatter the record. Repair is offered only at natural pauses (reopening onto an interrupted session, History row) — never a nag.
+- **Science:** §Measurement — progress monitoring row (a force-closed laptop logging `interrupted` for a genuinely finished session is *false data* that then feeds every 2.x insight); 1.5's precedent (self-report is labeled an estimate — never fake precision); §Recovering — self-forgiveness row (Wohl 2010: false "failures" the user cannot correct create exactly the shame→avoidance loop Phase 5 exists to prevent); recall-bias entry in the 9.1 addendum (why edits are clamped and labeled, and automatic capture stays primary).
+- **Files:** `src/store/sessions.ts` (version bump: `edited`/estimate flags), `HistoryScreen.tsx`, `DebriefCard.tsx`, `sessionStats.ts` (respect repaired values).
+- **Done when:** Repair flow is ≤3 taps; clamps enforced and unit-tested; a repaired session shows its estimate label in History and debrief; a test proves no XP path exists from repair; stats reflect repaired values.
+- **Depends on:** 9.3, 1.5, 9.1.
+
+### - [ ] 9.6 Today's slice — a daily target with planned vs actual
+
+- **Goal:** Optional per-day target: pick a goal (or task) and set "today: N parts" — the pace math in `goals.ts` *suggests* N, the user decides (a target you chose yourself, per supportive accountability). A quiet chip on FocusScreen ("today: 2/3 lectures"); linked sessions/tasks advance it through 8.12's crediting; the debrief echoes it; the weekly review gains **one calibration line** from planned-vs-actual history ("you usually plan 5 and land 3 — planning 3 might feel better"). Planned/actual pairs persist (version bump). A missed target renders neutral-warm ("2 of 3 — that's real progress"), never as failure.
+- **Science:** §Staying — flow row (Fong et al. 2015: clear, specific, finishable goals with immediate feedback — this generalizes 4.2's session target to the day); §Measurement — progress monitoring row (Harkin 2016) and feature rank 8 (pattern-aware reflection); 9.1 addendum: proximal subgoals build self-efficacy and intrinsic interest (Bandura & Schunk 1981), specific beats vague (Locke & Latham 2002), and the calibration line is the planning-fallacy correction (Buehler 1994) — the most evidence-backed part of the step, not an optional garnish. Guardrails: §Do not build (metrics never moralized) and docs/voice.md on all missed-target copy.
+- **Files:** `src/store/dailyTarget.ts` (new + tests), `FocusScreen.tsx` (chip), `DebriefCard.tsx`, `WeeklyReview.tsx`, `GoalsScreen.tsx` (link affordance).
+- **Done when:** Full loop works on fixtures (set target → linked session credits it → debrief echoes → weekly calibration line appears with ≥2 weeks of data); entirely skippable with zero added friction; missed-target copy passes voice.md; grep for "behind|failed|missed!" over user-facing strings returns clean.
+- **Depends on:** 9.1, 8.12, 4.2, 2.3.
+
 ---
 
 ## Step dependency sketch
@@ -457,6 +519,7 @@ Phase 5: 5.1 ← 1.3 → 5.2 ← 4.2 → 5.3     |  5.4 ← 0.2
 Phase 6: 6.1 ← (0.1, 2.2) → 6.2 → 6.3 ← 2.4 → 6.4 ← 0.2
 Phase 7: after everything above
 Phase 8: independent, any time  |  8.10 before 7.2  |  8.12 ← 1.2
+Phase 9: 9.1 ← 0.1  |  9.2 ← 1.4 → 9.3 → 9.5 ← (1.5, 9.1)  |  9.4 ← 1.1  |  9.6 ← (9.1, 8.12, 4.2, 2.3)
 ```
 
 ## What this plan deliberately does NOT include (per §Do not build)

@@ -23,6 +23,28 @@ export type SessionOutcome = 'completed' | 'abandoned' | 'interrupted';
 /** Optional self-report for the session's concrete target (PLAN 4.2). */
 export type TargetOutcome = 'done' | 'partly' | 'no';
 
+/** A return check only appears for a gap long enough to be meaningful. */
+export const RETURN_GAP_MIN_SEC = 45;
+
+/**
+ * Persisted timer state captured the instant a running work tab goes away.
+ * Seconds use the timer's own whole-second precision, so "pause it back"
+ * restores exactly what the user saw before leaving (PLAN 5.2).
+ */
+export interface TimerSnapshot {
+  capturedAt: number;
+  /** Set once the user is back and the gap passed RETURN_GAP_MIN_SEC. */
+  returnedAt?: number;
+  elapsedSec: number;
+  remainingSec: number;
+  mode: SessionMode;
+  /** One-based Pomodoro round inside the current four-session cycle. */
+  round: number;
+  sessionId: string;
+}
+
+export type ReturnResolution = 'focused' | 'drifted' | 'pauseBack';
+
 export interface SessionRecord {
   id: string;
   /** Epoch ms. */
@@ -49,6 +71,12 @@ export interface SessionRecord {
   targetOutcome?: TargetOutcome;
   /** If–then plan the session started with, if any (PLAN 3.2). */
   ifThenPlanId?: string;
+  /** The smallest visible action to restore after an interruption (PLAN 5.2). */
+  nextActionText?: string;
+  /** Last tab-leave snapshot, retained on interrupted records for re-entry. */
+  returnSnapshot?: TimerSnapshot;
+  /** Reopening onto this interrupted record should offer its resume cue. */
+  resumeCuePending?: boolean;
 }
 
 /** Ring-buffer cap: only the most recent records are kept in localStorage. */
@@ -74,6 +102,30 @@ const MODES: SessionMode[] = ['focus', 'flow', 'tiny'];
 const OUTCOMES: SessionOutcome[] = ['completed', 'abandoned', 'interrupted'];
 const TARGET_OUTCOMES: TargetOutcome[] = ['done', 'partly', 'no'];
 
+function isValidTimerSnapshot(raw: unknown, sessionId?: string): raw is TimerSnapshot {
+  if (!raw || typeof raw !== 'object') return false;
+  const x = raw as Record<string, unknown>;
+  return (
+    typeof x.capturedAt === 'number' &&
+    Number.isFinite(x.capturedAt) &&
+    (x.returnedAt === undefined ||
+      (typeof x.returnedAt === 'number' && Number.isFinite(x.returnedAt))) &&
+    typeof x.elapsedSec === 'number' &&
+    Number.isFinite(x.elapsedSec) &&
+    x.elapsedSec >= 0 &&
+    typeof x.remainingSec === 'number' &&
+    Number.isFinite(x.remainingSec) &&
+    x.remainingSec >= 0 &&
+    MODES.includes(x.mode as SessionMode) &&
+    typeof x.round === 'number' &&
+    Number.isFinite(x.round) &&
+    x.round >= 1 &&
+    x.round <= 4 &&
+    typeof x.sessionId === 'string' &&
+    (sessionId === undefined || x.sessionId === sessionId)
+  );
+}
+
 function isValidRecord(r: unknown): r is SessionRecord {
   if (!r || typeof r !== 'object') return false;
   const x = r as Record<string, unknown>;
@@ -97,7 +149,10 @@ function isValidRecord(r: unknown): r is SessionRecord {
     (x.driftEventIds as unknown[]).every((d) => typeof d === 'string') &&
     (x.targetText === undefined || typeof x.targetText === 'string') &&
     (x.targetOutcome === undefined || TARGET_OUTCOMES.includes(x.targetOutcome as TargetOutcome)) &&
-    (x.ifThenPlanId === undefined || typeof x.ifThenPlanId === 'string')
+    (x.ifThenPlanId === undefined || typeof x.ifThenPlanId === 'string') &&
+    (x.nextActionText === undefined || typeof x.nextActionText === 'string') &&
+    (x.returnSnapshot === undefined || isValidTimerSnapshot(x.returnSnapshot, x.id as string)) &&
+    (x.resumeCuePending === undefined || typeof x.resumeCuePending === 'boolean')
   );
 }
 
@@ -153,6 +208,10 @@ export interface OpenSession {
   targetText?: string;
   /** If–then plan the session started with, if any (PLAN 3.2). */
   ifThenPlanId?: string;
+  /** The next physical action to restore on return (PLAN 5.2). */
+  nextActionText?: string;
+  /** Persisted tab-leave/return question. Overwritten cleanly on each leave. */
+  returnSnapshot?: TimerSnapshot;
 }
 
 /** Start bookkeeping for a session that just began running. */
@@ -178,6 +237,69 @@ export function newOpenSession(
   };
 }
 
+/** Capture one leave. A duplicate blur/visibility event never overwrites it. */
+export function captureTimerSnapshot(
+  open: OpenSession,
+  remainingSec: number,
+  round: number,
+  now = Date.now(),
+): OpenSession {
+  if (open.returnSnapshot) return open;
+  const plannedSec = Math.max(0, (open.plannedMin ?? 0) * 60);
+  const remaining = Math.max(0, Math.min(plannedSec, Math.ceil(remainingSec)));
+  return {
+    ...open,
+    returnSnapshot: {
+      capturedAt: now,
+      elapsedSec: Math.max(0, plannedSec - remaining),
+      remainingSec: remaining,
+      mode: open.mode,
+      round: Math.max(1, Math.min(4, Math.round(round))),
+      sessionId: open.id,
+    },
+  };
+}
+
+/**
+ * Mark a return as prompt-worthy, or quietly discard a short blip. Repeated
+ * focus/visibility events are idempotent, so one leave yields one question.
+ */
+export function markTimerReturn(
+  open: OpenSession,
+  returnedAt = Date.now(),
+  thresholdSec = RETURN_GAP_MIN_SEC,
+): { open: OpenSession; shouldPrompt: boolean } {
+  const snapshot = open.returnSnapshot;
+  if (!snapshot) return { open, shouldPrompt: false };
+  if (snapshot.returnedAt != null) return { open, shouldPrompt: true };
+  if (returnedAt - snapshot.capturedAt < Math.max(0, thresholdSec) * 1000) {
+    const { returnSnapshot: _discarded, ...rest } = open;
+    return { open: rest, shouldPrompt: false };
+  }
+  return {
+    open: { ...open, returnSnapshot: { ...snapshot, returnedAt } },
+    shouldPrompt: true,
+  };
+}
+
+/** Resolve the persisted question without changing the session identity. */
+export function resolveTimerReturn(
+  open: OpenSession,
+  resolution: ReturnResolution,
+): OpenSession {
+  const snapshot = open.returnSnapshot;
+  if (!snapshot) return open;
+  const { returnSnapshot: _resolved, ...rest } = open;
+  return resolution === 'pauseBack'
+    ? {
+        ...rest,
+        running: false,
+        endsAt: null,
+        remainingSec: snapshot.remainingSec,
+      }
+    : rest;
+}
+
 /** Close an open session into a permanent record. Pure. */
 export function finalizeSession(
   open: OpenSession,
@@ -198,6 +320,9 @@ export function finalizeSession(
     driftEventIds: [...(open.driftEventIds ?? [])],
     targetText: open.targetText,
     ifThenPlanId: open.ifThenPlanId,
+    nextActionText: open.nextActionText,
+    returnSnapshot: open.returnSnapshot,
+    resumeCuePending: outcome === 'interrupted' ? true : undefined,
   };
 }
 
@@ -249,5 +374,16 @@ export function sanitizeOpenSession(raw: unknown): OpenSession | null {
   const ifThenPlanId = typeof x.ifThenPlanId === 'string' ? x.ifThenPlanId : undefined;
   // Optional target (PLAN 4.2): old open sessions simply have none.
   const targetText = typeof x.targetText === 'string' ? x.targetText : undefined;
-  return { ...(raw as OpenSession), driftEventIds, targetText, ifThenPlanId };
+  const nextActionText = typeof x.nextActionText === 'string' ? x.nextActionText : undefined;
+  const returnSnapshot = isValidTimerSnapshot(x.returnSnapshot, x.id as string)
+    ? x.returnSnapshot
+    : undefined;
+  return {
+    ...(raw as OpenSession),
+    driftEventIds,
+    targetText,
+    ifThenPlanId,
+    nextActionText,
+    returnSnapshot,
+  };
 }
