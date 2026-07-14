@@ -2626,6 +2626,34 @@ body.night {
   border-color: var(--pink-2);
   background: linear-gradient(150deg, #43305c, #3a2f66);
 }
+.night .chronotype-choice,
+.night .cadence-preset,
+.night .cadence-history-list button {
+  background: #2e2557;
+  border-color: #3f3570;
+}
+.night .chronotype-choice.on,
+.night .cadence-preset.on {
+  border-color: var(--pink-2);
+  background: linear-gradient(150deg, #43305c, #3a2f66);
+}
+.night .cadence-learned-card {
+  background: linear-gradient(145deg, rgba(46, 37, 87, 0.96), rgba(58, 47, 102, 0.96));
+  border-color: rgba(120, 100, 180, 0.35);
+}
+.night .cadence-ladder > span {
+  background: rgba(16, 11, 34, 0.45);
+}
+.night .cadence-recipe {
+  border-bottom-color: rgba(169, 155, 200, 0.25);
+}
+.night .cadence-apply {
+  background: #383060;
+  box-shadow: 0 5px 12px -8px rgba(8, 5, 20, 0.9);
+}
+.night .cadence-back {
+  background: rgba(46, 37, 87, 0.7);
+}
 .night .name-input,
 .night .onboard-input {
   background: #2e2557;
