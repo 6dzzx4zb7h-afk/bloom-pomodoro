@@ -267,7 +267,7 @@ Rules of thumb:
 - **Done when:** Tab-away → return shows the card populated from real state; one tap resumes; never appears when nothing was interrupted. Snapshot round-trip verified: "pause it back" restores the exact remaining time and excludes the gap from the record; "I drifted" produces exactly one drift event linked to the session; blips under the threshold never prompt; reload mid-question resumes without double-counting; unit tests cover multiple leaves in one session.
 - **Depends on:** 4.2, 5.1.
 
-### - [ ] 5.3 Kind-restart micro-intervention
+### - [x] 5.3 Kind-restart micro-intervention
 
 - **Goal:** After an abandoned session or a triaged drift, the pet offers an optional 30–60 s reset: one synthesized breath cycle (Web Audio swell, no assets) → "Noted. Next step is ___?" (one line) → resume/tiny-start button. Never auto-plays; always one tap to skip.
 - **Science:** §Recovering — self-forgiveness row (Wohl et al. 2010: self-forgiveness after procrastinating predicted *less* future procrastination; Sirois 2014: self-compassion moderately negatively associated with procrastination); mindfulness row (Verhaeghen 2021: attention gains real but modest, g ≈ 0.29 → keep it short and optional, no meditation-app scope creep); feature rank #6; article brief "After distraction, don't make it worse".

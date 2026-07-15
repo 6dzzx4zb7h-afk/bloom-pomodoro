@@ -548,6 +548,12 @@ export function FocusScreen({
           records={records}
           palSprite={palSprite}
           onTargetOutcome={(targetOutcome) => answerTarget(debrief.id, targetOutcome)}
+          onTinyRestart={(nextStep) => {
+            setDebrief(null);
+            setTinyMinutes(TINY_START_OPTIONS[0]);
+            actions.pickTiny(TINY_START_OPTIONS[0]);
+            actions.toggle(undefined, nextStep);
+          }}
           onDismiss={() => setDebrief(null)}
         />
       )}

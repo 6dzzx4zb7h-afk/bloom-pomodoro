@@ -1786,6 +1786,53 @@ button {
   margin: 8px 0 7px;
 }
 
+/* PLAN 5.3: optional kind restart inside the existing pet card. The audio is
+   one user-started Web Audio swell; this orb is its quiet visual twin. */
+.kind-restart {
+  padding-top: 8px;
+  border-top: 1px dashed rgba(160, 112, 140, 0.18);
+}
+.kind-restart-title {
+  display: block;
+  margin-bottom: 7px;
+  color: var(--plum);
+  font: 700 12.5px var(--font-display);
+  line-height: 1.4;
+}
+.kind-restart-tip {
+  margin-bottom: 9px;
+}
+.kind-restart-input {
+  margin-bottom: 8px;
+}
+.kind-restart-breath {
+  text-align: center;
+}
+.breath-orb {
+  width: 58px;
+  height: 58px;
+  margin: 1px auto 8px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: rgba(199, 159, 230, 0.13);
+}
+.breath-orb span {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: linear-gradient(150deg, var(--play-grad-a), var(--play-grad-b));
+  box-shadow: 0 0 20px rgba(255, 176, 212, 0.42);
+  animation: breath-swell 10s ease-in-out both;
+}
+@keyframes breath-swell {
+  0%, 100% { transform: scale(0.78); opacity: 0.65; }
+  46% { transform: scale(2.1); opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .breath-orb span { animation: none; transform: scale(1.2); }
+}
+
 /* PLAN 5.1: a tiny capture during work; the text itself stays hidden until
    the owning session reaches a pause. */
 .parking-capture {

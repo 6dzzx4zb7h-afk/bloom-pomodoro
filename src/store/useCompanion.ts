@@ -24,7 +24,10 @@ export type CompanionPromptState =
   | { type: 'preSlump'; typicalFirstDriftMin: number; cueMin: number }
   | null;
 
-const TIP_AUTODISMISS_MS = 12000;
+// The 5.3 reset offer may wait for one calm choice, but it never becomes an
+// always-on nudge: it withdraws after the reset's one-minute ceiling. Choosing
+// the breath clears this timer immediately via actions.hold().
+const TIP_AUTODISMISS_MS = 60_000;
 const PRE_SLUMP_AUTODISMISS_MS = 12000;
 
 /**
@@ -429,6 +432,15 @@ export function useCompanion(bloom: Bloom) {
       /** "park it for later" inside a tip — hidden until the session pauses. */
       jot: (text: string) => {
         bloom.actions.parkThought(text);
+      },
+      /** Keep a chosen kind restart open beyond the old short tip timeout. */
+      hold: () => clearDismiss(),
+      /** The active record already persists this cue for PLAN 5.2. */
+      nextAction: () => ref.current.state.openFocus?.nextActionText ?? '',
+      resumeWith: (nextStep: string) => {
+        const sessionId = activeSessionId();
+        if (sessionId) bloom.actions.setNextAction(sessionId, nextStep);
+        close();
       },
       /** One tap keeps every remaining pre-slump cue quiet for this local day. */
       silencePreSlumpForDay: () => {

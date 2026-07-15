@@ -4,6 +4,7 @@ import { driftOnsetMin, loadEvents, phaseOf, type Phase } from '../store/compani
 import type { SessionRecord, TargetOutcome } from '../store/sessions';
 import type { AnimalKind } from '../engine/pixelpals';
 import { driftsForRecord, whyFor } from '../insights/why';
+import { KindRestart } from './KindRestart';
 
 /**
  * Post-session debrief (PLAN 2.1): after a session ends — completed or
@@ -28,6 +29,7 @@ export function DebriefCard({
   records,
   palSprite,
   onTargetOutcome,
+  onTinyRestart,
   onDismiss,
 }: {
   record: SessionRecord;
@@ -35,6 +37,7 @@ export function DebriefCard({
   records: SessionRecord[];
   palSprite: AnimalKind;
   onTargetOutcome: (outcome: TargetOutcome) => void;
+  onTinyRestart: (nextStep: string) => void;
   onDismiss: () => void;
 }) {
   const events = useMemo(() => loadEvents(), [record]);
@@ -107,11 +110,20 @@ export function DebriefCard({
             ✦ {why.text}
           </div>
         </div>
-        <div className="pop-actions">
-          <button className="pop-btn primary" onClick={onDismiss}>
-            ok ♡
-          </button>
-        </div>
+        {record.outcome === 'abandoned' ? (
+          <KindRestart
+            kind="abandon"
+            initialNextStep={record.nextActionText ?? record.targetText ?? ''}
+            onContinue={onTinyRestart}
+            onSkip={onDismiss}
+          />
+        ) : (
+          <div className="pop-actions">
+            <button className="pop-btn primary" onClick={onDismiss}>
+              ok ♡
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

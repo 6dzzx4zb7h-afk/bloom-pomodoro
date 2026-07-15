@@ -4,6 +4,7 @@ import { TRIAGE } from '../store/companion';
 import type { Companion } from '../store/useCompanion';
 import type { AnimalKind } from '../engine/pixelpals';
 import { limitParkingDraft } from '../store/parking';
+import { KindRestart } from './KindRestart';
 
 interface CompanionPromptProps {
   companion: Companion;
@@ -181,8 +182,7 @@ export function CompanionPrompt({ companion, palSprite, focusLabel }: CompanionP
 
         {prompt.type === 'tip' && (
           <>
-            <div className="pop-text">happens to everyone — back to it?</div>
-            <div className="pop-tip">{prompt.text}</div>
+            <div className="pop-text">happens to everyone — the way back is still here ♡</div>
             {(prompt.kind === 'rabbit' || prompt.kind === 'urge') &&
               (jotted ? (
                 <div className="pop-soft">tucked away until your next pause ♡</div>
@@ -206,11 +206,18 @@ export function CompanionPrompt({ companion, palSprite, focusLabel }: CompanionP
                   </button>
                 </form>
               ))}
-            <div className="pop-actions">
-              <button className="pop-btn primary" onClick={closeTip}>
-                back to it ♡
-              </button>
-            </div>
+            <KindRestart
+              kind="drift"
+              initialNextStep={actions.nextAction()}
+              tip={prompt.text}
+              onBegin={actions.hold}
+              onContinue={(nextStep) => {
+                setJotText('');
+                setJotted(false);
+                actions.resumeWith(nextStep);
+              }}
+              onSkip={closeTip}
+            />
           </>
         )}
       </div>
