@@ -325,7 +325,7 @@ Rules of thumb:
 
 ### - [ ] 7.1 Migration test suite
 
-- **Goal:** Vitest suite with a localStorage fixture for *every* schema version shipped during this plan; each fixture runs the full forward-migration chain to latest and asserts: no key loss, streak/XP/pets/tasks/goals intact, new slices initialized. Add a CI-friendly `npm run test:migrations`.
+- **Goal:** Vitest suite with a localStorage fixture for *every* schema version shipped during this plan; each fixture runs the full forward-migration chain to latest and asserts: no key loss, streak/XP/pets/tasks/goals intact, new slices initialized. Add a CI-friendly `npm run test:migrations`. **Audit note (July 2026):** the Companion event log persists under its *own* localStorage key with an independent internal version (`LOG_KEY` in `src/store/companion.ts`), outside the main versioned blob — fixtures must cover that key too, or the suite proves less than constraint #2 requires.
 - **Science:** Constraint #2 made mechanically enforceable — insight features are worthless if they eat the data they explain (§Measurement — monitoring requires trustworthy records).
 - **Files:** `src/store/migrations.test.ts` (new), fixtures dir.
 - **Done when:** One fixture per version; suite green; intentionally corrupting a fixture fails the suite (verified once, then reverted).
@@ -437,7 +437,7 @@ Rules of thumb:
 
 ### - [ ] 8.13 (Optional, low) Onboarding + engineering polish
 
-- **Goal:** Bundle of small accepted findings: (a) replace the three realistic seeded starter tasks ("Finish history essay"…) with a clearly-marked, dismissible guided example or a true empty state with a strong call-to-action; (b) begin extracting timer/task/goal reducers from the ~700-line `useBloom.ts` and splitting `styles.css` by feature — do this opportunistically as other steps touch those areas, not as a big-bang refactor.
+- **Goal:** Bundle of small accepted findings: (a) replace the three realistic seeded starter tasks ("Finish history essay"…) with a clearly-marked, dismissible guided example or a true empty state with a strong call-to-action; (b) begin extracting timer/task/goal reducers from `useBloom.ts` and splitting `styles.css` by feature — do this opportunistically as other steps touch those areas, not as a big-bang refactor. (Audit note, July 2026: `useBloom.ts` has grown to ~1,630 lines and `styles.css` to ~2,960 — more than double what this step originally described; the opportunistic-extraction rule matters more now, and any session touching the timer reducer should carve out at least one slice.)
 - **Files:** `src/store/useBloom.ts`, `src/styles.css`, `Onboarding.tsx`.
 - **Done when:** New users see honest example content; no regression in migrations or visuals.
 
@@ -448,6 +448,22 @@ Rules of thumb:
 - **Files:** `src/screens/FocusScreen.tsx` (mode-tab interception), `src/store/useBloom.ts` (`pick` reducer: discard-vs-finalize branch; expose live-session/elapsed state for the dialog), `src/store/sessions.ts` if a discard helper is cleaner, reuse 8.4's Sheet/dialog primitive if landed.
 - **Done when:** A switch within the grace window leaves zero session record and no dialog; a switch past it shows the confirm; "keep going" leaves the timer completely untouched; "end & switch" finalizes `abandoned` exactly like today; taps with no live session switch instantly; unit tests cover grace-discard, confirmed-abandon, and that `abandonStreakInfo()` can no longer be fed by sub-grace sessions.
 - **Depends on:** nothing (8.4's primitive is a nice-to-have, not a blocker).
+
+### - [ ] 8.15 Service worker — make the *web* deploy actually offline
+
+- **Goal:** The offline-first constraint currently holds only inside the Android APK (assets bundled by Capacitor). The Cloudflare Pages web deploy ships a PWA manifest (`public/manifest.webmanifest`, linked from `index.html`) but **no service worker**, so an installed PWA or any revisit without network gets a blank page — the app that promises "fully offline" isn't, on the web. Add a minimal precache service worker (build-hash-versioned app shell, cache-first, no runtime network dependencies; old caches cleaned on activate) and register it from `main.tsx`.
+- **Science:** n/a — this is hard constraint #1 applied to the web target, found by the July 2026 full audit.
+- **Files:** service worker (hand-rolled in `public/` or generated via a Vite PWA plugin), `src/main.tsx`, `vite.config.ts` if a plugin is used.
+- **Done when:** After one online visit, a full reload with DevTools network blocked boots the app and every Phase 1–5 feature works; deploying a new build updates cleanly (no stale-cache strand); 7.2's audit passes against the deployed web build, not just the APK.
+- **Depends on:** 8.10 (fonts must be local before the shell precache is complete).
+
+### - [ ] 8.16 Add a linter and wire it into CI
+
+- **Goal:** The repo has **no ESLint/Prettier config at all**, and until July 2026 CI never ran the test suite (fixed during the audit: `.github/workflows/deploy.yml` now runs `npm test` before build/deploy). With many people and models committing, there is no automated correctness/style gate beyond `tsc`. Add an ESLint flat config (typescript-eslint recommended + react-hooks rules — the hooks rules catch real bugs like stale closures in the timer), fix or explicitly justify every finding, add `npm run lint`, and a CI lint step before the test step.
+- **Science:** n/a — engineering hygiene, found by the July 2026 full audit.
+- **Files:** `eslint.config.js` (new), `package.json`, `.github/workflows/deploy.yml`.
+- **Done when:** `npm run lint` is green locally and in CI; CI fails before deploying on any lint or test failure; the config is the standard recommended sets, not a hand-tuned rule zoo.
+- **Depends on:** nothing.
 
 ---
 
@@ -481,7 +497,7 @@ Rules of thumb:
 
 ### - [ ] 9.4 Data export & import
 
-- **Goal:** Settings → "Your data": one-tap **JSON export** of the entire persisted state (schema-version stamped) and a **CSV export** of session records; **import** validates the file, migrates older-schema files forward through the existing migration chain (a v12 file is treated like v12 localStorage), previews what it holds ("this backup has X sessions, Y tasks, Z goals"), then merges by stable id — never a blind overwrite — after automatically backing up the current state.
+- **Goal:** Settings → "Your data": one-tap **JSON export** of the entire persisted state (schema-version stamped; *entire* includes the Companion event log's separate localStorage key — see the 7.1 audit note) and a **CSV export** of session records; **import** validates the file, migrates older-schema files forward through the existing migration chain (a v12 file is treated like v12 localStorage), previews what it holds ("this backup has X sessions, Y tasks, Z goals"), then merges by stable id — never a blind overwrite — after automatically backing up the current state.
 - **Science:** Honest framing — this step makes **no behavior-change claim**. It is data stewardship: it operationalizes hard constraint #2 (never lose user data) and Harkin's precondition that monitoring is only as good as the durability of the record; autonomy-supportive per §Measurement — supportive accountability row (the user owns the record; the app is a coach, not a gatekeeper). Fully offline (file download/picker, zero network) — 7.2 must still pass.
 - **Files:** `src/store/exportImport.ts` (new + tests), `SettingsSheet.tsx`; reuses 7.1's version fixtures.
 - **Done when:** Export → wipe localStorage → import round-trips losslessly (automated test); importing an older-schema export migrates forward correctly; a malformed file produces one calm error and zero state change; the CSV opens in a spreadsheet with sane columns.
@@ -518,7 +534,7 @@ Phase 4: 4.1 ← (1.4, 2.4)  |  4.2 ← 2.1  |  4.3 ← 0.2  |  4.4 ← 2.4  |  
 Phase 5: 5.1 ← 1.3 → 5.2 ← 4.2 → 5.3     |  5.4 ← 0.2
 Phase 6: 6.1 ← (0.1, 2.2) → 6.2 → 6.3 ← 2.4 → 6.4 ← 0.2
 Phase 7: after everything above
-Phase 8: independent, any time  |  8.10 before 7.2  |  8.12 ← 1.2
+Phase 8: independent, any time  |  8.10 before 7.2  |  8.12 ← 1.2  |  8.15 ← 8.10  |  8.16 anytime
 Phase 9: 9.1 ← 0.1  |  9.2 ← 1.4 → 9.3 → 9.5 ← (1.5, 9.1)  |  9.4 ← 1.1  |  9.6 ← (9.1, 8.12, 4.2, 2.3)
 ```
 
