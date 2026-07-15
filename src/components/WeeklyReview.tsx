@@ -89,9 +89,12 @@ export function WeeklyReview({
           )}
           <div className="debrief-row cadence-because">{cadence.because}</div>
           <div className="cadence-ladder" aria-label="Personal cadence ladder">
-            {[cadence.rungs.shorter, cadence.rungs.current, cadence.rungs.longer].map((rung) => (
-              <span key={rung.id}>{rung.focusMin}/{rung.breakMin}</span>
-            ))}
+            {(['shorter', 'current', 'longer'] as const).map((slot) => {
+              const rung = cadence.rungs[slot];
+              return (
+                <span key={slot}>{rung.focusMin}/{rung.breakMin}</span>
+              );
+            })}
           </div>
         </div>
         <div className="pop-actions">

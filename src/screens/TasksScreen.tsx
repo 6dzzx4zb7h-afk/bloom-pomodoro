@@ -244,9 +244,12 @@ export function TasksScreen({ bloom }: { bloom: ReturnType<typeof useBloom> }) {
                   </button>
                 </span>
                 <span className="cadence-ladder" aria-label="Personal cadence ladder">
-                  {[cadence.rungs.shorter, cadence.rungs.current, cadence.rungs.longer].map((rung) => (
-                    <span key={rung.id}>{rung.focusMin}/{rung.breakMin}</span>
-                  ))}
+                  {(['shorter', 'current', 'longer'] as const).map((slot) => {
+                    const rung = cadence.rungs[slot];
+                    return (
+                      <span key={slot}>{rung.focusMin}/{rung.breakMin}</span>
+                    );
+                  })}
                 </span>
                 <button
                   className="cadence-apply"

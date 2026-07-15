@@ -206,10 +206,12 @@ export function SettingsSheet({
             <strong>{learnedCadence.text}</strong>
             <span>{learnedCadence.because}</span>
             <div className="cadence-ladder" aria-label="Personal cadence ladder">
-              {[learnedCadence.rungs.shorter, learnedCadence.rungs.current, learnedCadence.rungs.longer]
-                .map((rung) => (
-                  <span key={rung.id}>{rung.focusMin}/{rung.breakMin}</span>
-                ))}
+              {(['shorter', 'current', 'longer'] as const).map((slot) => {
+                const rung = learnedCadence.rungs[slot];
+                return (
+                  <span key={slot}>{rung.focusMin}/{rung.breakMin}</span>
+                );
+              })}
             </div>
             <button
               type="button"
@@ -372,6 +374,19 @@ export function SettingsSheet({
           >
             <span className="knob" />
           </button>
+        </div>
+
+        {/* Gentle streak (PLAN 5.4) — explains the rest-day rule where the
+            user can read it; the streak is a mirror, never a chain to guard. */}
+        <div className="set-block">
+          <span className="set-label">
+            Gentle streak
+            <span className="set-sub">
+              your streak counts days with a finished session. one rest day each week is free —
+              a single quiet day keeps it growing. a longer pause just sets the count aside,
+              and coming back always gets a warm welcome. consistency is a months game.
+            </span>
+          </span>
         </div>
 
         <div className="set-row">

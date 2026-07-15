@@ -275,7 +275,7 @@ Rules of thumb:
 - **Done when:** Offered after abandon + after drift triage; full flow ≤60 s; skip is one tap; the typed next step pre-fills 5.2's resume cue.
 - **Depends on:** 2.2, 5.2.
 
-### - [ ] 5.4 Soften the streak
+### - [x] 5.4 Soften the streak
 
 - **Goal:** Rework streak presentation to consistency-over-months framing: no loss animation, no guilt copy, no pet sadness tied to missed days. Add a "gentle streak" mechanic (e.g., one free rest day per week that doesn't break it, and a "come back" state that celebrates returning rather than mourning the gap). Persisted streak data migrates losslessly.
 - **Science:** §Measurement — habit formation row (Lally et al. 2010: median 66 days to automaticity, range 18–254 → "consistency over months, not 21 days"); §Do not build — punitive streak loss / dead-pet outcomes (guilt and loss-aversion mechanics increase pressure and post-setback avoidance; Deci et al. 1999 on extrinsic control undermining intrinsic motivation); §Measurement — supportive accountability row (coach, not boss).

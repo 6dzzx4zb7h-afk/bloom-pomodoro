@@ -45,6 +45,7 @@ import {
   type TargetOutcome,
 } from './sessions';
 import { DEFAULT_RITUAL, sanitizeRitual, updateRitualItem, type RitualSettings } from './ritual';
+import { bumpStreakGentle, streakAlive } from './streak';
 import {
   addParkedThought,
   removeParkedThought,
@@ -114,6 +115,11 @@ interface BloomState {
   streak: number;
   /** YYYY-MM-DD of the last completed focus session (for streak). */
   lastFocusDay: string | null;
+  /** YYYY-MM-DD of the day the weekly free rest day last covered (PLAN 5.4). */
+  restDayUsedOn: string | null;
+  /** True after a longer pause, until the next finished work session — the
+   *  streak chip greets the return instead of showing a zero (PLAN 5.4). */
+  comeBack: boolean;
   justDone: boolean;
   tasks: Task[];
   /** The task pomodoros are credited to; falls back to first undone task. */
@@ -182,6 +188,8 @@ const DEFAULT_STATE: BloomState = {
   sessions: 0,
   streak: 0,
   lastFocusDay: null,
+  restDayUsedOn: null,
+  comeBack: false,
   justDone: false,
   tasks: DEFAULT_TASKS,
   activeTaskId: 1,
@@ -216,13 +224,16 @@ const DEFAULT_STATE: BloomState = {
 const STORAGE_KEY = 'bloom-state';
 /** Older keys we still read from once, newest first. */
 const LEGACY_KEYS = ['bloom-state-v2', 'bloom-state-v1'];
-const SCHEMA_VERSION = 17;
+const SCHEMA_VERSION = 18;
 
 interface PersistedShape {
   version: number;
   sessions: number;
   streak: number;
   lastFocusDay: string | null;
+  /** Gentle-streak bookkeeping: last covered rest day + pending welcome (PLAN 5.4). */
+  restDayUsedOn: string | null;
+  comeBack: boolean;
   tasks: Task[];
   activeTaskId: number | null;
   palXp: Record<string, number>;
@@ -348,6 +359,10 @@ const MIGRATIONS: Array<(blob: Record<string, unknown>) => Record<string, unknow
   // Every new field is optional, so old open sessions and permanent records
   // remain valid and acquire no invented history.
   (blob) => blob,
+  // v17 -> v18: gentle streak (PLAN 5.4). Existing streak counts and
+  // lastFocusDay pass through untouched; the weekly free rest day starts
+  // unused and nobody boots into a welcome-back greeting they didn't earn.
+  (blob) => ({ ...blob, restDayUsedOn: null, comeBack: false }),
 ];
 
 function dayStr(d = new Date()): string {
@@ -402,6 +417,8 @@ function withDefaults(blob: Record<string, unknown>): PersistedShape {
     sessions: typeof b.sessions === 'number' && Number.isFinite(b.sessions) ? (b.sessions as number) : 0,
     streak: typeof b.streak === 'number' && Number.isFinite(b.streak) ? (b.streak as number) : 0,
     lastFocusDay: typeof b.lastFocusDay === 'string' ? (b.lastFocusDay as string) : null,
+    restDayUsedOn: typeof b.restDayUsedOn === 'string' ? (b.restDayUsedOn as string) : null,
+    comeBack: b.comeBack === true,
     tasks: Array.isArray(b.tasks) ? (b.tasks as Task[]) : DEFAULT_TASKS,
     activeTaskId: typeof b.activeTaskId === 'number' ? (b.activeTaskId as number) : null,
     palXp: b.palXp && typeof b.palXp === 'object' ? (b.palXp as Record<string, number>) : {},
@@ -477,9 +494,14 @@ const FLOW_RESTORE_CAP_S = 4 * 3600;
 function loadState(): BloomState {
   const p = readPersisted();
   if (!p) return DEFAULT_STATE;
-  // A streak is only alive if the last focus session was today or yesterday.
-  const alive =
-    p.lastFocusDay === dayStr() || p.lastFocusDay === dayStr(new Date(Date.now() - 86400000));
+  // Gentle streak (PLAN 5.4): the count keeps growing across a single missed
+  // day when the weekly free rest day can cover it. A longer pause sets the
+  // count aside and flips the welcome-back state instead — nothing is "lost",
+  // the next finished session simply starts a fresh count.
+  const alive = streakAlive(
+    { streak: p.streak, lastFocusDay: p.lastFocusDay, restDayUsedOn: p.restDayUsedOn },
+    dayStr(),
+  );
   // A return question that was already on screen survives a reload exactly
   // as-is. Every other stale focus countdown keeps the existing safety rule:
   // finalize it as interrupted and offer a one-tap re-entry cue.
@@ -496,6 +518,8 @@ function loadState(): BloomState {
     sessions: p.sessions,
     streak: alive ? p.streak : 0,
     lastFocusDay: p.lastFocusDay,
+    restDayUsedOn: p.restDayUsedOn,
+    comeBack: alive ? p.comeBack : p.comeBack || p.streak > 0,
     tasks: p.tasks,
     activeTaskId: p.activeTaskId,
     palXp: p.palXp,
@@ -557,6 +581,8 @@ function persist(s: BloomState) {
     sessions: s.sessions,
     streak: s.streak,
     lastFocusDay: s.lastFocusDay,
+    restDayUsedOn: s.restDayUsedOn,
+    comeBack: s.comeBack,
     tasks: s.tasks,
     activeTaskId: s.activeTaskId,
     palXp: s.palXp,
@@ -581,12 +607,15 @@ function persist(s: BloomState) {
   }
 }
 
-function bumpStreak(prevStreak: number, lastFocusDay: string | null): number {
-  const today = dayStr();
-  if (lastFocusDay === today) return prevStreak; // already counted today
-  const yesterday = dayStr(new Date(Date.now() - 86400000));
-  if (lastFocusDay === yesterday) return prevStreak + 1;
-  return 1; // streak broken (or first ever)
+/** Count a finished work session into the gentle streak (PLAN 5.4). */
+function bumpStreak(s: BloomState): Pick<BloomState, 'streak' | 'lastFocusDay' | 'restDayUsedOn' | 'comeBack'> {
+  const bumped = bumpStreakGentle(
+    { streak: s.streak, lastFocusDay: s.lastFocusDay, restDayUsedOn: s.restDayUsedOn },
+    dayStr(),
+  );
+  // Any finished work session settles the welcome-back state: the user is
+  // simply here again, and the count is growing.
+  return { ...bumped, comeBack: false };
 }
 
 /** The task pomodoros are credited to: the chosen one if still open, else first undone. */
@@ -868,7 +897,7 @@ function reducer(s: BloomState, a: Action): BloomState {
         // Too short to bank — zero out quietly, no celebration.
         return { ...s, running: false, flowStart: null, flowAcc: 0, remaining: 0, justDone: false, sessionRecords, openFlow: null, parking };
       }
-      const streak = bumpStreak(s.streak, s.lastFocusDay);
+      const streakPatch = bumpStreak(s);
       // Credit pomodoros one by one so they cascade across tasks exactly like
       // finished focus sessions do.
       let tasks = s.tasks;
@@ -892,8 +921,7 @@ function reducer(s: BloomState, a: Action): BloomState {
         remaining: 0,
         justDone: true,
         sessions: s.sessions + credited,
-        streak,
-        lastFocusDay: dayStr(),
+        ...streakPatch,
         tasks,
         activeTaskId,
         palXp: { ...s.palXp, [s.settings.pal]: (s.palXp[s.settings.pal] ?? 0) + credited },
@@ -936,8 +964,14 @@ function reducer(s: BloomState, a: Action): BloomState {
       const wasTiny = s.mode === 'tiny';
       const wasWork = wasFocus || wasTiny;
       const sessions = s.sessions + (wasFocus ? 1 : 0);
-      const streak = wasWork ? bumpStreak(s.streak, s.lastFocusDay) : s.streak;
-      const lastFocusDay = wasWork ? dayStr() : s.lastFocusDay;
+      const streakPatch = wasWork
+        ? bumpStreak(s)
+        : {
+            streak: s.streak,
+            lastFocusDay: s.lastFocusDay,
+            restDayUsedOn: s.restDayUsedOn,
+            comeBack: s.comeBack,
+          };
       // Credit the finished pomodoro to the active task; auto-check it once
       // its goal is reached and move focus to the next open task.
       let tasks = s.tasks;
@@ -986,8 +1020,7 @@ function reducer(s: BloomState, a: Action): BloomState {
         remaining: 0,
         justDone: true,
         sessions,
-        streak,
-        lastFocusDay,
+        ...streakPatch,
         tasks,
         activeTaskId,
         palXp,
@@ -1390,7 +1423,7 @@ export function useBloom() {
   // per-second tick only touches `remaining`, which is not persisted.
   useEffect(() => {
     persist(state);
-  }, [state.sessions, state.streak, state.lastFocusDay, state.tasks, state.activeTaskId, state.palXp, state.goals, state.flowStart, state.flowAcc, state.running, state.mode, state.sessionRecords, state.openFocus, state.openFlow, state.lastWeeklyReviewWeek, state.ifThenPlans, state.ritual, state.lastWoopOfferAt, state.preSlump, state.personalCadence, state.parking, state.settings]);
+  }, [state.sessions, state.streak, state.lastFocusDay, state.restDayUsedOn, state.comeBack, state.tasks, state.activeTaskId, state.palXp, state.goals, state.flowStart, state.flowAcc, state.running, state.mode, state.sessionRecords, state.openFocus, state.openFlow, state.lastWeeklyReviewWeek, state.ifThenPlans, state.ritual, state.lastWoopOfferAt, state.preSlump, state.personalCadence, state.parking, state.settings]);
 
   // Wall-clock tick: recompute remaining ~4x/sec. Reads Date.now(), so it
   // stays accurate even when the tab is throttled in the background.

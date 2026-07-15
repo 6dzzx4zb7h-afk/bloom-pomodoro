@@ -272,11 +272,26 @@ export function FocusScreen({
           <div className="status-label">{statusLabel}</div>
         </div>
         <div className="greeting-side">
-          <div className="streak-chip">
-            <span className="streak-dot" />
-            <span className="streak-num">{state.streak}</span>
-            <span className="streak-unit">days</span>
-          </div>
+          {/* Gentle streak (PLAN 5.4): a longer pause greets the return —
+              never a zero, never a loss animation. */}
+          {state.comeBack && state.streak === 0 ? (
+            <div
+              className="streak-chip comeback"
+              title="Hi again! Any finished session starts the count growing — consistency is a months game."
+            >
+              <span className="streak-dot" />
+              <span className="streak-unit">welcome back 🌱</span>
+            </div>
+          ) : (
+            <div
+              className="streak-chip"
+              title="Days with a finished session. One rest day a week is free — a single quiet day keeps it growing."
+            >
+              <span className="streak-dot" />
+              <span className="streak-num">{state.streak}</span>
+              <span className="streak-unit">{state.streak === 1 ? 'day' : 'days'} growing</span>
+            </div>
+          )}
           <button className="gear-btn" onClick={() => setShowSettings(true)} aria-label="Settings">
             &#9881;
           </button>

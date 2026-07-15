@@ -178,6 +178,12 @@ button {
   font: 700 13px var(--font-display);
   color: var(--plum);
 }
+/* Gentle streak (PLAN 5.4): after a longer pause the chip greets the return
+   — same warm palette, nothing dimmed, nothing red. */
+.streak-chip.comeback .streak-unit {
+  font: 600 12px var(--font-body);
+  color: var(--plum);
+}
 .streak-unit {
   font: 600 11px var(--font-body);
   color: var(--text-faint);
