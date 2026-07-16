@@ -45,7 +45,8 @@ export function FocusScreen({
   const [ritualOpen, setRitualOpen] = useState(false);
   const [ritualSuggestionOpen, setRitualSuggestionOpen] = useState(false);
   const [woopOpen, setWoopOpen] = useState(false);
-  const [targetDraft, setTargetDraft] = useState(companion.intention);
+  const [targetDraft, setTargetDraft] = useState('');
+  const [parkingDeferred, setParkingDeferred] = useState(false);
 
   // Post-session debrief (PLAN 2.1): watch the session log for a record
   // finalized while this screen is up. Seeding the ref with the log's current
@@ -68,6 +69,7 @@ export function FocusScreen({
     : undefined;
   const returnedParking = state.parking.filter((item) => item.revealedAt !== null);
   const hasReturnedParking = returnedParking.length > 0;
+  const hasBlockingReturnedParking = hasReturnedParking && !parkingDeferred;
   const lastSeenId = useRef<string | null>(
     records.length ? records[records.length - 1].id : null,
   );
@@ -105,18 +107,22 @@ export function FocusScreen({
   useEffect(() => setRitualOpen(false), [state.mode]);
 
   useEffect(() => {
-    if (state.running || state.justDone || debrief || weekly || showSettings || hasReturnedParking || hasResumeCue) return;
+    if (state.running || state.justDone || debrief || weekly || showSettings || hasBlockingReturnedParking || hasResumeCue) return;
     const week = weekKey();
     if (state.lastWeeklyReviewWeek === week) return;
     const cutoff = Date.now() - WEEKLY_WINDOW_DAYS * 86400000;
     if (!records.some((r) => r.endedAt >= cutoff)) return;
     setWeekly(true);
     actions.markWeeklyReview(week);
-  }, [state.running, state.justDone, debrief, weekly, showSettings, hasReturnedParking, hasResumeCue, records, state.lastWeeklyReviewWeek, actions]);
+  }, [state.running, state.justDone, debrief, weekly, showSettings, hasBlockingReturnedParking, hasResumeCue, records, state.lastWeeklyReviewWeek, actions]);
 
-  // Pre-session intention: optional, skippable, only in Companion Mode.
-  const wantsIntention =
-    companion.enabled && companion.conf.intention && state.mode === 'focus' && !state.justDone;
+  // A fresh work run begins a new pause cycle; thoughts deferred during the
+  // prior pause may return after this run ends.
+  useEffect(() => {
+    if (state.running && (state.mode === 'focus' || state.mode === 'tiny' || state.mode === 'flow')) {
+      setParkingDeferred(false);
+    }
+  }, [state.running, state.mode]);
 
   // Pre-session if–then planner (PLAN 3.2): only before a fresh focus start —
   // a paused session already has its record (and plan) stamped.
@@ -158,7 +164,7 @@ export function FocusScreen({
     !recordAwaitingDebrief &&
     !weekly &&
     !hasResumeCue &&
-    !hasReturnedParking;
+    !hasBlockingReturnedParking;
 
   useEffect(() => {
     if (!woopEligible || woopOpen) return;
@@ -178,7 +184,7 @@ export function FocusScreen({
     !woopTriggered &&
     !woopOpen &&
     !hasResumeCue &&
-    !hasReturnedParking;
+    !hasBlockingReturnedParking;
 
   // Offer this exactly once. The persisted flag is set when it is presented,
   // while local UI state keeps the little pet prompt visible for this visit.
@@ -217,8 +223,7 @@ export function FocusScreen({
 
   function startSession(ifThenPlanId?: string) {
     actions.toggle(ifThenPlanId, targetDraft);
-    // The active record owns the target from here; leave Companion's copy in
-    // place so its check-ins can still refer to it during focus sessions.
+    // The active record owns the target from here.
     setTargetDraft('');
   }
 
@@ -232,6 +237,10 @@ export function FocusScreen({
   const isFlow = state.mode === 'flow';
   const isTiny = state.mode === 'tiny';
   const activeSessionTarget = (isFlow ? state.openFlow : state.openFocus)?.targetText;
+  const activeSessionTaskId = (isFlow ? state.openFlow : state.openFocus)?.taskId;
+  const activeSessionTask = activeSessionTaskId == null
+    ? undefined
+    : state.tasks.find((task) => task.id === activeSessionTaskId);
   const focusLen = state.settings.durations.focus || 1;
   // Flow: `remaining` holds elapsed seconds and the ring fills once per
   // focus-length, lap after lap — the stopwatch's quiet nod to the pomodoro.
@@ -239,11 +248,13 @@ export function FocusScreen({
     ? focusLen
     : state.mode === 'tiny'
       ? (state.openFocus?.plannedMin ?? tinyMinutes) * 60
-      : state.settings.durations[state.mode] || 1;
+      : state.mode === 'focus'
+        ? (state.openFocus?.plannedMin ?? state.settings.durations.focus / 60) * 60
+        : state.settings.durations[state.mode] || 1;
   const ringFrac = isFlow ? (state.remaining % focusLen) / focusLen : state.remaining / total;
   const ringOffset = RING_C * (1 - ringFrac);
-  // Whole focus-lengths already on the clock — what "finish" would bank.
-  const laps = isFlow ? Math.floor(state.remaining / focusLen) : 0;
+  // Keep the preview identical to finishFlow's nearest-length credit rule.
+  const laps = isFlow ? Math.min(12, Math.round(state.remaining / focusLen)) : 0;
 
   const modes: TimerMode[] = state.settings.flow
     ? ['focus', 'flow', 'tiny', 'short', 'long']
@@ -274,7 +285,7 @@ export function FocusScreen({
         <div className="greeting-side">
           {/* Gentle streak (PLAN 5.4): a longer pause greets the return —
               never a zero, never a loss animation. */}
-          {state.comeBack && state.streak === 0 ? (
+          {state.comeBack ? (
             <div
               className="streak-chip comeback"
               title="Hi again! Any finished session starts the count growing — consistency is a months game."
@@ -288,8 +299,14 @@ export function FocusScreen({
               title="Days with a finished session. One rest day a week is free — a single quiet day keeps it growing."
             >
               <span className="streak-dot" />
-              <span className="streak-num">{state.streak}</span>
-              <span className="streak-unit">{state.streak === 1 ? 'day' : 'days'} growing</span>
+              {state.streak > 0 ? (
+                <>
+                  <span className="streak-num">{state.streak}</span>
+                  <span className="streak-unit">{state.streak === 1 ? 'day' : 'days'} growing</span>
+                </>
+              ) : (
+                <span className="streak-unit">ready to grow 🌱</span>
+              )}
             </div>
           )}
           <button className="gear-btn" onClick={() => setShowSettings(true)} aria-label="Settings">
@@ -439,6 +456,7 @@ export function FocusScreen({
         onPark={actions.parkThought}
         onSendToTasks={actions.sendParkedToTasks}
         onDismiss={actions.dismissParked}
+        onSnoozeReturned={() => setParkingDeferred(true)}
       />
 
       {resumeSession && (
@@ -529,7 +547,7 @@ export function FocusScreen({
         />
       )}
 
-      {freshWorkStart && (
+      {freshWorkStart && companion.conf.intention && (
         <input
           className="intention-input"
           value={targetDraft}
@@ -537,7 +555,6 @@ export function FocusScreen({
           onChange={(e) => {
             const next = e.target.value.slice(0, SESSION_TARGET_MAX);
             setTargetDraft(next);
-            if (wantsIntention) companion.setIntention(next);
           }}
           placeholder="one specific doable thing (optional)"
           aria-label="Session target"
@@ -545,10 +562,14 @@ export function FocusScreen({
       )}
 
       <div className="now-chip">
-        <span className="now-badge">&#10003;</span>
+        <span className="now-badge">{state.mode === 'short' || state.mode === 'long' ? '☕' : '✓'}</span>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div className="now-label">Now focusing on</div>
-          <div className="now-task">{activeTask ? activeTask.t : 'all done — go play!'}</div>
+          <div className="now-label">
+            {state.mode === 'short' || state.mode === 'long' ? 'Up next' : 'Now focusing on'}
+          </div>
+          <div className="now-task">
+            {(activeSessionTask ?? activeTask)?.t ?? 'all done — go play!'}
+          </div>
         </div>
         <div className="session-dots">
           {Array.from({ length: 4 }, (_, i) => (
@@ -557,7 +578,7 @@ export function FocusScreen({
         </div>
       </div>
 
-      {debrief && !state.running && !state.justDone && !hasReturnedParking && !hasResumeCue && (
+      {debrief && !state.running && !state.justDone && !hasBlockingReturnedParking && !hasResumeCue && (
         <DebriefCard
           record={debrief}
           records={records}
@@ -574,7 +595,7 @@ export function FocusScreen({
       )}
 
       {/* The debrief takes precedence — one card at a time, never mid-session. */}
-      {weekly && !debrief && !state.running && !state.justDone && !hasReturnedParking && !hasResumeCue && (
+      {weekly && !debrief && !state.running && !state.justDone && !hasBlockingReturnedParking && !hasResumeCue && (
         <WeeklyReview
           records={records}
           palSprite={palSprite}

@@ -20,6 +20,10 @@ export default function App() {
   const night = bloom.state.settings.night;
   const mode = bloom.state.mode;
   const showGoals = bloom.state.settings.planner;
+  const hasResumeCue = Boolean(bloom.state.openFocus?.returnSnapshot?.returnedAt) ||
+    bloom.state.sessionRecords.some(
+      (record) => record.outcome === 'interrupted' && record.resumeCuePending,
+    );
 
   // Keep the page backdrop and the browser/status-bar chrome in sync with the theme.
   useEffect(() => {
@@ -67,12 +71,21 @@ export default function App() {
             {screen === 'tasks' && <TasksScreen bloom={bloom} />}
             {screen === 'goals' && showGoals && <GoalsScreen bloom={bloom} />}
             {screen === 'collection' && <CollectionScreen bloom={bloom} />}
-            <TabBar active={screen} onChange={setScreen} showGoals={showGoals} />
+            <TabBar
+              active={screen}
+              onChange={(next) => setScreen(hasResumeCue ? 'focus' : next)}
+              showGoals={showGoals}
+            />
             {/* The pet's check-in bubble floats over whichever screen is open. */}
             <CompanionPrompt
               companion={companion}
               palSprite={bloom.palSprite}
-              focusLabel={companion.intention || bloom.activeTask?.t || null}
+              focusLabel={
+                bloom.state.openFocus?.targetText ||
+                bloom.state.openFlow?.targetText ||
+                bloom.activeTask?.t ||
+                null
+              }
             />
           </>
         )}

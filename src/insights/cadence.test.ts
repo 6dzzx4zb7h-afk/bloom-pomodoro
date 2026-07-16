@@ -156,6 +156,38 @@ describe('suggestPersonalCadence', () => {
     expect(suggestion.because).toContain('2 of your last 5');
   });
 
+  it('never calls an unchanged floor cadence a shrink', () => {
+    const records = Array.from({ length: 5 }, () =>
+      record({ plannedMin: 5, outcome: 'abandoned' }),
+    );
+    const suggestion = suggestPersonalCadence(
+      records,
+      [],
+      'notSure',
+      { focusMin: 5, breakMin: 4 },
+      NOW,
+    );
+    expect(suggestion.kind).toBe('steady-fit');
+    expect(suggestion.preset.id).toBe('5-4');
+    expect(suggestion.text).toContain('gentlest');
+  });
+
+  it('never calls an unchanged ceiling cadence a stretch', () => {
+    const records = Array.from({ length: 5 }, () =>
+      record({ plannedMin: 90, outcome: 'completed' }),
+    );
+    const suggestion = suggestPersonalCadence(
+      records,
+      [],
+      'notSure',
+      { focusMin: 90, breakMin: 15 },
+      NOW,
+    );
+    expect(suggestion.kind).toBe('steady-fit');
+    expect(suggestion.preset.id).toBe('90-15');
+    expect(suggestion.text).toContain('longest');
+  });
+
   it('uses the chronotype tag only as a gentle prior against recent timing', () => {
     const records = Array.from({ length: 5 }, (_, index) =>
       record({

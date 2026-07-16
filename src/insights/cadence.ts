@@ -92,19 +92,26 @@ export const PERSONAL_CADENCE_MIN_SESSIONS = 5;
 export const PERSONAL_CADENCE_STRETCH_RATE = 0.8;
 export const PERSONAL_CADENCE_SHRINK_RATE = 0.4;
 export const PERSONAL_CADENCE_HISTORY_CAP = 8;
+export const CADENCE_FOCUS_MIN = 5;
+export const CADENCE_FOCUS_MAX = 90;
+export const CADENCE_BREAK_MIN = 1;
+export const CADENCE_BREAK_MAX = 15;
 
 function clampFocus(minutes: number): number {
-  return Math.max(10, Math.min(90, Math.round(minutes / 5) * 5));
+  return Math.max(
+    CADENCE_FOCUS_MIN,
+    Math.min(CADENCE_FOCUS_MAX, Math.round(minutes / 5) * 5),
+  );
 }
 
 /** Roughly one break minute per five focus minutes, with a soft 4-min floor. */
 export function breakForFocus(focusMin: number): number {
-  return Math.max(4, Math.min(18, Math.round(focusMin / 5)));
+  return Math.max(4, Math.min(CADENCE_BREAK_MAX, Math.round(focusMin / 5)));
 }
 
 export function cadencePreset(focusMin: number, breakMin = breakForFocus(focusMin)): CadencePreset {
   const focus = clampFocus(focusMin);
-  const rest = Math.max(1, Math.min(30, Math.round(breakMin)));
+  const rest = Math.max(CADENCE_BREAK_MIN, Math.min(CADENCE_BREAK_MAX, Math.round(breakMin)));
   return {
     id: `${focus}-${rest}`,
     focusMin: focus,
@@ -127,8 +134,8 @@ function validPair(raw: unknown): CadencePair | null {
     !Number.isFinite(pair.breakMin)
   ) return null;
   return {
-    focusMin: Math.max(5, Math.min(90, Math.round(pair.focusMin))),
-    breakMin: Math.max(1, Math.min(30, Math.round(pair.breakMin))),
+    focusMin: Math.max(CADENCE_FOCUS_MIN, Math.min(CADENCE_FOCUS_MAX, Math.round(pair.focusMin))),
+    breakMin: Math.max(CADENCE_BREAK_MIN, Math.min(CADENCE_BREAK_MAX, Math.round(pair.breakMin))),
   };
 }
 
@@ -386,6 +393,17 @@ export function suggestPersonalCadence(
     rolling.length >= PERSONAL_CADENCE_MIN_SESSIONS &&
     rollingRate <= PERSONAL_CADENCE_SHRINK_RATE
   ) {
+    if (current.focusMin <= CADENCE_FOCUS_MIN) {
+      const preset = cadencePreset(current.focusMin, current.breakMin);
+      return {
+        preset,
+        kind: 'steady-fit',
+        text: `${preset.focusMin}/${preset.breakMin} is already the gentlest timer rung — staying here is a valid experiment too.`,
+        because: `${rollingCompleted} of your last ${rolling.length} ${current.focusMin}-minute sessions finished. ${phaseText} ${chrono.text}`,
+        evidenceKey: 'breaks-are-fuel',
+        rungs,
+      };
+    }
     const preset = cadencePreset(current.focusMin - 5);
     return {
       preset,
@@ -403,6 +421,17 @@ export function suggestPersonalCadence(
     rolling.length >= PERSONAL_CADENCE_MIN_SESSIONS &&
     rollingRate >= PERSONAL_CADENCE_STRETCH_RATE
   ) {
+    if (current.focusMin >= CADENCE_FOCUS_MAX) {
+      const preset = cadencePreset(current.focusMin, current.breakMin);
+      return {
+        preset,
+        kind: 'steady-fit',
+        text: `${preset.focusMin}/${preset.breakMin} is already the longest timer rung — there’s nothing you need to stretch.`,
+        because: `${rollingCompleted} of your last ${rolling.length} ${current.focusMin}-minute sessions finished (${Math.round(rollingRate * 100)}%). ${phaseText} ${chrono.text}`,
+        evidenceKey: 'breaks-are-fuel',
+        rungs,
+      };
+    }
     const preset = cadencePreset(current.focusMin + 5);
     return {
       preset,

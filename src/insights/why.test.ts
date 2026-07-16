@@ -4,6 +4,7 @@ import type { SessionRecord } from '../store/sessions';
 import type { CompanionEvent } from '../store/companion';
 import { STATS_MIN_SIGNAL } from '../store/sessionStats';
 import {
+  EVIDENCE_EXPLAINERS,
   WHY_EVIDENCE_ANCHORS,
   driftsForRecord,
   whyFor,
@@ -118,7 +119,7 @@ describe('whyFor — late-drift pattern', () => {
 
 describe('whyFor — first-drift timing', () => {
   it('fires when this session’s first drift lands near the personal median', () => {
-    const past = history(4);
+    const past = history(5);
     const events = past.map((p) => drift(p.id, 10));
     const r = record();
     const all = [...events, drift(r.id, 8)];
@@ -134,6 +135,22 @@ describe('whyFor — first-drift timing', () => {
     expect(whyFor(r, [p, r], events).evidenceKey).not.toBe('breaks-are-fuel');
   });
 
+  it('never claims "your usual" off this session’s own drift alone', () => {
+    // Enough sessions for signal, but no prior session ever drifted — the
+    // only drift on record belongs to the session being explained.
+    const past = history(5);
+    const r = record();
+    const events = [drift(r.id, 12)];
+    expect(whyFor(r, [...past, r], events).evidenceKey).not.toBe('breaks-are-fuel');
+  });
+
+  it('never calls one prior drift a personal usual', () => {
+    const past = history(5);
+    const r = record();
+    const events = [drift(past[0].id, 10), drift(r.id, 11)];
+    expect(whyFor(r, [...past, r], events).evidenceKey).not.toBe('breaks-are-fuel');
+  });
+
   it('stays quiet when the first drift is far from the median', () => {
     const past = history(5);
     const events = past.map((p) => drift(p.id, 20));
@@ -143,7 +160,7 @@ describe('whyFor — first-drift timing', () => {
   });
 
   it('prefers the user’s own onset estimate over the detection minute', () => {
-    const past = history(4);
+    const past = history(5);
     const events = past.map((p) => drift(p.id, 10));
     const r = record();
     // Detected at 22 (far), but the user says it began around 9 (near).
@@ -161,6 +178,16 @@ describe('whyFor — golden-hour match', () => {
     const why = whyFor(r, [...past, r], []);
     expect(why.evidenceKey).toBe('golden-hours');
     expect(why.text).toContain('9 am');
+  });
+
+  it('does not let the current session create its own strong-hour sample', () => {
+    const sameHour = [
+      record({ startHour: 9, outcome: 'completed' }),
+      record({ startHour: 9, outcome: 'completed' }),
+    ];
+    const otherHours = history(5, 14);
+    const r = record({ startHour: 9, outcome: 'completed' });
+    expect(whyFor(r, [...sameHour, ...otherHours, r], []).evidenceKey).not.toBe('golden-hours');
   });
 
   it('needs enough samples in that hour bucket', () => {
@@ -226,7 +253,7 @@ function oneOfEach(): WhyInsight[] {
   out.push(whyFor(abandoned, [abandoned], []));
   const late = record();
   out.push(whyFor(late, [late], [drift(late.id, 18), drift(late.id, 21)]));
-  const past = history(4);
+  const past = history(5);
   const timing = record();
   out.push(
     whyFor(
@@ -268,5 +295,8 @@ describe('whyFor — guarantees', () => {
     const banned =
       /\b(fail|failure|failed|broke|broken|lazy|wasted|discipline|willpower|guilty|shame|excuses|optimal|proven|detox|lost|lose)\b|you should|back to zero|break the chain|protect your streak|we missed you/i;
     for (const w of oneOfEach()) expect(w.text).not.toMatch(banned);
+    for (const explainer of Object.values(EVIDENCE_EXPLAINERS)) {
+      expect(`${explainer.title} ${explainer.text}`).not.toMatch(banned);
+    }
   });
 });

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { preSlumpSuggestion } from '../insights/triggers';
 import {
+  appendDriftEvent,
   appendEvent,
   isDriftEvent,
   loadEvents,
@@ -10,7 +11,7 @@ import {
   type DriftKind,
   type Phase,
 } from './companion';
-import type { useBloom } from './useBloom';
+import type { TimerMode, useBloom } from './useBloom';
 import { RETURN_GAP_MIN_SEC } from './sessions';
 
 type Bloom = ReturnType<typeof useBloom>;
@@ -18,7 +19,13 @@ type Bloom = ReturnType<typeof useBloom>;
 export type CompanionPromptState =
   | { type: 'checkin'; min: number; shownAt: number; sessionId?: string }
   | { type: 'away'; min: number; shownAt: number }
-  | { type: 'triage'; min: number; shownAt: number; src: 'checkin' | 'return' }
+  | {
+      type: 'triage';
+      min: number;
+      shownAt: number;
+      src: 'checkin' | 'return';
+      eventId: string;
+    }
   | { type: 'onset'; min: number; shownAt: number; kind: DriftKind; eventId?: string }
   | { type: 'tip'; kind: DriftKind; phase: Phase; text: string }
   | { type: 'preSlump'; typicalFirstDriftMin: number; cueMin: number }
@@ -30,9 +37,22 @@ export type CompanionPromptState =
 const TIP_AUTODISMISS_MS = 60_000;
 const PRE_SLUMP_AUTODISMISS_MS = 12000;
 
+/** Return snapshots are supported for countdown work; Flow remains opt-out. */
+export const tracksCompanionTabReturn = (mode: TimerMode): boolean =>
+  mode === 'focus' || mode === 'tiny';
+
+/** One neutral, factual end-of-session line. */
+export function formatCompanionSummary(focused: number, drifts: number): string | null {
+  if (focused + drifts === 0) return null;
+  if (drifts === 0) {
+    return `${focused} focused check-in${focused === 1 ? '' : 's'}, noted ♡`;
+  }
+  return `${focused} focused · ${drifts} drift${drifts === 1 ? '' : 's'}, noted ♡`;
+}
+
 /**
  * Companion Mode — live behaviour. Owns the check-in schedule, tab-away
- * detection, the triage flow, the pre-session intention, and the separately
+ * detection, the triage flow, and the separately
  * opt-in pre-slump cue. Renders nothing; CompanionPrompt draws `prompt`.
  *
  * Tone contract: prompts only ever appear while the user is present and a
@@ -45,17 +65,18 @@ export function useCompanion(bloom: Bloom) {
   const { state } = bloom;
   const conf = state.settings.companion;
   const focusRunning = state.running && state.mode === 'focus';
+  const returnTrackingRunning = state.running && tracksCompanionTabReturn(state.mode);
   const active = conf.on && focusRunning;
+  const returnTrackingActive = conf.on && returnTrackingRunning;
 
   const [prompt, setPrompt] = useState<CompanionPromptState>(null);
-  const [intention, setIntention] = useState('');
   /** One warm line about the session that just finished, e.g. "2 focused · 1 drift". */
   const [summary, setSummary] = useState<string | null>(null);
   const sessionStartRef = useRef<number | null>(null);
 
   // Latest values for interval/event handlers without re-subscribing.
-  const ref = useRef({ state, conf, prompt, active });
-  ref.current = { state, conf, prompt, active };
+  const ref = useRef({ state, conf, prompt, active, returnTrackingActive });
+  ref.current = { state, conf, prompt, active, returnTrackingActive };
 
   const dismissTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const clearDismiss = () => {
@@ -75,10 +96,16 @@ export function useCompanion(bloom: Bloom) {
     return Math.max(0, s.settings.durations[s.mode] - s.remaining);
   }, []);
 
-  const sessionLenMins = useCallback(
-    () => Math.max(1, Math.round(ref.current.state.settings.durations.focus / 60)),
-    [],
-  );
+  const sessionLenMins = useCallback(() => {
+    const current = ref.current.state;
+    if (
+      (current.mode === 'focus' || current.mode === 'tiny') &&
+      current.openFocus?.plannedMin != null
+    ) {
+      return Math.max(1, current.openFocus.plannedMin);
+    }
+    return Math.max(1, Math.round(current.settings.durations.focus / 60));
+  }, []);
 
   const close = useCallback(() => {
     clearDismiss();
@@ -151,6 +178,18 @@ export function useCompanion(bloom: Bloom) {
     }, 1000);
     return () => clearInterval(iv);
   }, [active, conf.quiet, conf.checkinMins, elapsed, sessionLenMins, activeSessionId]);
+
+  // If Companion is switched off or made quiet while its check-in is open,
+  // withdraw that unanswered question immediately. Pauses/ends are handled by
+  // the lifecycle effect below, so this path cannot double-log the skip.
+  useEffect(() => {
+    if (!focusRunning || (conf.on && !conf.quiet)) return;
+    const p = ref.current.prompt;
+    if (p?.type !== 'checkin') return;
+    logSkip(p);
+    clearDismiss();
+    setPrompt(null);
+  }, [focusRunning, conf.on, conf.quiet, logSkip]);
 
   /* ---------------- pre-slump gentle check ---------------- */
 
@@ -231,7 +270,7 @@ export function useCompanion(bloom: Bloom) {
   useEffect(() => {
     if (!conf.on || !conf.tabDetect) return;
     const goneAway = () => {
-      if (ref.current.active && awayStartRef.current == null) {
+      if (ref.current.returnTrackingActive && awayStartRef.current == null) {
         const at = Date.now();
         awayStartRef.current = at;
         // Quiet Mode promises never to ask. Otherwise capture the timer now,
@@ -242,7 +281,7 @@ export function useCompanion(bloom: Bloom) {
     const cameBack = () => {
       const start = awayStartRef.current;
       awayStartRef.current = null;
-      if (start == null || !ref.current.active) return;
+      if (start == null || !ref.current.returnTrackingActive) return;
       const awaySecs = (Date.now() - start) / 1000;
       if (ref.current.conf.quiet) {
         if (awaySecs < ref.current.conf.awaySecs) return;
@@ -298,11 +337,7 @@ export function useCompanion(bloom: Bloom) {
     const focused = evs.filter((e) => e.kind === 'focused').length;
     const drifts = evs.filter(isDriftEvent).length;
     if (focused + drifts === 0) return;
-    setSummary(
-      drifts === 0
-        ? `${focused} check-in${focused === 1 ? '' : 's'}, all focused ♡`
-        : `${focused} focused · ${drifts} drift${drifts === 1 ? '' : 's'} — nice recovery ♡`,
-    );
+    setSummary(formatCompanionSummary(focused, drifts));
   }, [state.justDone, state.mode, conf.on]);
 
   /* ---------------- lifecycle tidying ---------------- */
@@ -310,7 +345,7 @@ export function useCompanion(bloom: Bloom) {
   // Pausing or ending a session withdraws time-sensitive prompts (a tip may
   // stay — it's a keepsake, not a question). A check-in that was still
   // waiting logs as an unanswered 'skip' (PLAN 1.5a). Session end clears the
-  // intention.
+  // current prompt.
   useEffect(() => {
     if (!focusRunning) {
       const p = ref.current.prompt;
@@ -319,10 +354,6 @@ export function useCompanion(bloom: Bloom) {
       clearDismiss();
     }
   }, [focusRunning, logSkip]);
-
-  useEffect(() => {
-    if (state.justDone || state.mode !== 'focus') setIntention('');
-  }, [state.justDone, state.mode]);
 
   useEffect(() => () => clearDismiss(), []);
 
@@ -353,6 +384,16 @@ export function useCompanion(bloom: Bloom) {
       drifted: () => {
         const p = ref.current.prompt;
         if (p?.type !== 'checkin' && p?.type !== 'away') return;
+        const sessionId = p.type === 'checkin' ? p.sessionId ?? activeSessionId() : activeSessionId();
+        const ev = appendDriftEvent({
+          ts: Date.now(),
+          shownAt: p.shownAt,
+          min: p.min,
+          len: sessionLenMins(),
+          src: p.type === 'away' ? 'return' : 'checkin',
+          sessionId,
+        });
+        if (sessionId && ev.id) bloom.actions.linkDriftEvent(ev.id, sessionId);
         clearDismiss();
         skipNextRef.current = false;
         setPrompt({
@@ -360,6 +401,7 @@ export function useCompanion(bloom: Bloom) {
           min: p.min,
           shownAt: p.shownAt,
           src: p.type === 'away' ? 'return' : 'checkin',
+          eventId: ev.id,
         });
       },
       /** Honest tab-return answer: preserve one normal triage, then catch up. */
@@ -369,12 +411,23 @@ export function useCompanion(bloom: Bloom) {
         const len = sessionLenMins();
         const gapSec = Math.max(0, (snapshot.returnedAt - snapshot.capturedAt) / 1000);
         const min = Math.floor(Math.min(len * 60, snapshot.elapsedSec + gapSec) / 60);
+        const sessionId = activeSessionId();
+        const ev = appendDriftEvent({
+          ts: Date.now(),
+          shownAt: snapshot.returnedAt,
+          min,
+          len,
+          src: 'return',
+          sessionId,
+        });
+        if (sessionId && ev.id) bloom.actions.linkDriftEvent(ev.id, sessionId);
         clearDismiss();
         setPrompt({
           type: 'triage',
           min,
           shownAt: snapshot.returnedAt,
           src: 'return',
+          eventId: ev.id,
         });
         bloom.actions.resolveTabReturn('drifted');
       },
@@ -382,26 +435,13 @@ export function useCompanion(bloom: Bloom) {
       pick: (kind: DriftKind) => {
         const p = ref.current.prompt;
         if (p?.type !== 'triage') return;
-        const len = sessionLenMins();
-        // Stamp the drift with the running session and link it back onto the
-        // session's driftEventIds (PLAN 1.3). Out-of-session drifts (none
-        // today — triage only opens while a focus session runs) would simply
-        // carry no sessionId and stay unlinked.
-        const sessionId = activeSessionId();
-        const ev = appendEvent({
-          ts: Date.now(),
-          shownAt: p.shownAt,
-          min: p.min,
-          len,
-          kind,
-          src: p.src,
-          sessionId,
-        });
-        if (sessionId && ev.id) bloom.actions.linkDriftEvent(ev.id, sessionId);
-        // The drift is safely logged; the optional "since when?" step (PLAN
-        // 1.5c) only patches an estimate onto it, so skipping loses nothing.
+        // The answer was persisted and linked before triage opened. Classify
+        // that same record rather than appending a second drift.
+        updateEvent(p.eventId, { kind });
+        // The optional "since when?" step (PLAN 1.5c) only patches an
+        // estimate onto it, so skipping loses nothing.
         clearDismiss();
-        setPrompt({ type: 'onset', min: p.min, shownAt: p.shownAt, kind, eventId: ev.id });
+        setPrompt({ type: 'onset', min: p.min, shownAt: p.shownAt, kind, eventId: p.eventId });
       },
       /**
        * Optional third tap: the user's own guess of when the drift began,
@@ -457,8 +497,6 @@ export function useCompanion(bloom: Bloom) {
     enabled: conf.on,
     conf,
     prompt,
-    intention,
-    setIntention,
     summary,
     actions,
   };

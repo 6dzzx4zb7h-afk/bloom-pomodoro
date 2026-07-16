@@ -79,20 +79,24 @@ export function WeeklyReview({
               <div className="debrief-row">
                 🪴 <span className="weekly-q">what helped you recover?</span> {review.recover}
               </div>
-              <div className="debrief-row debrief-why">✦ {cadence.text}</div>
+              <div className="debrief-row debrief-why">✦ {review.experiment}</div>
             </>
           ) : (
-            <>
-              <div className="debrief-row">🌱 {review.text}</div>
-              <div className="debrief-row debrief-why">✦ {cadence.text}</div>
-            </>
+            <div className="debrief-row">🌱 {review.text}</div>
           )}
-          <div className="debrief-row cadence-because">{cadence.because}</div>
+          <div className="debrief-row cadence-because">
+            cadence check: {cadence.text} {cadence.because}
+          </div>
           <div className="cadence-ladder" aria-label="Personal cadence ladder">
             {(['shorter', 'current', 'longer'] as const).map((slot) => {
               const rung = cadence.rungs[slot];
               return (
-                <span key={slot}>{rung.focusMin}/{rung.breakMin}</span>
+                <span
+                  key={slot}
+                  aria-label={`${slot}: ${rung.focusMin} minutes focus, ${rung.breakMin} minutes break`}
+                >
+                  {rung.focusMin}/{rung.breakMin}
+                </span>
               );
             })}
           </div>

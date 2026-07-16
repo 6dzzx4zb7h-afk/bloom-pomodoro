@@ -82,10 +82,16 @@ export interface CompanionEvent {
   estOnsetMin?: number;
   /** Session length in minutes (so phases stay meaningful across lengths). */
   len: number;
-  /** Drift kind, or: focused answer / silent tab-away / ignored check-in. */
-  kind: DriftKind | 'focused' | 'away' | 'skip';
+  /**
+   * Drift kind, an unclassified drift answer, or: focused answer / silent
+   * tab-away / ignored check-in. `drift` is persisted before optional triage,
+   * so skipping that follow-up (or closing the app) never loses the answer.
+   */
+  kind: DriftKind | 'drift' | 'focused' | 'away' | 'skip';
   src: 'checkin' | 'return';
 }
+
+export type StoredCompanionEvent = CompanionEvent & { id: string };
 
 export const TRIAGE: { kind: DriftKind; label: string }[] = [
   { kind: 'rabbit', label: 'looked something up… then fell down a rabbit hole' },
@@ -104,6 +110,7 @@ export const KIND_NAMES: Record<DriftKind, string> = {
 };
 
 const LOG_KEY = 'bloom-companion-v1';
+const LOG_VERSION = 2;
 const MAX_EVENTS = 400;
 const MAX_AGE_DAYS = 60;
 
@@ -127,16 +134,25 @@ export function newEventId(now = Date.now()): string {
 }
 
 /** Append one event, stamping an id if it has none. Returns the stored event. */
-export function appendEvent(e: CompanionEvent): CompanionEvent {
-  const ev: CompanionEvent = { ...e, id: e.id ?? newEventId(e.ts) };
+export function appendEvent(e: CompanionEvent): StoredCompanionEvent {
+  const ev: StoredCompanionEvent = { ...e, id: e.id ?? newEventId(e.ts) };
   const cutoff = ev.ts - MAX_AGE_DAYS * 86400000;
   const events = [...loadEvents().filter((x) => x.ts >= cutoff), ev].slice(-MAX_EVENTS);
   try {
-    localStorage.setItem(LOG_KEY, JSON.stringify({ version: 1, events }));
+    localStorage.setItem(LOG_KEY, JSON.stringify({ version: LOG_VERSION, events }));
   } catch {
     /* storage unavailable — companion runs without memory */
   }
   return ev;
+}
+
+/**
+ * Persist the first, meaningful "I drifted" answer before asking why. The
+ * returned id is subsequently patched with the optional triage choice; it is
+ * never replaced by a second event.
+ */
+export function appendDriftEvent(e: Omit<CompanionEvent, 'kind'>): StoredCompanionEvent {
+  return appendEvent({ ...e, kind: 'drift' });
 }
 
 /**
@@ -150,7 +166,7 @@ export function updateEvent(id: string, patch: Partial<CompanionEvent>): void {
   if (i === -1) return;
   events[i] = { ...events[i], ...patch };
   try {
-    localStorage.setItem(LOG_KEY, JSON.stringify({ version: 1, events }));
+    localStorage.setItem(LOG_KEY, JSON.stringify({ version: LOG_VERSION, events }));
   } catch {
     /* storage unavailable — companion runs without memory */
   }
@@ -189,13 +205,13 @@ export function tipFor(kind: DriftKind, phase: Phase | null): string {
     case 'external':
       return 'pings love company — do-not-disturb during sessions, then answer them all in one batch.';
     case 'urge':
-      return 'urge-surfing works: give it two minutes. most urges drift off on their own.';
+      return 'try giving the urge two minutes before deciding what to do with it.';
     case 'wander':
       return phase === 'late'
         ? 'wandering late in a session is natural — a slightly shorter focus block might fit you better.'
         : 'before starting, try one line: “when I notice X, I’ll Y.” tiny plans catch wandering minds.';
     case 'restless':
-      return 'a 30-second stretch or shake-out between sessions helps the wiggles settle.';
+      return 'a 30-second stretch or shake-out between sessions can give restlessness somewhere to go.';
   }
 }
 
@@ -245,7 +261,16 @@ function bucketStats(events: CompanionEvent[]): Map<string, { f: number; d: numb
   return buckets;
 }
 
-export const isDriftEvent = (e: CompanionEvent) => (DRIFT_KINDS as string[]).includes(e.kind);
+/** A drift with an answered cause; safe to use for kind-specific claims. */
+export const isClassifiedDriftEvent = (
+  e: CompanionEvent,
+): e is CompanionEvent & { kind: DriftKind } => (DRIFT_KINDS as string[]).includes(e.kind);
+
+/** Any explicit drift answer, including one whose optional triage was skipped. */
+export const isDriftEvent = (
+  e: CompanionEvent,
+): e is CompanionEvent & { kind: DriftKind | 'drift' } =>
+  e.kind === 'drift' || isClassifiedDriftEvent(e);
 const isDrift = isDriftEvent;
 
 export function computeInsights(
@@ -255,14 +280,15 @@ export function computeInsights(
 ): Insights {
   const week = events.filter((e) => now - e.ts <= windowDays * 86400000);
   const drifts = week.filter(isDrift);
+  const classifiedDrifts = drifts.filter(isClassifiedDriftEvent);
   const focused = week.filter((e) => e.kind === 'focused');
   const aways = week.filter((e) => e.kind === 'away');
 
   // Dominant drift type (needs a little data before it means anything).
   let dominant: DriftKind | null = null;
-  if (drifts.length >= 3) {
+  if (classifiedDrifts.length >= 3) {
     const counts = new Map<DriftKind, number>();
-    for (const d of drifts) counts.set(d.kind as DriftKind, (counts.get(d.kind as DriftKind) ?? 0) + 1);
+    for (const d of classifiedDrifts) counts.set(d.kind, (counts.get(d.kind) ?? 0) + 1);
     dominant = [...counts.entries()].sort((a, b) => b[1] - a[1])[0][0];
   }
 
@@ -295,12 +321,15 @@ export function computeInsights(
 
   // Gentle, non-diagnostic note: only when restlessness + internal urges
   // clearly dominate over a sustained stretch (not one rough afternoon).
-  const allDrifts = events.filter(isDrift);
-  const ru = allDrifts.filter((e) => e.kind === 'restless' || e.kind === 'urge');
-  const spanDays = allDrifts.length
-    ? (allDrifts[allDrifts.length - 1].ts - allDrifts[0].ts) / 86400000
+  const allClassifiedDrifts = events.filter(isClassifiedDriftEvent);
+  const ru = allClassifiedDrifts.filter((e) => e.kind === 'restless' || e.kind === 'urge');
+  const spanDays = allClassifiedDrifts.length
+    ? (allClassifiedDrifts[allClassifiedDrifts.length - 1].ts - allClassifiedDrifts[0].ts) / 86400000
     : 0;
-  const gentleNote = ru.length >= 15 && spanDays >= 21 && ru.length / allDrifts.length >= 0.5;
+  const gentleNote =
+    ru.length >= 15 &&
+    spanDays >= 21 &&
+    ru.length / allClassifiedDrifts.length >= 0.5;
 
   return {
     answers: focused.length + drifts.length,
@@ -385,27 +414,27 @@ function chronotypePrior(chronotype: Chronotype, bucket: TimeBucket): number {
 const RECIPE_STRATEGY: Record<DriftKind, { emoji: string; text: string; evidenceKey: EvidenceKey }> = {
   rabbit: {
     emoji: '🕳️',
-    text: 'rabbit holes are your main pull — keep a "later list" beside you and park links there unopened; visit them in one batch after the timer.',
+    text: 'rabbit holes have shown up most often lately — keep a "later list" beside you and park links there unopened; visit them in one batch after the timer.',
     evidenceKey: 'parking-lot',
   },
   external: {
     emoji: '🔕',
-    text: 'interruptions are your main pull — do-not-disturb during sessions, and tell people "back in a bit"; almost everything waits happily.',
+    text: 'interruptions have shown up most often lately — try do-not-disturb during sessions and a quick "back in a bit" when that fits.',
     evidenceKey: 'desk-help',
   },
   urge: {
     emoji: '🌊',
-    text: 'check-urges are your main pull — put the phone out of reach, and when an urge hits, surf it for two minutes; most fade on their own.',
+    text: 'check-urges have shown up most often lately — put the phone out of reach, and when an urge hits, give it two minutes before deciding.',
     evidenceKey: 'parking-lot',
   },
   wander: {
     emoji: '💭',
-    text: 'mind-wandering is your main pull — write one tiny intention before each session and re-read the last line whenever you notice drifting.',
+    text: 'mind-wandering has shown up most often lately — write one tiny intention before each session and re-read the last line whenever you notice drifting.',
     evidenceKey: 'if-then',
   },
   restless: {
     emoji: '🐇',
-    text: 'restlessness is your main pull — move every break (stretch, shake-out, a lap of the room) so the wiggles are spent before you sit back down.',
+    text: 'restlessness has shown up most often lately — try moving each break (a stretch, shake-out, or lap of the room) before sitting back down.',
     evidenceKey: 'breaks-are-fuel',
   },
 };
@@ -439,6 +468,7 @@ export function computeAttentionPlan(
 ): RecipeItem[] {
   const window = events.filter((e) => now - e.ts <= windowDays * 86400000);
   const drifts = window.filter(isDriftEvent);
+  const classifiedDrifts = drifts.filter(isClassifiedDriftEvent);
   const focused = window.filter((e) => e.kind === 'focused');
   const aways = window.filter((e) => e.kind === 'away');
   if (focused.length + drifts.length + aways.length < RECIPE_MIN_SIGNALS) return [];
@@ -471,7 +501,7 @@ export function computeAttentionPlan(
   } else if (answers >= 8 && driftRate < 0.15 && focusLenMins <= 30) {
     items.push({
       emoji: '📈',
-      text: `you hold focus really well — you could stretch sessions to ${focusLenMins + 5} minutes and sink into deeper work.`,
+      text: `your recent check-ins were mostly focused — if you want an experiment, try ${focusLenMins + 5}-minute sessions and see how they feel.`,
       because: `you answered focused on ${focused.length} of ${answers} check-ins (${pctOf(focused.length, answers)}%) these last ${span}.`,
       evidenceKey: 'breaks-are-fuel',
     });
@@ -511,21 +541,21 @@ export function computeAttentionPlan(
   if (worst && best && worst.name !== best.name && worst.score <= 0.45) {
     items.push({
       emoji: '🌙',
-      text: `${worst.name} may run foggier for you — that timing mismatch is normal, not weakness; lighter tasks might fit there.`,
+      text: `${worst.name} may run foggier for you — lighter tasks might fit that part of your day.`,
       because: `you chose “${tagLabel}”, and ${worst.completed} of your ${worst.total} sessions started in the ${TIME_BUCKET_PHRASE[worst.name]} were completed (${pctOf(worst.completed, worst.total)}%); your recent sessions have the louder voice as the log grows.`,
       evidenceKey: 'golden-hours',
     });
   }
 
   // 3) Their dominant drift style, met with a matching strategy.
-  if (drifts.length >= 3) {
+  if (classifiedDrifts.length >= 3) {
     const counts = new Map<DriftKind, number>();
-    for (const d of drifts) counts.set(d.kind as DriftKind, (counts.get(d.kind as DriftKind) ?? 0) + 1);
+    for (const d of classifiedDrifts) counts.set(d.kind, (counts.get(d.kind) ?? 0) + 1);
     const [dominant, domCount] = [...counts.entries()].sort((a, b) => b[1] - a[1])[0];
     // Where the dominant kind clusters, if it clearly does — makes the
     // because read like "62% rabbit-holes, mostly mid-session".
     const byPhase = { early: 0, mid: 0, late: 0 };
-    const dom = drifts.filter((d) => d.kind === dominant);
+    const dom = classifiedDrifts.filter((d) => d.kind === dominant);
     for (const d of dom) byPhase[phaseOf(driftOnsetMin(d), d.len)]++;
     const topPhase = (Object.entries(byPhase) as [Phase, number][]).sort((a, b) => b[1] - a[1])[0];
     const phaseNote =
@@ -534,7 +564,7 @@ export function computeAttentionPlan(
         : '';
     items.push({
       ...RECIPE_STRATEGY[dominant],
-      because: `${pctOf(domCount, drifts.length)}% of your drifts these last ${span} were ${KIND_NAMES[dominant]}${phaseNote}.`,
+      because: `${pctOf(domCount, classifiedDrifts.length)}% of your classified drifts these last ${span} were ${KIND_NAMES[dominant]}${phaseNote}.`,
     });
   }
 

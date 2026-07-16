@@ -59,6 +59,53 @@ const CHRONOTYPE_CHOICES: { value: Chronotype; label: string }[] = [
   { value: 'notSure', label: 'not sure' },
 ];
 
+function RitualItemEditor({
+  id,
+  text,
+  onCommit,
+}: {
+  id: string;
+  text: string;
+  onCommit: (id: string, text: string) => void;
+}) {
+  const [draft, setDraft] = useState(text);
+
+  useEffect(() => setDraft(text), [text]);
+
+  function commit() {
+    const next = draft.trim();
+    if (!next) {
+      setDraft(text);
+      return;
+    }
+    setDraft(next);
+    if (next !== text) onCommit(id, next);
+  }
+
+  return (
+    <label className="ritual-edit-row">
+      <span className="ritual-edit-dot">•</span>
+      <input
+        className="ritual-edit-input"
+        value={draft}
+        maxLength={60}
+        onChange={(event) => setDraft(event.target.value)}
+        onBlur={commit}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter') {
+            event.preventDefault();
+            event.currentTarget.blur();
+          } else if (event.key === 'Escape') {
+            event.preventDefault();
+            setDraft(text);
+          }
+        }}
+        aria-label={`Ritual item: ${text}`}
+      />
+    </label>
+  );
+}
+
 export function SettingsSheet({
   settings,
   records,
@@ -75,6 +122,7 @@ export function SettingsSheet({
 }: SettingsSheetProps) {
   // 'unknown' until asked; used to nudge the user if they blocked notifications.
   const [notifyDenied, setNotifyDenied] = useState(false);
+  const [nameDraft, setNameDraft] = useState(settings.name);
   const companion = settings.companion;
   // The pal gives a happy little wave when Companion Mode turns on.
   const [waving, setWaving] = useState(false);
@@ -103,6 +151,7 @@ export function SettingsSheet({
     if (cadenceNeedsRefresh) onCacheCadence(learnedCadence, Date.now());
   }, [cadenceNeedsRefresh, learnedCadence, onCacheCadence]);
   const [clearedNote, setClearedNote] = useState(false);
+  useEffect(() => setNameDraft(settings.name), [settings.name]);
   useEffect(
     () => () => {
       if (waveTimer.current) clearTimeout(waveTimer.current);
@@ -134,6 +183,16 @@ export function SettingsSheet({
 
   function applyCadence(preset: CadencePreset) {
     onApplyCadence(preset);
+  }
+
+  function commitName() {
+    const next = nameDraft.trim().slice(0, 20);
+    if (!next) {
+      setNameDraft(settings.name);
+      return;
+    }
+    setNameDraft(next);
+    if (next !== settings.name) onPatch({ name: next });
   }
 
   async function toggleRing() {
@@ -168,8 +227,18 @@ export function SettingsSheet({
           <span className="set-label">Your name</span>
           <input
             className="name-input"
-            value={settings.name}
-            onChange={(e) => onPatch({ name: e.target.value.slice(0, 20) })}
+            value={nameDraft}
+            onChange={(event) => setNameDraft(event.target.value.slice(0, 20))}
+            onBlur={commitName}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') {
+                event.preventDefault();
+                event.currentTarget.blur();
+              } else if (event.key === 'Escape') {
+                event.preventDefault();
+                setNameDraft(settings.name);
+              }
+            }}
             placeholder="your name"
             aria-label="Your name"
           />
@@ -209,7 +278,12 @@ export function SettingsSheet({
               {(['shorter', 'current', 'longer'] as const).map((slot) => {
                 const rung = learnedCadence.rungs[slot];
                 return (
-                  <span key={slot}>{rung.focusMin}/{rung.breakMin}</span>
+                  <span
+                    key={slot}
+                    aria-label={`${slot}: ${rung.focusMin} minutes focus, ${rung.breakMin} minutes break`}
+                  >
+                    {rung.focusMin}/{rung.breakMin}
+                  </span>
                 );
               })}
             </div>
@@ -237,6 +311,7 @@ export function SettingsSheet({
                     type="button"
                     key={`${pair.focusMin}-${pair.breakMin}`}
                     onClick={() => onApplyCadence(pair)}
+                    aria-label={`Return to ${pair.focusMin} minutes focus and ${pair.breakMin} minutes break`}
                   >
                     {pair.focusMin}/{pair.breakMin}
                   </button>
@@ -256,6 +331,7 @@ export function SettingsSheet({
                   className={`cadence-preset${active ? ' on' : ''}`}
                   onClick={() => applyCadence(preset)}
                   aria-pressed={active}
+                  aria-label={`${preset.focusMin} minutes focus, ${preset.breakMin} minutes break${active ? ', currently set' : ''}`}
                 >
                   <span>{preset.label}</span>
                   <small>work / break</small>
@@ -409,16 +485,12 @@ export function SettingsSheet({
           <div className="ritual-subs">
             <div className="ritual-edit-note">Edit the little checks to fit your space.</div>
             {ritual.items.map((item) => (
-              <label className="ritual-edit-row" key={item.id}>
-                <span className="ritual-edit-dot">•</span>
-                <input
-                  className="ritual-edit-input"
-                  value={item.text}
-                  maxLength={60}
-                  onChange={(e) => onUpdateRitualItem(item.id, e.target.value)}
-                  aria-label={`Ritual item: ${item.text}`}
-                />
-              </label>
+              <RitualItemEditor
+                key={item.id}
+                id={item.id}
+                text={item.text}
+                onCommit={onUpdateRitualItem}
+              />
             ))}
             <div className="ritual-edit-note">You can skip the reset whenever you like.</div>
           </div>
@@ -648,10 +720,17 @@ export function SettingsSheet({
             <span className="set-label">
               Weekly review
               <span className="set-sub">
-                a tiny look back — what helped you start, and what helped you recover
+                {running
+                  ? 'available when the current timer stops'
+                  : 'a tiny look back — what helped you start, and what helped you recover'}
               </span>
             </span>
-            <button className="mini-btn" onClick={onShowWeekly}>
+            <button
+              className="mini-btn"
+              onClick={onShowWeekly}
+              disabled={running}
+              title={running ? 'Stop or pause the timer to open the weekly review' : undefined}
+            >
               see this week
             </button>
           </div>

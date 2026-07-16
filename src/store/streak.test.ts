@@ -82,7 +82,7 @@ describe('bumpStreakGentle', () => {
   it('stays calm if the clock moved backwards', () => {
     const bumped = bumpStreakGentle(data(4, '2026-07-16'), '2026-07-15');
     expect(bumped.streak).toBe(4);
-    expect(bumped.lastFocusDay).toBe('2026-07-15');
+    expect(bumped.lastFocusDay).toBe('2026-07-16');
   });
 });
 

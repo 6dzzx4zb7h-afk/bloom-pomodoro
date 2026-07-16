@@ -35,6 +35,13 @@ Rules of thumb:
 - Every step must leave the app shippable (`npm run build` green, no console errors).
 - If a step turns out to be too big for one session, split it and add the new sub-steps to this file before continuing.
 
+> **Verification status (July 2026):** Checked boxes in Phases 0–5 show that their feature work was
+> attempted and landed; they are not, by themselves, proof that the cross-feature behavior is
+> complete. A full repository/UI review found lifecycle and integration gaps around auto-start,
+> paused timers, cadence changes, session-owned metadata, return prompts, Flow rewards, persistence,
+> and date rollover. Those closures are now explicit in 7.4 and Phase 8. Do not describe Phases 0–5
+> as verified until those milestones pass.
+
 ---
 
 ## Global design principles (from docs/science.md)
@@ -266,6 +273,11 @@ Rules of thumb:
 - **Files:** `src/components/ResumeCue.tsx` (new), `src/store/companion.ts` (return detection hook), `FocusScreen.tsx`, timer store + `src/store/sessions.ts` (snapshot fields on the record — version bump + migration).
 - **Done when:** Tab-away → return shows the card populated from real state; one tap resumes; never appears when nothing was interrupted. Snapshot round-trip verified: "pause it back" restores the exact remaining time and excludes the gap from the record; "I drifted" produces exactly one drift event linked to the session; blips under the threshold never prompt; reload mid-question resumes without double-counting; unit tests cover multiple leaves in one session.
 - **Depends on:** 4.2, 5.1.
+- **Audit follow-up (July 2026):** The immediate integrity closure has landed: Tiny follows Focus's
+  countdown return policy; Flow is explicitly excluded in a tested policy helper; and “I drifted” is
+  persisted and linked before optional triage, whose answer updates that same event. A skipped or
+  reloaded triage therefore retains exactly one unclassified drift. 8.17 still owns the unified
+  surface coordinator, modal truth-decision behavior, and the final user-facing Flow decision.
 
 ### - [x] 5.3 Kind-restart micro-intervention
 
@@ -347,13 +359,41 @@ Rules of thumb:
 - **Done when:** Grep list of banned phrases returns clean; a read-through of every new card/screen in the preview passes the voice checklist.
 - **Depends on:** 6.4 and all feature phases.
 
-### - [ ] 7.4 QA script + Android release
+### - [ ] 7.4 Timer/session lifecycle invariant suite
+
+- **Goal:** Add executable integration coverage at the reducer/hook boundary instead of relying on
+  isolated selector tests and manual localStorage inspection. Cover every work-session entry and
+  exit path, with time controlled deterministically. Required invariants: (a) break completion with
+  auto-start opens exactly one Focus record before running; (b) changing an unrelated setting while
+  Focus/Tiny is paused preserves the exact remaining time; (c) applying a cadence while idle updates
+  the next countdown, while an open session keeps its start-time duration; (d) the session owns its
+  task id, target, and planned duration even if global selection/settings change mid-run; (e) break
+  completion advances round/mode once and never writes a work record; (f) Flow's displayed bank
+  preview uses the same rounding rule as the reducer reward, and a short intentionally finished Flow
+  session follows the documented streak/XP/task policy; (g) every completed, abandoned, interrupted,
+  returned, and auto-started work session finalizes at most once. Add focused component/hook tests for
+  the controls that dispatch these transitions; pure helper tests alone do not satisfy this step.
+- **Files:** timer reducer extraction or exported test seam from `src/store/useBloom.ts`, hook/component
+  tests for `FocusScreen.tsx`, deterministic clock/localStorage fixtures, Vitest config.
+- **Done when:** Each invariant has a regression test that fails against its pre-fix behavior and
+  passes after the closure; tests exercise Focus, Tiny, Flow, short/long breaks, auto-start, pause,
+  settings/cadence edits, task changes, reload, and repeated completion dispatches; no React timing
+  warning is ignored; `npm test` and `npm run build` are green.
+- **Depends on:** Phase 1 timer/session work. Land the deterministic harness first; every relevant
+  Phase 8 closure must add its regression to this suite, and the full suite must pass before release QA.
+- **Progress (July 2026):** A deterministic reducer seam and initial regression file now cover
+  auto-start record creation, paused settings/cadence preservation, idle cadence sync, session-owned
+  Focus/Flow task credit, short-Flow streak policy, duplicate completion guards, break notification
+  copy, corrupt-current legacy fallback, and lossless set-aside streak loading. The step stays open:
+  component/hook controls, every exit mode, reload/return races, and the full matrix above remain.
+
+### - [ ] 7.5 QA script + Android release
 
 - **Goal:** Write `docs/qa.md` (10-minute manual smoke script covering the golden path: ritual → if-then → tiny start → grow → drift → park → resume cue → complete → debrief → guide link → weekly review). Then `npm run build`, `npx cap sync android`, build the APK, run the script on a device including airplane-mode and an upgrade-install over the previous APK (migration proof on-device). Tag the release.
 - **Science:** n/a — ship it.
 - **Files:** `docs/qa.md` (new), android build artifacts.
 - **Done when:** Script passes on web preview and on-device; upgrade install preserves all data; release tagged.
-- **Depends on:** 7.1–7.3.
+- **Depends on:** 7.1–7.4.
 
 ---
 
@@ -361,41 +401,52 @@ Rules of thumb:
 
 > An external review audited the shipped app. The findings below were verified against this codebase and are real. Steps are independent of Phases 1–7 unless noted; each is one session.
 
-### - [ ] 8.1 Real submit button on the task add row
+### - [x] 8.1 Real submit button on the task add row
 
 - **Goal:** The `+` in the add form is a decorative `<span>` (`TasksScreen.tsx` ~line 200); adding relies on implicit keyboard submit, so touch/mouse users have no visible way to add. Make it a labelled `<button type="submit">`, disabled when the input is blank, with a brief added acknowledgement.
 - **Files:** `src/screens/TasksScreen.tsx`, `src/styles.css`.
 - **Done when:** Tapping + adds the task; blank input disables it; keyboard submit still works.
+- **Closed (July 2026):** The row now has a labelled submit button, blank guard, Enter submit, and a
+  polite acknowledgement; production build and the full test suite are green.
 
-### - [ ] 8.2 Safe deletes + goal editing
+### - [ ] 8.2 Safe destructive data actions + goal editing
 
-- **Goal:** Task and goal deletion is instant with no confirmation, undo, or recovery, and goals can't be edited after creation (fixing a typo requires deletion). Add an undo toast for deletes; require confirmation only when a goal carries meaningful progress; add an edit action for goal title/date/parts.
-- **Files:** `src/screens/TasksScreen.tsx`, `src/screens/GoalsScreen.tsx`, store actions.
-- **Done when:** Delete → undo restores intact (id, progress); goal with progress asks first; goals editable in place.
+- **Goal:** Task and goal deletion is instant with no confirmation, undo, or recovery, and goals can't be edited after creation (fixing a typo requires deletion). Add an undo toast for deletes; require confirmation only when a goal carries meaningful progress; add an edit action for goal title/date/parts. Settings' "clear focus data" action also needs precise scope and safe semantics: say which session, Companion, cadence-cache, streak, XP, task-credit, and goal-credit data will remain or be removed; confirm before clearing; perform one atomic store update; and do not leave derived insight/cadence caches describing deleted events.
+- **Files:** `src/screens/TasksScreen.tsx`, `src/screens/GoalsScreen.tsx`, `src/components/SettingsSheet.tsx`, persistence/store actions.
+- **Done when:** Delete → undo restores intact (id, progress); goal with progress asks first; goals editable in place; focus-data clearing has a truthful preview + confirmation, clears the documented dependent data atomically, invalidates derived caches, and has a reload regression test.
 
-### - [ ] 8.3 Deadline labels roll over correctly
+### - [ ] 8.3 Calendar labels and daily task scope roll over correctly
 
-- **Goal:** "due today/tomorrow/overdue" is computed only at render, so an app left open across midnight shows stale status. Recompute at the next local midnight and on `visibilitychange`/foreground.
-- **Files:** `src/screens/GoalsScreen.tsx`, `src/store/goals.ts` (goalPace).
-- **Done when:** Faking a date rollover (or a timer test) updates labels without remount.
+- **Goal:** Date-derived UI is computed only at render, so an app left open across midnight can show stale "due today/tomorrow/overdue," streak, weekly-review, and task labels. Add one shared local-day refresh signal that fires at the next boundary and on `visibilitychange`/foreground. Resolve the current "Today's tasks" mismatch too: tasks persist indefinitely with no day/archive semantics. Either make the list honestly ongoing, or store a completion/day key and roll completed items into History while carrying open items forward; do not silently delete them. Label rolling-24-hour insight windows as "last 24 hours," not "today."
+- **Files:** `src/screens/GoalsScreen.tsx`, `src/screens/TasksScreen.tsx`, weekly/insight UI, `src/store/goals.ts` (`goalPace`), shared day-boundary helper; coordinate with 9.2/9.3.
+- **Done when:** Advancing across the configured day boundary updates every date-derived label without remount; open tasks carry forward and completed tasks remain recoverable in History (or the list is renamed ongoing); rolling windows are labelled accurately; boundary, foreground, and DST-edge tests pass.
+- **Progress (July 2026):** The current task surface is now honestly labelled as an ongoing list,
+  and the rolling insight selector says “last 24 hours.” Midnight refresh, completion-day history,
+  and boundary/DST tests remain.
 
 ### - [ ] 8.4 Accessible dialog primitive + Settings restructure
 
-- **Goal:** Settings/Companion overlays use `role="dialog"` without `aria-modal`, focus trap, Escape handling, or focus restoration, and the only close control is at the bottom of a long sheet (offscreen at mobile heights). Build one reusable sheet/dialog primitive (aria-modal, initial focus, trap, Escape, restore focus, persistent top close). Group the Settings sheet into collapsible sections (identity · timer · sound · theme · planner · companion · data).
-- **Files:** new `src/components/Sheet.tsx`, `src/components/SettingsSheet.tsx`, `CompanionPrompt` overlays.
-- **Done when:** Escape closes; focus is trapped and restored; a close control is always visible; keyboard-only pass succeeds.
+- **Goal:** Settings and destructive/decision overlays use incomplete dialog semantics: no reliable `aria-modal`, inert background, initial focus, trap, Escape handling, or focus restoration, and Settings' only close control is at the bottom of a long sheet. Build reusable Sheet/Dialog primitives (persistent top close for sheets), then use them only for interactions that truly block the app: settings, destructive confirmations, and the honest-return decision while timer truth is unresolved. Routine Companion check-ins and tips must remain accessible **non-modal** status/region surfaces that do not steal focus or trap the user. Group Settings into collapsible sections (identity · timer · sound · theme · planner · companion · data).
+- **Files:** new `src/components/Sheet.tsx` / `Dialog.tsx`, `src/components/SettingsSheet.tsx`, `CompanionPrompt` and return/resume surfaces.
+- **Done when:** True dialogs make the background inert, announce name/description, place and trap focus, close on Escape where safe, and restore the invoker; a close control stays visible; routine check-ins remain reachable but non-modal and never hijack typing; keyboard and screen-reader passes succeed.
 
 ### - [ ] 8.5 Semantic structure and named controls
 
-- **Goal:** Screens are generic divs — no `main`, no headings; custom task checkboxes expose `role="checkbox"` with no accessible name; the task-select title area is a clickable div with no role/keyboard support; inputs rely on placeholders. Add landmarks and h1/h2 per screen, give checkboxes names containing the task title, make task-select a real button with selected state, add visible labels + inline validation to task/goal forms.
+- **Goal:** Screens are generic divs — no `main`, no headings; custom task checkboxes expose `role="checkbox"` with no accessible name; the task-select title area is a clickable div with no role/keyboard support; inputs rely on placeholders. Add landmarks and h1/h2 per screen, give checkboxes names containing the task title, make task-select a real button with selected state, add visible labels + inline validation to task/goal forms. Cadence ladder/rung chips also need programmatic names that announce their focus/break pair, current selection, recommendation direction, and apply/revert action instead of exposing decorative numbers alone.
 - **Files:** all screens, `TasksScreen.tsx`, `GoalsScreen.tsx`, `TabBar.tsx`.
-- **Done when:** Screen-reader pass announces screen titles, task names on checkboxes, and selection state; no unlabeled form fields.
+- **Done when:** Screen-reader pass announces screen titles, task names on checkboxes, selection state, and cadence rung purpose/pair; no unlabeled form fields or ambiguous numeric controls.
+- **Progress (July 2026):** Task completion controls now include the task name, task selection is a
+  real pressed-state button, and cadence rungs announce direction plus focus/break minutes. Landmarks,
+  headings, visible labels, and the full screen-reader pass remain.
 
 ### - [ ] 8.6 Focus-visible system
 
 - **Goal:** styles.css removes outlines in six places and most controls define only hover/active states, so keyboard focus is invisible. Add a high-contrast `:focus-visible` token applied to every interactive element; remove all `outline: none` without a replacement.
 - **Files:** `src/styles.css`.
 - **Done when:** Tabbing through every screen shows a visible focus ring everywhere; grep for `outline: none` returns only lines paired with a focus-visible style.
+- **Progress (July 2026):** A theme-aware global `:focus-visible` ring now overrides the legacy
+  outline removals for native controls and custom checkbox/switch/tabindex controls. The step stays
+  open until the full keyboard traversal confirms every control is reachable and visibly framed.
 
 ### - [ ] 8.7 Reduced motion + animation scheduler
 
@@ -405,9 +456,9 @@ Rules of thumb:
 
 ### - [ ] 8.8 Touch targets and small-screen layouts
 
-- **Goal:** Settings (34 px), steppers (28 px), switches, and delete controls fall below 44×44 px guidance; the goal add form crams name + date + parts + button into one row at 390 px; the Focus screen has no height-based variant and the shell hides overflow (short phones/landscape clip content). Enlarge hit areas (padding, not icon size), make the goal form two rows on mobile, add compact-height breakpoints that shrink the timer ring before hiding anything. Also set every text input/textarea/select to **≥16 px font-size on mobile**: iOS Safari force-zooms the whole page when focusing any smaller input, and Bloom's task/goal/target/onboarding fields currently trigger that zoom-jump.
-- **Files:** `src/styles.css`, `GoalsScreen.tsx`, `FocusScreen.tsx`.
-- **Done when:** All targets ≥44 px effective; goal form usable at 390 px; Focus fits a 568 px-tall viewport without clipping controls; no input triggers the iOS focus zoom (all mobile input font sizes ≥16 px — grep + on-device check).
+- **Goal:** Settings (34 px), steppers (28 px), switches, and delete controls fall below 44×44 px guidance; the goal add form crams name + date + parts + button into one row at 390 px; the Focus screen has no height-based variant and the shell hides overflow (short phones/landscape clip content). Enlarge hit areas (padding, not icon size), make the goal form two rows on mobile, add compact-height breakpoints that shrink the timer ring before hiding anything. Also set every text input/textarea/select to **≥16 px font-size on mobile**: iOS Safari force-zooms the whole page when focusing any smaller input, and Bloom's task/goal/target/onboarding fields currently trigger that zoom-jump. Onboarding needs explicit virtual-keyboard treatment: use dynamic viewport units/safe-area padding, allow the card to scroll above the keyboard, and avoid autofocus when it would open the keyboard before the user chooses to type.
+- **Files:** `src/styles.css`, `GoalsScreen.tsx`, `FocusScreen.tsx`, `Onboarding.tsx`.
+- **Done when:** All targets ≥44 px effective; goal form usable at 390 px; Focus fits a 568 px-tall viewport without clipping controls; no input triggers the iOS focus zoom; onboarding remains fully visible/actionable with iOS and Android keyboards open in portrait and landscape.
 
 ### - [ ] 8.9 Readability over the animated sky
 
@@ -424,9 +475,13 @@ Rules of thumb:
 
 ### - [ ] 8.11 Persisted-data validation + storage-error surfacing
 
-- **Goal:** Tasks are cast straight from storage, goals only partially validated (ranges/createdAt unchecked), and storage read/write failures are silently swallowed. Validate and normalize the full persisted schema on load; on unrecoverable corruption or write failure, show one calm, recoverable warning instead of silent data loss.
+- **Goal:** Tasks are cast straight from storage, goals only partially validated (ranges/createdAt unchecked), and storage read/write failures are silently swallowed. Validate and normalize the full persisted schema on load; on unrecoverable corruption or write failure, show one calm, recoverable warning instead of silent data loss. The fallback reader must not let a malformed current `bloom-state` key prevent recovery from a valid legacy key: parse the current key in its own guarded attempt, then try each legacy key independently, migrate the first valid candidate, and preserve the corrupt payload for export/debug rather than overwriting it during the same failed boot. Companion's independent log key needs equivalent version/shape/error coverage.
 - **Files:** `src/store/useBloom.ts`, store slices.
-- **Done when:** Hand-corrupted localStorage boots to a sane state with a visible notice; valid data is untouched; complements (not replaces) 7.1's migration tests.
+- **Done when:** Hand-corrupted localStorage boots to a sane state with a visible notice; corrupt-current + valid-legacy recovers the legacy data; corrupt legacy candidates do not block later valid candidates; write failure is visible and retryable; valid data is untouched; Companion log corruption is isolated; complements (not replaces) 7.1's migration tests.
+- **Progress (July 2026):** Independent guarded reads and regressions now recover a valid legacy blob
+  after a corrupt current key and continue past a corrupt first legacy candidate. Full-shape
+  validation, corrupt-payload preservation/export, Companion validation, and visible read/write
+  recovery remain.
 
 ### - [ ] 8.12 (Optional) Credit goal progress from real work
 
@@ -443,10 +498,10 @@ Rules of thumb:
 
 ### - [ ] 8.14 Guard the running timer against accidental resets
 
-- **Goal:** Tapping any other mode tab (Focus/Short/Long/tiny) while a focus or tiny countdown is live silently finalizes the session as `abandoned` and resets the timer (`pick` reducer, `src/store/useBloom.ts` — "Walking away from a started focus/tiny countdown abandons that session"). One stray tap destroys a session with no way back, and there is **no minimum duration anywhere in the chain** — `finalizeSession` records a 10-second bail as `abandoned`, `abandonStreakInfo()` counts it with no duration filter, and three stray taps in a row reach `WOOP_ABANDON_THRESHOLD`. Two-tier fix: **(a) false-start grace** — a live session switched away within ~15 s of starting is *discarded entirely* (no record, no dialog: wrong-tab taps and instant regrets are noise, not abandons); **(b) confirm beyond the grace** — past ~15 s, switching shows a small confirmation: "You're 12 min into this focus — end it and switch?" → **[keep going]** (default) / **[end & switch]**. A confirmed abandon is an intentional one, so every `abandoned` record that reaches the stats is true signal. No dialog when nothing is running or right after completion; Flow keeps its existing bank-and-wait behavior unchanged.
+- **Goal:** Every control that can discard, finalize, overwrite, or reclassify live timer state needs one shared guard — not just Focus/Short/Long/Tiny mode tabs. Audit and route **Reset, Skip, selecting another active task, switching into/out of Flow, disabling Flow in Settings, applying duration/cadence changes, and navigation actions that replace an unresolved return snapshot** through explicit transition policy. For Focus/Tiny, keep the two-tier mode-switch fix: **(a) false-start grace** — a switch within ~15 s is discarded entirely; **(b) confirmation beyond the grace** — "You're 12 min into this focus — end it and switch?" → **[keep going]** / **[end & switch]**. Reset and Skip must state whether they discard, abandon, or complete; active-task changes must not retag the open session; Flow-off must never orphan a banked/open stopwatch. A confirmed abandon is intentional signal; a stray tap is not.
 - **Science:** Error-prevention + record integrity, not behavior change. Every accidental tap writes a **false `abandoned` record**, polluting `completionRateByPlannedLength()` and `abandonStreakInfo()` — the trigger for 3.5's WOOP offer — so stray taps can make the pet believe the user has a starting problem they don't have (§Measurement — progress monitoring row: monitoring only works when records reflect actual behavior). The grace window is deliberately short (~15 s): genuine early bails (15 s+) are the strongest start-failure signal WOOP exists for and must stay in the record once confirmed. Dialog copy is protective, never scolding (docs/voice.md).
-- **Files:** `src/screens/FocusScreen.tsx` (mode-tab interception), `src/store/useBloom.ts` (`pick` reducer: discard-vs-finalize branch; expose live-session/elapsed state for the dialog), `src/store/sessions.ts` if a discard helper is cleaner, reuse 8.4's Sheet/dialog primitive if landed.
-- **Done when:** A switch within the grace window leaves zero session record and no dialog; a switch past it shows the confirm; "keep going" leaves the timer completely untouched; "end & switch" finalizes `abandoned` exactly like today; taps with no live session switch instantly; unit tests cover grace-discard, confirmed-abandon, and that `abandonStreakInfo()` can no longer be fed by sub-grace sessions.
+- **Files:** `src/screens/FocusScreen.tsx`, task/navigation controls, `SettingsSheet.tsx`, `src/store/useBloom.ts` (one transition guard/state machine), `src/store/sessions.ts` if a discard helper is cleaner, reuse 8.4's Dialog primitive.
+- **Done when:** The behavior matrix for Mode, Reset, Skip, active-task change, Flow enter/exit/off, cadence/duration edit, and unresolved-return navigation is documented and integration-tested; grace-switch leaves zero record; "keep going" is byte-for-byte state preserving; confirmed actions finalize/discard exactly once; no path orphans `openFocus`, `openFlow`, or a return snapshot; `abandonStreakInfo()` cannot be fed by sub-grace noise.
 - **Depends on:** nothing (8.4's primitive is a nice-to-have, not a blocker).
 
 ### - [ ] 8.15 Service worker — make the *web* deploy actually offline
@@ -457,13 +512,98 @@ Rules of thumb:
 - **Done when:** After one online visit, a full reload with DevTools network blocked boots the app and every Phase 1–5 feature works; deploying a new build updates cleanly (no stale-cache strand); 7.2's audit passes against the deployed web build, not just the APK.
 - **Depends on:** 8.10 (fonts must be local before the shell precache is complete).
 
-### - [ ] 8.16 Add a linter and wire it into CI
+### - [ ] 8.16 Add a linter, align test dependencies, and wire both into CI
 
-- **Goal:** The repo has **no ESLint/Prettier config at all**, and until July 2026 CI never ran the test suite (fixed during the audit: `.github/workflows/deploy.yml` now runs `npm test` before build/deploy). With many people and models committing, there is no automated correctness/style gate beyond `tsc`. Add an ESLint flat config (typescript-eslint recommended + react-hooks rules — the hooks rules catch real bugs like stale closures in the timer), fix or explicitly justify every finding, add `npm run lint`, and a CI lint step before the test step.
+- **Goal:** The repo has **no ESLint/Prettier config at all**, and until July 2026 CI never ran the test suite (fixed during the audit: `.github/workflows/deploy.yml` now runs `npm test` before build/deploy). With many people and models committing, there is no automated correctness/style gate beyond `tsc`. Add an ESLint flat config (typescript-eslint recommended + react-hooks rules), fix or explicitly justify every finding, add `npm run lint`, and a CI lint step before tests. Also remove the current Vitest transform warnings caused by incompatible/duplicated Vite/plugin resolution: align supported Vite/Vitest/plugin-react versions or give Vitest a standalone config that does not load browser-only React transforms for pure tests. Pin the compatible set and document intentional major-version differences; do not suppress warnings.
 - **Science:** n/a — engineering hygiene, found by the July 2026 full audit.
-- **Files:** `eslint.config.js` (new), `package.json`, `.github/workflows/deploy.yml`.
-- **Done when:** `npm run lint` is green locally and in CI; CI fails before deploying on any lint or test failure; the config is the standard recommended sets, not a hand-tuned rule zoo.
+- **Files:** `eslint.config.js` (new), `vitest.config.ts` if needed, `package.json`/lockfile, `.github/workflows/deploy.yml`.
+- **Done when:** `npm run lint`, `npm test`, and `npm run build` are warning-free locally and green in CI; CI fails before deploy on lint/test/build failure; dependency-tree output shows one intentional compatible Vite transform path; the lint config is the standard recommended sets, not a hand-tuned rule zoo.
 - **Depends on:** nothing.
+- **Progress (July 2026):** `vitest.config.ts` now keeps pure Node tests off the browser React
+  transform, removing the prior Vite/esbuild warnings. ESLint, formatting policy, version alignment,
+  dependency pinning, and the CI lint gate remain.
+
+### - [ ] 8.17 Coordinate interruption, return, parking, and debrief surfaces
+
+- **Goal:** Replace independent booleans for Companion check-ins, tab-return truth, interrupted-session
+  resume, returned parking, kind restart, and debrief with one explicit surface-priority coordinator.
+  An unresolved honest-return decision owns the timer and blocks conflicting controls; returned
+  parking can be snoozed without being silently discarded or permanently gating debrief; saving
+  "next concrete action" must occur on both Resume and Not now; ordinary check-ins remain non-modal
+  and withdraw when Companion is turned off/Quiet. Navigation must not hide a pending truth decision.
+  Tiny follows Focus return semantics. Decide Flow explicitly: implement elapsed/snapshot semantics,
+  or document/test why count-up Flow is excluded while still preserving its open record.
+- **Files:** `src/store/useCompanion.ts`, `src/store/useBloom.ts`, `FocusScreen.tsx`, `App.tsx`,
+  `ResumeCue.tsx`, `ParkingLot.tsx`, `CompanionPrompt.tsx`; reuse 8.4 primitives.
+- **Done when:** A state-transition table and component/hook tests cover priority, focus ownership,
+  navigation, reload, Quiet/off, parking snooze, Resume/Not now, repeated leaves, Tiny, and the chosen
+  Flow policy; every "I drifted" path writes exactly one linked event even if triage is skipped or
+  reloaded; no prompt is lost, duplicated, or able to operate on the wrong session.
+- **Depends on:** 5.1–5.3, 8.4; use the 7.4 harness for its integration tests.
+- **Progress (July 2026):** Parking “not now” now releases debrief/review without deleting thoughts;
+  Resume “not now” saves the edited next action; pending return decisions cannot be hidden through
+  bottom navigation; Quiet/off withdraw an open check-in; Tiny return tracking and exactly-one drift
+  persistence are tested. The explicit coordinator, inert/modal truth surface, full Flow UX policy,
+  priority table, and component/hook matrix remain.
+
+### - [ ] 8.18 Simplify pre-start hierarchy and surface the weekly experiment
+
+- **Goal:** The primary Start action currently appears before optional if-then, target, ritual, and
+  first-action inputs, so the screen asks for preparation after presenting the commit action. Define
+  one compact pre-start stack: active task → optional session-owned target/first action → optional
+  ritual/plan → Start, with progressive disclosure and one clear bypass. Keep the target on the
+  `OpenSession` so mid-session global task/settings changes cannot rewrite it. Remove duplicate
+  Companion-local intention state or define its distinct purpose. In review/recipe surfaces, render
+  the weekly engine's computed `experiment` (currently calculated but replaced by cadence UI), make
+  Weekly Review discoverable at an honest cadence, refresh/revert cadence rungs coherently after
+  apply, and align all Settings/suggestion duration bounds.
+- **Files:** `FocusScreen.tsx`, `App.tsx`, `SettingsSheet.tsx`, `WeeklyReview.tsx`, cadence engine/cache,
+  pre-start components and styles.
+- **Done when:** Keyboard, mobile, and first-run tests show one obvious Start path with optional prep
+  before it; started sessions retain task/target/planned duration; Weekly Review exposes its real
+  experiment and has a discoverable entry condition; cadence controls share one set of bounds,
+  invalidate stale suggestions, and apply/revert without mismatching the idle countdown.
+- **Depends on:** 3.2, 3.4, 4.1, 4.2, 4.6, 8.5; use the 7.4 harness for lifecycle tests.
+- **Progress (July 2026):** The weekly engine's actual experiment is rendered; cadence bounds now
+  match Settings, stale recommendations invalidate after apply/manual duration edits, a fresh idle
+  timer adopts the new pair, and open sessions retain their own task/target/planned duration. The
+  Companion-local intention mirror was removed in favor of the session-owned target. Pre-start
+  ordering/progressive disclosure, responsive/keyboard proof, and review discoverability remain.
+
+### - [ ] 8.19 Make insight time windows and evidence inputs trustworthy
+
+- **Goal:** Normalize analytics timestamps before deriving claims. Reject or quarantine events and
+  sessions implausibly in the future; use `shownAt` for when a check-in occurred/phase bucketing and
+  `ts` only for answer latency; clamp estimated onset to the valid session window. A debrief explaining
+  the current session must compute "usual" and golden/foggy-hour baselines from **prior** sessions so
+  one current event cannot manufacture its own pattern. Require an explicit minimum sample for
+  "usual" language, and keep classified drift-kind denominators separate from skipped/unclassified
+  drift events while retaining the latter for honest total counts.
+- **Files:** `src/store/companion.ts`, `src/store/sessionStats.ts`, `src/insights/why.ts`, weekly/cadence
+  selectors and tests.
+- **Done when:** Fixtures cover future timestamps, delayed answers (`shownAt` ≠ `ts`), estimated-onset
+  bounds, one-event/no-prior-session cases, and current-session leakage; UI labels match the actual
+  rolling/calendar window; no explanatory sentence says "usual" below its documented sample floor.
+- **Depends on:** 1.4, 1.5, 2.2, 2.4.
+- **Progress (July 2026):** Debrief “usual” and strong-hour claims now use prior sessions only;
+  “usual” requires at least three prior drift sessions; unclassified drifts count in totals while
+  kind-specific denominators stay classified. Future-time quarantine, shownAt bucketing, full onset
+  clamps, and cross-surface window labels/tests remain.
+
+### - [ ] 8.20 Record truthful task and goal completion timestamps
+
+- **Goal:** Task and goal cards infer completion/deadline success from current counters and today's
+  date, but neither model has a trustworthy completion timestamp. Add `completedAt` (and clear it if
+  reopened), migrate old completed items as timestamp-unknown, and base "met/beat the deadline" copy
+  only on a known completion time relative to the deadline. Use task completion day keys for 8.3's
+  rollover and 9.3's History ledger; never invent historical dates for migrated records.
+- **Files:** task/goal models and migrations, `TasksScreen.tsx`, `GoalsScreen.tsx`, `HistoryScreen.tsx`.
+- **Done when:** Completing, reopening, and re-completing records stable timestamps; deadline copy is
+  accurate before/on/after the due boundary and neutral when legacy completion time is unknown; task
+  history groups by the recorded day; migration and timezone-boundary tests pass losslessly.
+- **Depends on:** 7.1, 8.3; supports 9.3.
+- **Progress (July 2026):** Unsupported “deadline met/beat” claims were replaced with neutral
+  progress copy. Persisted completion timestamps and accurate deadline/history logic remain.
 
 ---
 
@@ -489,11 +629,11 @@ Rules of thumb:
 
 ### - [ ] 9.3 History ledger screen
 
-- **Goal:** A browsable record of past study days — a **calm ledger, not an analytics dashboard**. Sessions grouped by study day (9.2): each day row shows focus minutes, session count, drifts, and recoveries; expanding a day shows session cards (mode, planned vs actual, outcome, target, drift-phase chips, parked-thought count); load-more paging. Deliberately **no new aggregate metrics** beyond what `sessionStats` already computes. Also replace the silent 500-record ring-buffer drop: archive older records to a compact slice instead of discarding — a user's history must never silently truncate.
+- **Goal:** A browsable record of past study days — a **calm ledger, not an analytics dashboard**. Sessions grouped by study day (9.2): each day row shows focus minutes, session count, drifts, recoveries, and completed-task count; expanding a day shows session cards (mode, planned vs actual, outcome, target, drift-phase chips, parked-thought count) plus task completions recorded by 8.20; load-more paging. Open tasks carried across days remain in the active list and are not duplicated as completions. Deliberately **no new aggregate metrics** beyond what `sessionStats` already computes. Also replace the silent 500-record ring-buffer drop: archive older records to a compact slice instead of discarding — a user's history must never silently truncate.
 - **Science:** §Measurement — progress monitoring row (Harkin 2016: d = 0.40 on attainment; works when behavior is *physically recorded and reflected back* — 1.2 built the recording half, this is the reflecting half; the row's design implication says the dashboard should "highlight behavior patterns, not just time totals"); §Measurement — feedback row (Krukowski 2024: simple, low-frequency feedback; hence a ledger and a hard cap on derived metrics); §Article brief "Why tracking helps and when it turns into pressure" (no judgment words, no red/failure styling anywhere).
-- **Files:** `src/screens/HistoryScreen.tsx` (new), `TabBar.tsx`, `src/store/sessions.ts` (archive slice, version bump), `sessionStats.ts`.
-- **Done when:** Fixture data renders grouped days with correct summaries; no derived metric appears that doesn't already exist in `sessionStats`; archive path unit-tested (records past the cap survive); all copy passes docs/voice.md. If this exceeds one session, split UI and archive-storage into sub-steps per the rules of thumb.
-- **Depends on:** 9.2, 1.4.
+- **Files:** `src/screens/HistoryScreen.tsx` (new), `TabBar.tsx`, task model, `src/store/sessions.ts` (archive slice, version bump), `sessionStats.ts`.
+- **Done when:** Fixture data renders grouped days with correct session/task summaries; carried-open and reopened tasks are not misreported as completed; no derived metric appears that doesn't already exist in `sessionStats`; archive path unit-tested (records past the cap survive); all copy passes docs/voice.md. If this exceeds one session, split UI and archive-storage into sub-steps per the rules of thumb.
+- **Depends on:** 9.2, 1.4, 8.20.
 
 ### - [ ] 9.4 Data export & import
 
@@ -533,9 +673,9 @@ Phase 3: 3.1 → 3.2 → 3.5   |  3.3, 3.4 after 1.2
 Phase 4: 4.1 ← (1.4, 2.4)  |  4.2 ← 2.1  |  4.3 ← 0.2  |  4.4 ← 2.4  |  4.5 ← (1.4, 2.4)  |  4.6 ← (4.1, 4.4)
 Phase 5: 5.1 ← 1.3 → 5.2 ← 4.2 → 5.3     |  5.4 ← 0.2
 Phase 6: 6.1 ← (0.1, 2.2) → 6.2 → 6.3 ← 2.4 → 6.4 ← 0.2
-Phase 7: after everything above
-Phase 8: independent, any time  |  8.10 before 7.2  |  8.12 ← 1.2  |  8.15 ← 8.10  |  8.16 anytime
-Phase 9: 9.1 ← 0.1  |  9.2 ← 1.4 → 9.3 → 9.5 ← (1.5, 9.1)  |  9.4 ← 1.1  |  9.6 ← (9.1, 8.12, 4.2, 2.3)
+Phase 7: 7.4 harness after Phase 1; relevant Phase 8 fixes add regressions → 7.1–7.4 all pass → 7.5 release QA
+Phase 8: independent unless noted  |  8.10 → 8.15 → 7.2  |  8.17 ← (5.1–5.3, 8.4)  |  8.18 ← (3.2, 3.4, 4.1, 4.2, 4.6, 8.5)  |  8.20 ← (7.1, 8.3)  |  8.12 ← 1.2  |  8.16 anytime
+Phase 9: 9.1 ← 0.1  |  9.2 ← 1.4 → 9.3 ← 8.20 → 9.5 ← (1.5, 9.1)  |  9.4 ← 1.1  |  9.6 ← (9.1, 8.12, 4.2, 2.3)
 ```
 
 ## What this plan deliberately does NOT include (per §Do not build)

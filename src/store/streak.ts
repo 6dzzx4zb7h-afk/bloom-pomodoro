@@ -71,8 +71,9 @@ export function bumpStreakGentle(data: StreakData, today: string): StreakData {
   }
   const gap = daysBetween(lastFocusDay, today);
   if (gap <= 0) {
-    // Already counted today (or the clock moved backwards — stay calm).
-    return { ...data, lastFocusDay: today };
+    // Already counted today. If the device clock moved backwards, preserve
+    // the later known day instead of moving persisted history into the past.
+    return data;
   }
   if (gap === 1) {
     return { streak: data.streak + 1, lastFocusDay: today, restDayUsedOn };

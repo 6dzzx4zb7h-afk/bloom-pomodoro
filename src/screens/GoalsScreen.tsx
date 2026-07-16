@@ -65,7 +65,7 @@ export function GoalsScreen({ bloom }: { bloom: ReturnType<typeof useBloom> }) {
             </div>
             <div className="prog-sub">
               {allDone
-                ? 'every deadline met — you absolute legend ♡'
+                ? 'every goal is fully logged — lovely work ♡'
                 : nextUp
                   ? `next up: ${nextUp.title} · ${dueLabel(nextUp)}`
                   : 'nothing pressing — breathe easy'}
@@ -127,7 +127,7 @@ export function GoalsScreen({ bloom }: { bloom: ReturnType<typeof useBloom> }) {
 
               <div className={`goal-pace ${pace.status}`}>
                 {pace.status === 'done'
-                  ? 'all done — you beat the deadline ♡'
+                  ? 'all parts logged — nicely done ♡'
                   : pace.status === 'overdue'
                     ? `the date slipped by — the ${goal.done} you finished still count`
                     : (pace.suggestion ??

@@ -1,15 +1,57 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { WHY_EVIDENCE_ANCHORS, EVIDENCE_EXPLAINERS } from '../insights/why';
 import {
+  appendDriftEvent,
   computeAttentionPlan,
+  computeInsights,
+  isClassifiedDriftEvent,
+  isDriftEvent,
+  loadEvents,
   RECIPE_MIN_SIGNALS,
+  updateEvent,
   type AttentionPlanContext,
   type CompanionEvent,
   type DriftKind,
   type RecipeItem,
   type StartHourCompletion,
 } from './companion';
+
+class MemoryStorage implements Storage {
+  private values = new Map<string, string>();
+
+  get length() {
+    return this.values.size;
+  }
+
+  clear() {
+    this.values.clear();
+  }
+
+  getItem(key: string) {
+    return this.values.get(key) ?? null;
+  }
+
+  key(index: number) {
+    return [...this.values.keys()][index] ?? null;
+  }
+
+  removeItem(key: string) {
+    this.values.delete(key);
+  }
+
+  setItem(key: string, value: string) {
+    this.values.set(key, value);
+  }
+}
+
+beforeEach(() => {
+  vi.stubGlobal('localStorage', new MemoryStorage());
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 /* ------------------------------------------------------------------ *
  * Synthetic fixtures — a fixed clock, events placed at chosen local
@@ -54,6 +96,98 @@ const plan = (
   focusLen = 25,
   context?: AttentionPlanContext,
 ) => computeAttentionPlan(events, focusLen, NOW, 28, context);
+
+describe('companion drift persistence', () => {
+  it('persists the answer before triage and classifies that same event', () => {
+    const stored = appendDriftEvent({
+      ts: NOW,
+      shownAt: NOW - 500,
+      min: 8,
+      len: 25,
+      src: 'checkin',
+      sessionId: 'session-1',
+    });
+
+    expect(loadEvents()).toEqual([
+      expect.objectContaining({
+        id: stored.id,
+        kind: 'drift',
+        sessionId: 'session-1',
+      }),
+    ]);
+
+    updateEvent(stored.id, { kind: 'rabbit' });
+
+    expect(loadEvents()).toEqual([
+      expect.objectContaining({
+        id: stored.id,
+        kind: 'rabbit',
+        sessionId: 'session-1',
+      }),
+    ]);
+    expect(JSON.parse(localStorage.getItem('bloom-companion-v1')!).version).toBe(2);
+  });
+
+  it('keeps an unclassified answer as a real drift if triage never happens', () => {
+    const drift = appendDriftEvent({
+      ts: NOW,
+      min: 6,
+      len: 25,
+      src: 'return',
+      sessionId: 'session-2',
+    });
+    const [loaded] = loadEvents();
+
+    expect(loaded).toEqual(drift);
+    expect(isDriftEvent(loaded)).toBe(true);
+    expect(isClassifiedDriftEvent(loaded)).toBe(false);
+  });
+
+  it('continues to read version-1 event blobs', () => {
+    const old = ev('wander');
+    localStorage.setItem(
+      'bloom-companion-v1',
+      JSON.stringify({ version: 1, events: [old] }),
+    );
+
+    expect(loadEvents()).toEqual([old]);
+  });
+});
+
+describe('unclassified drift analytics', () => {
+  it('counts unclassified answers in drift rates without inventing a cause', () => {
+    const events = [
+      ...focusedAt(9, 2),
+      ev('rabbit'),
+      ev('rabbit'),
+      ev('drift'),
+      ev('drift'),
+      ev('drift'),
+    ];
+    const insights = computeInsights(events, NOW);
+
+    expect(insights.answers).toBe(7);
+    expect(insights.drifts).toBe(5);
+    expect(insights.dominant).toBeNull();
+  });
+
+  it('uses only classified answers for a kind-specific recommendation', () => {
+    const events = [
+      ...driftsOf('rabbit', 3, 12),
+      ev('drift', { min: 12 }),
+      ev('drift', { min: 12 }),
+    ];
+    const strategy = plan(events).find((item) => item.evidenceKey === 'parking-lot');
+
+    expect(strategy?.because).toContain('100% of your classified drifts');
+  });
+
+  it('includes unclassified answers when deciding whether a stretch experiment fits', () => {
+    const items = plan([...focusedAt(9, 8), ev('drift'), ev('drift')]);
+
+    expect(items.some((item) => item.emoji === '📈')).toBe(false);
+  });
+});
 
 /* ------------------------------------------------------------------ *
  * PLAN 2.4 — every recommendation is explainable
@@ -161,7 +295,7 @@ describe('computeAttentionPlan — explainability (PLAN 2.4)', () => {
 
   it('recipe copy avoids the never-ship lexicon (docs/voice.md)', () => {
     const banned =
-      /\b(fail|failure|failed|broke|broken|lazy|wasted|discipline|willpower|guilty|shame|excuses|optimal|proven|detox|lost|lose)\b|you should|back to zero|break the chain|protect your streak|we missed you/i;
+      /\b(fail|failure|failed|broke|broken|lazy|wasted|discipline|willpower|guilty|shame|excuses|optimal|proven|detox|lost|lose|weakness|wiggles)\b|you should|back to zero|break the chain|protect your streak|we missed you|all focused|hold focus really well|nice recovery|main pull/i;
     for (const item of oneOfEach()) {
       expect(item.text).not.toMatch(banned);
       expect(item.because).not.toMatch(banned);

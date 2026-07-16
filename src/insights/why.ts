@@ -70,14 +70,14 @@ export const WHY_EVIDENCE_ANCHORS: Record<WhyEvidenceKey, string> = {
 export const EVIDENCE_EXPLAINERS: Record<EvidenceKey, { title: string; text: string }> = {
   'kind-restart': {
     title: 'a kind restart works better',
-    text: 'in one study, people who forgave themselves after procrastinating procrastinated less the next time (Wohl 2010). shame tends to push a task further away; a soft restart brings it closer.',
+    text: 'in one study, people who forgave themselves after procrastinating procrastinated less the next time (Wohl 2010). self-criticism can push a task further away; a soft restart can bring it closer.',
   },
   'attention-fades': {
     title: 'attention naturally fades',
     text: 'focus reliably sags with time on task, and mind-wandering grows as the minutes pass (Zanesco 2024). a slump partway through is the normal shape of attention, not a flaw in yours.',
   },
   'breaks-are-fuel': {
-    title: 'breaks are fuel, not failure',
+    title: 'breaks help attention recover',
     text: 'the research says breaks help — and that there is no single perfect work/break ratio for everyone (Albulescu 2022). the useful move is fitting breaks to where your own focus actually bends.',
   },
   'golden-hours': {
@@ -102,7 +102,7 @@ export const EVIDENCE_EXPLAINERS: Record<EvidenceKey, { title: string; text: str
   },
   'parking-lot': {
     title: 'park it, then come back',
-    text: 'writing an intrusive thought down can move it out of your head and into the world (Risko & Gilbert 2016). for focus sessions this is a promising experiment, not a proven fix.',
+    text: 'writing an intrusive thought down can move it out of your head and into the world (Risko & Gilbert 2016). for focus sessions this is worth an experiment, not a certainty.',
   },
 };
 
@@ -117,6 +117,8 @@ export interface WhyInsight {
 const LATE_RULE_MIN_DRIFTS = 2;
 /** How close (minutes) this session's first drift must sit to the median. */
 const FIRST_DRIFT_TOLERANCE_MIN = 5;
+/** A personal "usual" needs several prior sessions that actually contained a drift. */
+const FIRST_DRIFT_MIN_PRIOR_SESSIONS = 3;
 /** Samples an hour bucket needs before it can be called a strong hour. */
 const GOLDEN_MIN_SAMPLES = 3;
 /** Completion rate an hour bucket needs to count as a strong hour. */
@@ -158,6 +160,7 @@ export function whyFor(
   allEvents: CompanionEvent[],
 ): WhyInsight {
   const drifts = driftsForRecord(record, allEvents);
+  const priorRecords = allRecords.filter((r) => r.id !== record.id);
 
   // 1) Abandon-kindness: a session that ended early always gets the kind
   //    restart, never analysis (docs/science.md#recovering — Wohl 2010:
@@ -182,15 +185,25 @@ export function whyFor(
     }
   }
 
-  const enough = hasEnoughSignal(allRecords.length);
+  const enough = hasEnoughSignal(priorRecords.length);
 
   // 3) First-drift timing: this session's first drift landed where the
   //    user's drifts usually start — a rhythm worth planning breaks around
   //    (docs/science.md#staying — breaks help; fit them to the person).
+  //    "Your usual" must come from prior sessions only: a median that
+  //    includes this session's own drift would fabricate a pattern from a
+  //    single data point.
   if (enough && drifts.length > 0) {
-    const median = medianMinutesToFirstDrift(allRecords, allEvents);
+    const priorDriftSessions = priorRecords.filter(
+      (prior) => driftsForRecord(prior, allEvents).length > 0,
+    ).length;
+    const median = medianMinutesToFirstDrift(priorRecords, allEvents);
     const first = Math.min(...drifts.map(driftOnsetMin));
-    if (median != null && Math.abs(first - median) <= FIRST_DRIFT_TOLERANCE_MIN) {
+    if (
+      priorDriftSessions >= FIRST_DRIFT_MIN_PRIOR_SESSIONS &&
+      median != null &&
+      Math.abs(first - median) <= FIRST_DRIFT_TOLERANCE_MIN
+    ) {
       return {
         text: `your first wander came near minute ${Math.round(first)} — right around your usual. a break just before that point could be worth a try.`,
         evidenceKey: 'breaks-are-fuel',
@@ -202,7 +215,8 @@ export function whyFor(
   //    usually completes for this person (docs/science.md#staying —
   //    chronotype / time-of-day synchrony effects).
   if (enough && record.outcome === 'completed') {
-    const byHour = completionRateByStartHour(allRecords);
+    // The session being explained cannot make its own hour look stronger.
+    const byHour = completionRateByStartHour(priorRecords);
     const b = byHour.find((x) => x.hour === record.startHour);
     if (b && b.total >= GOLDEN_MIN_SAMPLES && b.rate >= GOLDEN_MIN_RATE) {
       return {

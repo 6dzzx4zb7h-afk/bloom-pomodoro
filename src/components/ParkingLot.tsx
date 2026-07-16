@@ -20,6 +20,8 @@ interface ParkingLotProps {
   onPark: (text: string) => void;
   onSendToTasks: (id: string) => void;
   onDismiss: (id: string) => void;
+  /** Releases other pause cards while thoughts remain saved for later. */
+  onSnoozeReturned?: () => void;
 }
 
 export function ParkingLot({
@@ -32,6 +34,7 @@ export function ParkingLot({
   onPark,
   onSendToTasks,
   onDismiss,
+  onSnoozeReturned,
 }: ParkingLotProps) {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState('');
@@ -152,7 +155,13 @@ export function ParkingLot({
                   start my break ▸
                 </button>
               )}
-              <button className="pop-btn" onClick={() => setSnoozed(true)}>
+              <button
+                className="pop-btn"
+                onClick={() => {
+                  setSnoozed(true);
+                  onSnoozeReturned?.();
+                }}
+              >
                 not now ♡
               </button>
             </div>
@@ -165,4 +174,3 @@ export function ParkingLot({
     </>
   );
 }
-

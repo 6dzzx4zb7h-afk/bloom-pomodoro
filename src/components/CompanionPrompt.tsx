@@ -9,7 +9,7 @@ import { KindRestart } from './KindRestart';
 interface CompanionPromptProps {
   companion: Companion;
   palSprite: AnimalKind;
-  /** What the check-in refers to: the intention if set, else the active task. */
+  /** What the check-in refers to: the session-owned target, else the active task. */
   focusLabel: string | null;
 }
 
@@ -49,7 +49,7 @@ export function CompanionPrompt({ companion, palSprite, focusLabel }: CompanionP
   }
 
   return (
-    <div className="companion-pop" role="dialog" aria-label="Companion check-in">
+    <div className="companion-pop" role="region" aria-label="Companion check-in">
       <PixelPal
         sprite={palSprite}
         mode={prompt.type === 'tip' ? 'celebrate' : 'idle'}

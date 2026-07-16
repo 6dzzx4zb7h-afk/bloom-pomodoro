@@ -96,7 +96,7 @@ export function ResumeCue({
               <button className="pop-btn primary" onClick={() => saveThen(onResumeInterrupted)}>
                 resume from here
               </button>
-              <button className="pop-btn" onClick={onDismissInterrupted}>
+              <button className="pop-btn" onClick={() => saveThen(onDismissInterrupted)}>
                 not now
               </button>
             </div>

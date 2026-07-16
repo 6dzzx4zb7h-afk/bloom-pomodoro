@@ -100,8 +100,8 @@ To pick up web changes later, just re-run `npm run apk` (it rebuilds and re-sync
   progress to the next level. Tap a friend to bring them along on the focus ring.
 - **Persistence:** everything (name, settings, streak, tasks, friends, sessions) persists to
   `localStorage` under a **versioned schema that migrates forward**, so future updates never
-  wipe your data. The daily streak bumps when a focus session completes on a new day and
-  resets if a day is missed.
+  wipe your data. The daily streak grows when a focus session completes on a new day and uses
+  a gentle rest-day / come-back state instead of punitive loss messaging.
 
 ## Project layout
 

@@ -9,6 +9,10 @@ import {
   type PreSlumpCaps,
 } from '../insights/triggers';
 import {
+  CADENCE_BREAK_MAX,
+  CADENCE_BREAK_MIN,
+  CADENCE_FOCUS_MAX,
+  CADENCE_FOCUS_MIN,
   EMPTY_PERSONAL_CADENCE,
   PERSONAL_CADENCE_RECOMPUTE_MS,
   rememberPreviousCadence,
@@ -104,7 +108,7 @@ export interface Settings {
   preSlumpCheck: boolean;
 }
 
-interface BloomState {
+export interface BloomState {
   mode: TimerMode;
   running: boolean;
   /** Wall-clock epoch ms the current run ends at; null when paused/stopped. */
@@ -159,7 +163,7 @@ interface BloomState {
   settings: Settings;
 }
 
-const DEFAULT_SETTINGS: Settings = {
+export const DEFAULT_SETTINGS: Settings = {
   name: '',
   durations: { focus: 1500, short: 300, long: 900 },
   sound: true,
@@ -180,7 +184,7 @@ const DEFAULT_TASKS: Task[] = [
   { id: 3, t: 'Sketch in journal', done: false, pomos: 0, goal: 2 },
 ];
 
-const DEFAULT_STATE: BloomState = {
+export const DEFAULT_STATE: BloomState = {
   mode: 'focus',
   running: false,
   endsAt: null,
@@ -473,17 +477,16 @@ function migrate(blob: Record<string, unknown>): PersistedShape {
   return withDefaults(cur);
 }
 
-function readPersisted(): PersistedShape | null {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) return migrate(JSON.parse(raw));
-    // First run under the new key: adopt data from an older key if present.
-    for (const k of LEGACY_KEYS) {
-      const legacy = localStorage.getItem(k);
-      if (legacy) return migrate(JSON.parse(legacy));
+export function readPersisted(): PersistedShape | null {
+  // A corrupt newest blob must not hide a valid legacy backup. Parse each
+  // candidate independently and keep walking when one is unreadable.
+  for (const key of [STORAGE_KEY, ...LEGACY_KEYS]) {
+    try {
+      const raw = localStorage.getItem(key);
+      if (raw) return migrate(JSON.parse(raw));
+    } catch {
+      /* try the next compatible key */
     }
-  } catch {
-    /* corrupt storage — fall through to defaults */
   }
   return null;
 }
@@ -491,7 +494,7 @@ function readPersisted(): PersistedShape | null {
 /** A flow run restored past this is treated as forgotten, not still going. */
 const FLOW_RESTORE_CAP_S = 4 * 3600;
 
-function loadState(): BloomState {
+export function loadState(): BloomState {
   const p = readPersisted();
   if (!p) return DEFAULT_STATE;
   // Gentle streak (PLAN 5.4): the count keeps growing across a single missed
@@ -516,7 +519,9 @@ function loadState(): BloomState {
     settings: p.settings,
     remaining: p.settings.durations.focus,
     sessions: p.sessions,
-    streak: alive ? p.streak : 0,
+    // Keep the prior count in storage while it is set aside. The next
+    // finished session starts the fresh count; booting must not erase data.
+    streak: p.streak,
     lastFocusDay: p.lastFocusDay,
     restDayUsedOn: p.restDayUsedOn,
     comeBack: alive ? p.comeBack : p.comeBack || p.streak > 0,
@@ -674,7 +679,41 @@ export function isTinyFirstRung(record: SessionRecord | undefined): boolean {
   );
 }
 
-type Action =
+export interface CompletionNotice {
+  title: string;
+  body: string;
+}
+
+/** Mode-aware completion copy so finishing a break never suggests another break. */
+export function completionNotice(
+  mode: TimerMode,
+  holdsTinyOffer = false,
+): CompletionNotice {
+  if (mode === 'flow') {
+    return {
+      title: '🌸 Flow banked!',
+      body: 'Lovely stretch of focus — treat yourself to a real break.',
+    };
+  }
+  if (holdsTinyOffer) {
+    return {
+      title: '🌸 Tiny start complete!',
+      body: 'That first step bloomed — ten more minutes are optional.',
+    };
+  }
+  if (mode === 'short' || mode === 'long') {
+    return {
+      title: '🌱 Break complete!',
+      body: 'Ready when you are — the next focus session is yours to start.',
+    };
+  }
+  return {
+    title: '🌸 Session done!',
+    body: 'Nice work — time for a little break.',
+  };
+}
+
+export type Action =
   | { type: 'tick' }
   | { type: 'toggle'; ifThenPlanId?: string; targetText?: string }
   | { type: 'reset' }
@@ -717,7 +756,7 @@ type Action =
   | { type: 'dismissResumeCue'; sessionId: string }
   | { type: 'patchSettings'; patch: Partial<Settings> };
 
-function reducer(s: BloomState, a: Action): BloomState {
+export function reducer(s: BloomState, a: Action): BloomState {
   const dur = s.settings.durations;
   switch (a.type) {
     case 'tick': {
@@ -878,32 +917,43 @@ function reducer(s: BloomState, a: Action): BloomState {
       return reducer(s, { type: 'pick', mode: next });
     }
     case 'finishFlow': {
-      if (s.mode !== 'flow') return s;
+      if (s.mode !== 'flow' || !s.openFlow) return s;
       const elapsed = flowElapsed(s);
       // The user chose to end it, so the record is 'completed' either way —
       // even a stretch too short to bank XP is a real session that happened.
-      const sessionRecords = s.openFlow
-        ? appendSessionRecord(
-            s.sessionRecords,
-            finalizeSession(s.openFlow, 'completed', elapsed / 60),
-          )
-        : s.sessionRecords;
+      const sessionRecords = appendSessionRecord(
+        s.sessionRecords,
+        finalizeSession(s.openFlow, 'completed', elapsed / 60),
+      );
       const parking = revealParkedThoughts(s.parking, s.openFlow?.id);
       const focusLen = Math.max(60, dur.focus);
       // Nearest focus-length wins: half a session or more banks the first
       // bloom. Capped so a stopwatch left running can't mint a day of XP.
       const credited = Math.min(FLOW_CREDIT_CAP, Math.round(elapsed / focusLen));
       if (credited < 1) {
-        // Too short to bank — zero out quietly, no celebration.
-        return { ...s, running: false, flowStart: null, flowAcc: 0, remaining: 0, justDone: false, sessionRecords, openFlow: null, parking };
+        // Too short to bank XP, but still a deliberately finished work
+        // session. It can gently mark today without minting a pomodoro.
+        return {
+          ...s,
+          running: false,
+          flowStart: null,
+          flowAcc: 0,
+          remaining: 0,
+          justDone: false,
+          ...bumpStreak(s),
+          sessionRecords,
+          openFlow: null,
+          parking,
+        };
       }
       const streakPatch = bumpStreak(s);
       // Credit pomodoros one by one so they cascade across tasks exactly like
-      // finished focus sessions do.
+      // finished focus sessions do. Begin with the task stamped at Flow start,
+      // even if the global selection changed while the stopwatch was open.
       let tasks = s.tasks;
-      let activeTaskId = s.activeTaskId;
+      let creditTaskId = s.openFlow?.taskId ?? s.activeTaskId;
       for (let i = 0; i < credited; i++) {
-        const cur = resolveActiveTask(tasks, activeTaskId);
+        const cur = resolveActiveTask(tasks, creditTaskId);
         if (!cur) break;
         const nowDone = cur.pomos + 1 >= cur.goal;
         tasks = tasks.map((t) =>
@@ -911,8 +961,9 @@ function reducer(s: BloomState, a: Action): BloomState {
             ? { ...t, pomos: Math.min(t.pomos + 1, t.goal), done: nowDone }
             : t,
         );
-        activeTaskId = nowDone ? (tasks.find((t) => !t.done)?.id ?? null) : cur.id;
+        creditTaskId = nowDone ? (tasks.find((t) => !t.done)?.id ?? null) : cur.id;
       }
+      const activeTaskId = resolveActiveTask(tasks, s.activeTaskId)?.id ?? null;
       return {
         ...s,
         running: false,
@@ -959,7 +1010,7 @@ function reducer(s: BloomState, a: Action): BloomState {
       return reducer(s, { type: 'clearDone' });
     }
     case 'complete': {
-      if (s.mode === 'flow') return s; // flow ends via finishFlow only
+      if (s.mode === 'flow' || !s.running || s.justDone) return s; // Flow ends via finishFlow only.
       const wasFocus = s.mode === 'focus';
       const wasTiny = s.mode === 'tiny';
       const wasWork = wasFocus || wasTiny;
@@ -972,20 +1023,24 @@ function reducer(s: BloomState, a: Action): BloomState {
             restDayUsedOn: s.restDayUsedOn,
             comeBack: s.comeBack,
           };
-      // Credit the finished pomodoro to the active task; auto-check it once
-      // its goal is reached and move focus to the next open task.
+      // Credit the task stamped when the session began. Changing the global
+      // active task mid-session must not rewrite this session's identity.
       let tasks = s.tasks;
       let activeTaskId = s.activeTaskId;
       if (wasFocus) {
-        const cur = resolveActiveTask(s.tasks, s.activeTaskId);
-        if (cur) {
+        const cur = s.openFocus?.taskId == null
+          ? undefined
+          : s.tasks.find((task) => task.id === s.openFocus?.taskId);
+        if (cur && cur.pomos < cur.goal) {
           tasks = s.tasks.map((t) =>
             t.id === cur.id
               ? { ...t, pomos: Math.min(t.pomos + 1, t.goal), done: t.pomos + 1 >= t.goal }
               : t,
           );
           const nowDone = cur.pomos + 1 >= cur.goal;
-          activeTaskId = nowDone ? (tasks.find((t) => !t.done)?.id ?? null) : cur.id;
+          activeTaskId = nowDone
+            ? (resolveActiveTask(tasks, s.activeTaskId)?.id ?? null)
+            : s.activeTaskId;
         }
       }
       // Credit XP toward the on-duty friend's level. Tiny rungs get a
@@ -1030,6 +1085,7 @@ function reducer(s: BloomState, a: Action): BloomState {
       };
     }
     case 'clearDone': {
+      if (!s.justDone) return s;
       // A finished flow session just settles back to an idle stopwatch —
       // whether to break (and for how long) stays the user's call.
       if (s.mode === 'flow') {
@@ -1053,13 +1109,22 @@ function reducer(s: BloomState, a: Action): BloomState {
       const next: TimerMode = wasFocus ? (s.sessions % 4 === 0 ? 'long' : 'short') : 'focus';
       const rem = dur[next];
       const run = s.settings.autoStart;
+      const now = Date.now();
+      const endsAt = run ? now + rem * 1000 : null;
+      const taskId = next === 'focus'
+        ? resolveActiveTask(s.tasks, s.activeTaskId)?.id
+        : undefined;
+      const openFocus = run && next === 'focus'
+        ? { ...newOpenSession('focus', rem / 60, taskId, undefined, now), endsAt }
+        : s.openFocus;
       return {
         ...s,
         justDone: false,
         mode: next,
         remaining: rem,
         running: run,
-        endsAt: run ? Date.now() + rem * 1000 : null,
+        endsAt,
+        openFocus,
       };
     }
     case 'toggleTask': {
@@ -1181,16 +1246,25 @@ function reducer(s: BloomState, a: Action): BloomState {
     }
     case 'applyCadence': {
       const next: CadencePair = {
-        focusMin: Math.max(5, Math.min(90, Math.round(a.pair.focusMin))),
-        breakMin: Math.max(1, Math.min(30, Math.round(a.pair.breakMin))),
+        focusMin: Math.max(CADENCE_FOCUS_MIN, Math.min(CADENCE_FOCUS_MAX, Math.round(a.pair.focusMin))),
+        breakMin: Math.max(CADENCE_BREAK_MIN, Math.min(CADENCE_BREAK_MAX, Math.round(a.pair.breakMin))),
       };
       const current: CadencePair = {
         focusMin: Math.round(s.settings.durations.focus / 60),
         breakMin: Math.round(s.settings.durations.short / 60),
       };
-      if (current.focusMin === next.focusMin && current.breakMin === next.breakMin) return s;
+      const changed = current.focusMin !== next.focusMin || current.breakMin !== next.breakMin;
+      const replaceRemaining =
+        !s.running &&
+        !s.justDone &&
+        ((s.mode === 'focus' && !s.openFocus) || s.mode === 'short');
+      const remaining = replaceRemaining
+        ? (s.mode === 'focus' ? next.focusMin : next.breakMin) * 60
+        : s.remaining;
+      if (!changed && remaining === s.remaining) return s;
       return {
         ...s,
+        remaining,
         settings: {
           ...s.settings,
           durations: {
@@ -1201,7 +1275,11 @@ function reducer(s: BloomState, a: Action): BloomState {
         },
         personalCadence: {
           ...s.personalCadence,
-          history: rememberPreviousCadence(s.personalCadence.history, current, next),
+          computedAt: null,
+          recommendation: null,
+          history: changed
+            ? rememberPreviousCadence(s.personalCadence.history, current, next)
+            : s.personalCadence.history,
         },
       };
     }
@@ -1402,13 +1480,23 @@ function reducer(s: BloomState, a: Action): BloomState {
           parking: revealParkedThoughts(s.parking, s.openFlow?.id),
         };
       }
-      // Duration edits apply immediately to a stopped timer; a running one
-      // keeps its end time and picks up the new length next session.
+      // Only an actual duration edit may replace a fresh idle countdown.
+      // A paused work record owns its remaining time, and unrelated settings
+      // such as name or theme must never reset it.
+      const durationChanged = a.patch.durations !== undefined;
       const remaining =
-        s.mode !== 'flow' && s.mode !== 'tiny' && !s.running && !s.justDone
+        durationChanged &&
+        s.mode !== 'flow' &&
+        s.mode !== 'tiny' &&
+        !s.running &&
+        !s.justDone &&
+        !s.openFocus
           ? settings.durations[s.mode]
           : s.remaining;
-      return { ...s, settings, remaining };
+      const personalCadence = durationChanged
+        ? { ...s.personalCadence, computedAt: null, recommendation: null }
+        : s.personalCadence;
+      return { ...s, settings, remaining, personalCadence };
     }
     default:
       return s;
@@ -1455,13 +1543,8 @@ export function useBloom() {
     const holdsTinyOffer = state.mode === 'tiny' && isTinyFirstRung(lastRecord);
     if (soundRef.current) {
       audioEngine.playRing();
-      if (state.mode === 'flow') {
-        notify('🌸 Flow banked!', 'Lovely stretch of focus — treat yourself to a real break.');
-      } else if (holdsTinyOffer) {
-        notify('🌸 Tiny start complete!', 'That first step bloomed — ten more minutes are optional.');
-      } else {
-        notify('🌸 Session done!', 'Nice work — time for a little break.');
-      }
+      const notice = completionNotice(state.mode, holdsTinyOffer);
+      notify(notice.title, notice.body);
     }
     if (!holdsTinyOffer) {
       celRef.current = setTimeout(() => dispatch({ type: 'clearDone' }), 3600);
@@ -1507,7 +1590,9 @@ export function useBloom() {
   }, [state.justDone, state.running, state.mode]);
 
   const statusLabel = state.justDone
-    ? 'yay — session done!'
+    ? state.mode === 'short' || state.mode === 'long'
+      ? 'break complete — ready when you are'
+      : 'yay — session done!'
     : state.running
       ? state.mode === 'flow'
         ? 'in the flow…'

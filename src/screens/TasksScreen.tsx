@@ -23,6 +23,13 @@ export function TasksScreen({ bloom }: { bloom: ReturnType<typeof useBloom> }) {
   const { state, palSprite, activeTask, actions } = bloom;
   const [draft, setDraft] = useState('');
   const [goal, setGoal] = useState(1);
+  const [addedNotice, setAddedNotice] = useState(0);
+
+  useEffect(() => {
+    if (!addedNotice) return;
+    const timeout = window.setTimeout(() => setAddedNotice(0), 2200);
+    return () => window.clearTimeout(timeout);
+  }, [addedNotice]);
 
   const doneCount = state.tasks.filter((t) => t.done).length;
   const total = state.tasks.length;
@@ -33,10 +40,11 @@ export function TasksScreen({ bloom }: { bloom: ReturnType<typeof useBloom> }) {
   const dateLabel = `${WEEKDAYS[now.getDay()]} · ${MONTHS[now.getMonth()]} ${now.getDate()}`;
 
   // Focus Patterns: only rendered while Companion Mode is on. The data stays
-  // put when the mode is off — just hidden. Recomputed per visit; the log is
-  // small and local.
+  // put when the mode is off — just hidden. The log is capped and local, so
+  // reload it on render; answering a check-in while this screen stays mounted
+  // must refresh the visible pattern rather than leave a stale snapshot.
   const companionOn = state.settings.companion.on;
-  const localEvents = useMemo(() => loadEvents(), []);
+  const localEvents = loadEvents();
   const [patternsWindow, setPatternsWindow] = useState<'today' | 'week'>('week');
   const insights = useMemo(
     () =>
@@ -100,16 +108,18 @@ export function TasksScreen({ bloom }: { bloom: ReturnType<typeof useBloom> }) {
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
+    if (!draft.trim()) return;
     actions.addTask(draft, goal);
     setDraft('');
     setGoal(1);
+    setAddedNotice((notice) => notice + 1);
   }
 
   return (
     <div className="screen tasks-bg">
       <div className="head">
-        <div className="head-title">Today's tasks</div>
-        <div className="head-sub">{dateLabel}</div>
+        <div className="head-title">Tasks</div>
+        <div className="head-sub">ongoing list · {dateLabel}</div>
       </div>
 
       <div className="prog-card">
@@ -118,9 +128,15 @@ export function TasksScreen({ bloom }: { bloom: ReturnType<typeof useBloom> }) {
         </div>
         <div style={{ flex: 1 }}>
           <div className="prog-count">
-            {doneCount} of {total} done!
+            {total === 0 ? 'ready when you are' : `${doneCount} of ${total} done!`}
           </div>
-          <div className="prog-sub">{allDone ? 'everything bloomed today' : "keep it up, you're blooming"}</div>
+          <div className="prog-sub">
+            {total === 0
+              ? 'one small task is enough to begin'
+              : allDone
+                ? 'everything on the list bloomed'
+                : "keep it up, you're blooming"}
+          </div>
           <div className="prog-track">
             <div className="prog-fill" style={{ width: `${progPct}%` }} />
           </div>
@@ -137,6 +153,7 @@ export function TasksScreen({ bloom }: { bloom: ReturnType<typeof useBloom> }) {
                 onClick={() => actions.toggleTask(task.id)}
                 role="checkbox"
                 aria-checked={task.done}
+                aria-label={`${task.done ? 'Mark incomplete' : 'Mark complete'}: ${task.t}`}
                 tabIndex={0}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' || e.key === ' ') {
@@ -147,9 +164,12 @@ export function TasksScreen({ bloom }: { bloom: ReturnType<typeof useBloom> }) {
               >
                 {task.done ? '✓' : ''}
               </div>
-              <div
-                style={{ flex: 1, minWidth: 0, cursor: task.done ? 'default' : 'pointer' }}
+              <button
+                type="button"
+                className="task-select"
                 onClick={() => actions.setActiveTask(task.id)}
+                disabled={task.done}
+                aria-pressed={isActive}
                 title={task.done ? undefined : 'focus on this task'}
               >
                 <div className={`task-text${task.done ? ' done' : ''}`}>
@@ -161,7 +181,7 @@ export function TasksScreen({ bloom }: { bloom: ReturnType<typeof useBloom> }) {
                     <span key={i} className={`cherry ${i < task.pomos ? 'on' : 'off'}`} />
                   ))}
                 </div>
-              </div>
+              </button>
               <button className="task-del" onClick={() => actions.removeTask(task.id)} aria-label={`Delete ${task.t}`}>
                 &times;
               </button>
@@ -176,7 +196,7 @@ export function TasksScreen({ bloom }: { bloom: ReturnType<typeof useBloom> }) {
               <div>
                 <div className="patterns-title">focus patterns</div>
                 <div className="patterns-sub">
-                  {patternsWindow === 'today' ? 'today' : 'last 7 days'} · lives only on this device
+                  {patternsWindow === 'today' ? 'last 24 hours' : 'last 7 days'} · lives only on this device
                 </div>
               </div>
               <div className="patterns-toggle">
@@ -187,7 +207,7 @@ export function TasksScreen({ bloom }: { bloom: ReturnType<typeof useBloom> }) {
                     onClick={() => setPatternsWindow(w)}
                     aria-pressed={patternsWindow === w}
                   >
-                    {w}
+                    {w === 'today' ? '24 h' : '7 days'}
                   </button>
                 ))}
               </div>
@@ -200,7 +220,7 @@ export function TasksScreen({ bloom }: { bloom: ReturnType<typeof useBloom> }) {
               <>
                 <div className="patterns-line">
                   {insights.drifts === 0
-                    ? `all ${insights.answers} check-ins focused — smooth sailing`
+                    ? `${insights.answers} focused check-in${insights.answers === 1 ? '' : 's'}, noted`
                     : `${insights.drifts} drift${insights.drifts === 1 ? '' : 's'} across ${insights.answers} check-ins`}
                   {insights.aways > 0 && ` · ${insights.aways} quiet tab-away${insights.aways === 1 ? '' : 's'}`}
                 </div>
@@ -247,7 +267,12 @@ export function TasksScreen({ bloom }: { bloom: ReturnType<typeof useBloom> }) {
                   {(['shorter', 'current', 'longer'] as const).map((slot) => {
                     const rung = cadence.rungs[slot];
                     return (
-                      <span key={slot}>{rung.focusMin}/{rung.breakMin}</span>
+                      <span
+                        key={slot}
+                        aria-label={`${slot}: ${rung.focusMin} minutes focus, ${rung.breakMin} minutes break`}
+                      >
+                        {rung.focusMin}/{rung.breakMin}
+                      </span>
                     );
                   })}
                 </span>
@@ -325,13 +350,21 @@ export function TasksScreen({ bloom }: { bloom: ReturnType<typeof useBloom> }) {
 
       <div className="add-row">
         <form className="add-form" onSubmit={submit}>
-          <span className="add-plus">+</span>
+          <button
+            type="submit"
+            className="add-plus"
+            disabled={!draft.trim()}
+            aria-label="Add task"
+          >
+            +
+          </button>
           <input
             className="add-input"
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             placeholder="add something sweet"
             maxLength={60}
+            aria-label="New task"
           />
           <button
             type="button"
@@ -344,6 +377,9 @@ export function TasksScreen({ bloom }: { bloom: ReturnType<typeof useBloom> }) {
             <span className="goal-cherry" />
           </button>
         </form>
+        <div className="task-add-note" role="status" aria-live="polite">
+          {addedNotice ? 'added to your list ♡' : ''}
+        </div>
       </div>
     </div>
   );
