@@ -194,6 +194,9 @@ export interface OpenSession {
   startHour: number;
   /** Task the session will be credited to, if any. */
   taskId?: number;
+  /** Planner goal this session counts toward — stamped at start from the
+   *  linked task (v20). Recording only: nothing auto-advances the goal. */
+  goalId?: number;
   /**
    * Countdown bookkeeping for the boot-time sweep — meaningful for focus and
    * tiny sessions (flow keeps its own clock in the persisted flow state).
@@ -221,6 +224,7 @@ export function newOpenSession(
   taskId: number | undefined,
   ifThenPlanId?: string,
   now = Date.now(),
+  goalId?: number,
 ): OpenSession {
   return {
     id: newSessionId(now),
@@ -229,6 +233,7 @@ export function newOpenSession(
     plannedMin,
     startHour: new Date(now).getHours(),
     taskId,
+    goalId,
     endsAt: null,
     remainingSec: plannedMin != null ? plannedMin * 60 : 0,
     running: true,
@@ -326,6 +331,7 @@ export function finalizeSession(
     outcome,
     startHour: open.startHour,
     taskId: open.taskId,
+    goalId: open.goalId,
     driftEventIds: [...(open.driftEventIds ?? [])],
     targetText: open.targetText,
     ifThenPlanId: open.ifThenPlanId,
@@ -379,6 +385,8 @@ export function sanitizeOpenSession(raw: unknown): OpenSession | null {
   const driftEventIds = Array.isArray(x.driftEventIds)
     ? (x.driftEventIds as unknown[]).filter((d): d is string => typeof d === 'string')
     : [];
+  // Optional goal link (v20): anything but a number means "no goal".
+  const goalId = typeof x.goalId === 'number' && Number.isFinite(x.goalId) ? x.goalId : undefined;
   // Optional plan link (PLAN 3.2): anything but a string means "no plan".
   const ifThenPlanId = typeof x.ifThenPlanId === 'string' ? x.ifThenPlanId : undefined;
   // Optional target (PLAN 4.2): old open sessions simply have none.
@@ -391,6 +399,7 @@ export function sanitizeOpenSession(raw: unknown): OpenSession | null {
     ...(raw as OpenSession),
     driftEventIds,
     targetText,
+    goalId,
     ifThenPlanId,
     nextActionText,
     returnSnapshot,

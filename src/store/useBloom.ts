@@ -22,6 +22,7 @@ import {
   type PersonalCadenceRecommendation,
 } from '../insights/cadence';
 import { DEFAULT_COMPANION, type Chronotype, type CompanionSettings } from './companion';
+import { dayKeyFor } from './dayKey';
 import { GOAL_TARGET_MAX, type Goal } from './goals';
 import {
   addIfThenPlan,
@@ -76,7 +77,15 @@ export interface Task {
   t: string;
   done: boolean;
   pomos: number;
+  /**
+   * Pomodoro-count target for this task (1–6) — NOT a link to a planner
+   * Goal. The planner link lives in `goalId` here and on session records.
+   */
   goal: number;
+  /** Planner goal this task counts toward, if linked (v20). */
+  goalId?: number;
+  /** Epoch ms when the task was last marked done; cleared on un-check (v19). */
+  completedAt?: number;
 }
 
 /** All values in seconds. */
@@ -228,7 +237,7 @@ export const DEFAULT_STATE: BloomState = {
 const STORAGE_KEY = 'bloom-state';
 /** Older keys we still read from once, newest first. */
 const LEGACY_KEYS = ['bloom-state-v2', 'bloom-state-v1'];
-const SCHEMA_VERSION = 18;
+const SCHEMA_VERSION = 20;
 
 interface PersistedShape {
   version: number;
@@ -367,10 +376,23 @@ const MIGRATIONS: Array<(blob: Record<string, unknown>) => Record<string, unknow
   // lastFocusDay pass through untouched; the weekly free rest day starts
   // unused and nobody boots into a welcome-back greeting they didn't earn.
   (blob) => ({ ...blob, restDayUsedOn: null, comeBack: false }),
+  // v18 -> v19: completion timestamps (a first slice of PLAN 8.20, July
+  // 2026). Tasks and goals may now carry an optional `completedAt` epoch-ms
+  // stamp, written the moment they finish. Absent on every existing entry —
+  // nothing acquires invented history — so the blob passes through
+  // untouched. Bumped anyway so every persisted-shape change has a version
+  // (constraint #2) and 7.1 gets a fixture per version.
+  (blob) => blob,
+  // v19 -> v20: task→goal links (the first slice of PLAN 8.12, July 2026).
+  // Tasks and open sessions may now carry an optional `goalId` pointing at a
+  // planner goal; SessionRecord reserved the field back in PLAN 1.1 and now
+  // gets it written. Optional everywhere, so existing data passes through
+  // untouched.
+  (blob) => blob,
 ];
 
 function dayStr(d = new Date()): string {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  return dayKeyFor(d.getTime());
 }
 
 function withDefaults(blob: Record<string, unknown>): PersistedShape {
@@ -725,10 +747,11 @@ export type Action =
   | { type: 'finishFlow' }
   | { type: 'clearDone' }
   | { type: 'toggleTask'; id: number }
-  | { type: 'addTask'; text: string; goal: number }
+  | { type: 'addTask'; text: string; goal: number; goalId?: number }
   | { type: 'removeTask'; id: number }
   | { type: 'setActiveTask'; id: number }
   | { type: 'addGoal'; title: string; due: string; target: number }
+  | { type: 'updateGoal'; id: number; patch: Partial<Pick<Goal, 'title' | 'due' | 'target'>> }
   | { type: 'removeGoal'; id: number }
   | { type: 'logGoal'; id: number; delta: number }
   | { type: 'linkDrift'; eventId: string; sessionId: string }
@@ -790,9 +813,10 @@ export function reducer(s: BloomState, a: Action): BloomState {
         }
         // First press of a fresh stopwatch opens its session record; a
         // resume just keeps the existing one.
+        const flowTask = resolveActiveTask(s.tasks, s.activeTaskId);
         const openFlow =
           s.openFlow ?? {
-            ...newOpenSession('flow', null, resolveActiveTask(s.tasks, s.activeTaskId)?.id),
+            ...newOpenSession('flow', null, flowTask?.id, undefined, undefined, flowTask?.goalId),
             targetText: a.targetText,
           };
         return { ...s, running: true, flowStart: Date.now(), remaining: Math.floor(s.flowAcc), justDone: false, openFlow };
@@ -821,7 +845,8 @@ export function reducer(s: BloomState, a: Action): BloomState {
           // Resuming a paused session keeps its record (and plan) as-is.
           openFocus = { ...openFocus, running: true, endsAt };
         } else {
-          const taskId = resolveActiveTask(s.tasks, s.activeTaskId)?.id;
+          const task = resolveActiveTask(s.tasks, s.activeTaskId);
+          const taskId = task?.id;
           // The plan picked in the pre-session planner (PLAN 3.2): stamp it on
           // the fresh record, bump its usage, and remember it for the active
           // task so the planner preselects it next time.
@@ -830,7 +855,7 @@ export function reducer(s: BloomState, a: Action): BloomState {
             : undefined;
           const plannedMin = s.mode === 'tiny' ? rem / 60 : dur.focus / 60;
           openFocus = {
-            ...newOpenSession(s.mode, plannedMin, taskId, plan?.id),
+            ...newOpenSession(s.mode, plannedMin, taskId, plan?.id, undefined, task?.goalId),
             endsAt,
             targetText: a.targetText,
             // The start target is already a concrete action. It is editable
@@ -958,7 +983,12 @@ export function reducer(s: BloomState, a: Action): BloomState {
         const nowDone = cur.pomos + 1 >= cur.goal;
         tasks = tasks.map((t) =>
           t.id === cur.id
-            ? { ...t, pomos: Math.min(t.pomos + 1, t.goal), done: nowDone }
+            ? {
+                ...t,
+                pomos: Math.min(t.pomos + 1, t.goal),
+                done: nowDone,
+                completedAt: nowDone ? (t.completedAt ?? Date.now()) : t.completedAt,
+              }
             : t,
         );
         creditTaskId = nowDone ? (tasks.find((t) => !t.done)?.id ?? null) : cur.id;
@@ -989,9 +1019,9 @@ export function reducer(s: BloomState, a: Action): BloomState {
       if (s.mode !== 'tiny' || !s.justDone || !isTinyFirstRung(lastRecord)) return s;
       const remaining = TINY_EXTENSION_MIN * 60;
       const endsAt = Date.now() + remaining * 1000;
-      const taskId = resolveActiveTask(s.tasks, s.activeTaskId)?.id;
+      const task = resolveActiveTask(s.tasks, s.activeTaskId);
       const openFocus = {
-        ...newOpenSession('tiny', TINY_EXTENSION_MIN, taskId),
+        ...newOpenSession('tiny', TINY_EXTENSION_MIN, task?.id, undefined, undefined, task?.goalId),
         endsAt,
         targetText: lastRecord.targetText,
       };
@@ -1032,12 +1062,17 @@ export function reducer(s: BloomState, a: Action): BloomState {
           ? undefined
           : s.tasks.find((task) => task.id === s.openFocus?.taskId);
         if (cur && cur.pomos < cur.goal) {
+          const nowDone = cur.pomos + 1 >= cur.goal;
           tasks = s.tasks.map((t) =>
             t.id === cur.id
-              ? { ...t, pomos: Math.min(t.pomos + 1, t.goal), done: t.pomos + 1 >= t.goal }
+              ? {
+                  ...t,
+                  pomos: Math.min(t.pomos + 1, t.goal),
+                  done: nowDone,
+                  completedAt: nowDone ? (t.completedAt ?? Date.now()) : t.completedAt,
+                }
               : t,
           );
-          const nowDone = cur.pomos + 1 >= cur.goal;
           activeTaskId = nowDone
             ? (resolveActiveTask(tasks, s.activeTaskId)?.id ?? null)
             : s.activeTaskId;
@@ -1111,11 +1146,11 @@ export function reducer(s: BloomState, a: Action): BloomState {
       const run = s.settings.autoStart;
       const now = Date.now();
       const endsAt = run ? now + rem * 1000 : null;
-      const taskId = next === 'focus'
-        ? resolveActiveTask(s.tasks, s.activeTaskId)?.id
+      const task = next === 'focus'
+        ? resolveActiveTask(s.tasks, s.activeTaskId)
         : undefined;
       const openFocus = run && next === 'focus'
-        ? { ...newOpenSession('focus', rem / 60, taskId, undefined, now), endsAt }
+        ? { ...newOpenSession('focus', rem / 60, task?.id, undefined, now, task?.goalId), endsAt }
         : s.openFocus;
       return {
         ...s,
@@ -1128,7 +1163,11 @@ export function reducer(s: BloomState, a: Action): BloomState {
       };
     }
     case 'toggleTask': {
-      const tasks = s.tasks.map((t) => (t.id === a.id ? { ...t, done: !t.done } : t));
+      const tasks = s.tasks.map((t) =>
+        t.id === a.id
+          ? { ...t, done: !t.done, completedAt: t.done ? undefined : Date.now() }
+          : t,
+      );
       // If the active task was just checked off, hand focus to the next open one.
       const activeTaskId = resolveActiveTask(tasks, s.activeTaskId)?.id ?? null;
       return { ...s, tasks, activeTaskId };
@@ -1138,7 +1177,11 @@ export function reducer(s: BloomState, a: Action): BloomState {
       if (!text) return s;
       const id = s.tasks.reduce((m, t) => Math.max(m, t.id), 0) + 1;
       const goal = Math.max(1, Math.min(6, a.goal));
-      const tasks = [...s.tasks, { id, t: text, done: false, pomos: 0, goal }];
+      // Only keep a link that points at a real goal — a stale id would ride
+      // along on every session started from this task.
+      const goalId =
+        a.goalId != null && s.goals.some((g) => g.id === a.goalId) ? a.goalId : undefined;
+      const tasks = [...s.tasks, { id, t: text, done: false, pomos: 0, goal, goalId }];
       return { ...s, tasks, activeTaskId: s.activeTaskId ?? id };
     }
     case 'removeTask': {
@@ -1180,7 +1223,43 @@ export function reducer(s: BloomState, a: Action): BloomState {
       // until the next calendar week (PLAN 2.3).
       return s.lastWeeklyReviewWeek === a.week ? s : { ...s, lastWeeklyReviewWeek: a.week };
     case 'removeGoal':
-      return { ...s, goals: s.goals.filter((g) => g.id !== a.id) };
+      // Unlink any task that pointed at the removed goal, so no dangling id
+      // gets stamped onto future sessions.
+      return {
+        ...s,
+        goals: s.goals.filter((g) => g.id !== a.id),
+        tasks: s.tasks.map((t) => (t.goalId === a.id ? { ...t, goalId: undefined } : t)),
+      };
+    case 'updateGoal': {
+      let changed = false;
+      const goals = s.goals.map((g) => {
+        if (g.id !== a.id) return g;
+        const title =
+          a.patch.title !== undefined ? a.patch.title.trim().slice(0, 60) : g.title;
+        if (!title) return g;
+        const due =
+          a.patch.due !== undefined && /^\d{4}-\d{2}-\d{2}$/.test(a.patch.due)
+            ? a.patch.due
+            : g.due;
+        const target =
+          a.patch.target !== undefined
+            ? Math.max(1, Math.min(GOAL_TARGET_MAX, Math.round(a.patch.target) || 1))
+            : g.target;
+        // Shrinking the target below the logged count folds the extra into
+        // "complete" rather than remembering an impossible overshoot.
+        const done = Math.min(g.done, target);
+        changed = true;
+        return {
+          ...g,
+          title,
+          due,
+          target,
+          done,
+          completedAt: done >= target ? (g.completedAt ?? Date.now()) : undefined,
+        };
+      });
+      return changed ? { ...s, goals } : s;
+    }
     case 'addIfThenPlan':
       return {
         ...s,
@@ -1414,6 +1493,7 @@ export function reducer(s: BloomState, a: Action): BloomState {
         plannedMin: record.plannedMin,
         startHour: record.startHour,
         taskId: record.taskId,
+        goalId: record.goalId,
         endsAt,
         remainingSec: remaining,
         running: true,
@@ -1443,9 +1523,13 @@ export function reducer(s: BloomState, a: Action): BloomState {
       return changed ? { ...s, sessionRecords } : s;
     }
     case 'logGoal': {
-      const goals = s.goals.map((g) =>
-        g.id === a.id ? { ...g, done: Math.max(0, Math.min(g.target, g.done + a.delta)) } : g,
-      );
+      const goals = s.goals.map((g) => {
+        if (g.id !== a.id) return g;
+        const done = Math.max(0, Math.min(g.target, g.done + a.delta));
+        // Stamp the moment the last part lands; un-logging one clears it.
+        const completedAt = done >= g.target ? (g.completedAt ?? Date.now()) : undefined;
+        return { ...g, done, completedAt };
+      });
       return { ...s, goals };
     }
     case 'patchSettings': {
@@ -1620,7 +1704,8 @@ export function useBloom() {
         dispatch({ type: 'pick', mode: 'tiny', tinyMinutes: minutes }),
       skip: () => dispatch({ type: 'skip' }),
       toggleTask: (id: number) => dispatch({ type: 'toggleTask', id }),
-      addTask: (text: string, goal = 1) => dispatch({ type: 'addTask', text, goal }),
+      addTask: (text: string, goal = 1, goalId?: number) =>
+        dispatch({ type: 'addTask', text, goal, goalId }),
       removeTask: (id: number) => dispatch({ type: 'removeTask', id }),
       setActiveTask: (id: number) => dispatch({ type: 'setActiveTask', id }),
       finishFlow: () => dispatch({ type: 'finishFlow' }),
@@ -1631,6 +1716,8 @@ export function useBloom() {
       declineTiny: () => dispatch({ type: 'declineTiny' }),
       addGoal: (title: string, due: string, target: number) =>
         dispatch({ type: 'addGoal', title, due, target }),
+      updateGoal: (id: number, patch: Partial<Pick<Goal, 'title' | 'due' | 'target'>>) =>
+        dispatch({ type: 'updateGoal', id, patch }),
       removeGoal: (id: number) => dispatch({ type: 'removeGoal', id }),
       logGoal: (id: number, delta: number) => dispatch({ type: 'logGoal', id, delta }),
       linkDriftEvent: (eventId: string, sessionId: string) =>

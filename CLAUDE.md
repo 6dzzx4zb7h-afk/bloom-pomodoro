@@ -21,13 +21,14 @@ component-level lifecycle coverage for behavior that pure selectors cannot prove
 
 ## How work is planned here
 
-`PLAN.md` is the driving document: ~50 numbered steps across 9 phases, each sized for one session,
+`PLAN.md` is the driving document: ~60 numbered steps across 10 phases, each sized for one session,
 each with Goal / Science / Files / Done-when / Depends-on. Ticked checkboxes mark completed steps.
 The checked boxes in Phases 0–5 record implementation attempts, not release proof. A July 2026
 verification pass found timer/session lifecycle and UI-integration gaps in that work; the concrete
 closures are tracked in Phases 7 and 8. Treat a phase as verified only when its current done-when
 conditions and the cross-feature lifecycle suite pass. Phases 6 (Field Guide), 7
-(verification/release), 8 (remediation), and 9 (data stewardship) remain open. Code comments
+(verification/release), 8 (remediation), 9 (data stewardship), and 10 (day plans & foundational
+habits) remain open. Code comments
 reference steps by number (`PLAN 5.2`) and migrations are annotated with the step that introduced
 them — keep that convention.
 
@@ -89,7 +90,7 @@ survives mode switches and can sit banked while focus sessions run.
 
 Two independent localStorage keys:
 
-- `bloom-state` — one versioned blob (`SCHEMA_VERSION`, currently 18) holding settings, tasks, goals,
+- `bloom-state` — one versioned blob (`SCHEMA_VERSION`, currently 20) holding settings, tasks, goals,
   streak, session records, plans, parking lot, cadence memory.
 - `bloom-companion-v1` — the companion event log, deliberately separate so turning Companion Mode off
   hides the UI without touching the data.

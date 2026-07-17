@@ -11,6 +11,7 @@
 import type { SessionRecord } from '../store/sessions';
 import type { CompanionEvent } from '../store/companion';
 import { isDriftEvent } from '../store/companion';
+import { dayKeyFor } from '../store/dayKey';
 import {
   abandonStreakInfo,
   hasEnoughSignal,
@@ -60,8 +61,7 @@ export const PRE_SLUMP_LEAD_MIN = 2;
 
 /** Local calendar day: caps follow the user's day, not UTC. */
 export function localDayKey(now: number): string {
-  const date = new Date(now);
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+  return dayKeyFor(now);
 }
 
 export interface PreSlumpSuggestion {

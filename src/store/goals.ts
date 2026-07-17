@@ -8,6 +8,8 @@
  * when it isn't.
  */
 
+import { dayKeyFor } from './dayKey';
+
 export interface Goal {
   id: number;
   title: string;
@@ -19,6 +21,8 @@ export interface Goal {
   done: number;
   /** Epoch ms when the goal was added — anchors the observed pace. */
   createdAt: number;
+  /** Epoch ms when `done` last reached `target`; cleared if it drops back (v19). */
+  completedAt?: number;
 }
 
 export const GOAL_TARGET_MAX = 500;
@@ -100,7 +104,5 @@ export function dueLabel(goal: Goal, now = Date.now()): string {
 
 /** Today as YYYY-MM-DD (local) — the min for the date picker. */
 export function todayStr(now = new Date()): string {
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(
-    now.getDate(),
-  ).padStart(2, '0')}`;
+  return dayKeyFor(now.getTime());
 }

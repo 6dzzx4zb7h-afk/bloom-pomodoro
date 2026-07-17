@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { PixelPal } from '../components/PixelPal';
 import type { useBloom } from '../store/useBloom';
-import { GOAL_TARGET_MAX, dueLabel, goalPace, parseDue, todayStr } from '../store/goals';
+import { GOAL_TARGET_MAX, dueLabel, goalPace, parseDue, todayStr, type Goal } from '../store/goals';
 
 const MONTHS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -22,6 +22,34 @@ export function GoalsScreen({ bloom }: { bloom: ReturnType<typeof useBloom> }) {
   const [title, setTitle] = useState('');
   const [due, setDue] = useState('');
   const [target, setTarget] = useState('10');
+  const [editId, setEditId] = useState<number | null>(null);
+  const [editTitle, setEditTitle] = useState('');
+  const [editDue, setEditDue] = useState('');
+  const [editTarget, setEditTarget] = useState('1');
+
+  function beginEdit(goal: Goal) {
+    setEditId(goal.id);
+    setEditTitle(goal.title);
+    setEditDue(goal.due);
+    setEditTarget(String(goal.target));
+  }
+
+  function saveEdit(goal: Goal) {
+    const nextTarget = Math.max(
+      1,
+      Math.min(GOAL_TARGET_MAX, parseInt(editTarget, 10) || goal.target),
+    );
+    if (
+      nextTarget < goal.done &&
+      !window.confirm(
+        `you've logged ${goal.done} parts already — setting ${nextTarget} parts marks this goal done. keep the change?`,
+      )
+    ) {
+      return;
+    }
+    actions.updateGoal(goal.id, { title: editTitle, due: editDue, target: nextTarget });
+    setEditId(null);
+  }
 
   const goals = useMemo(
     () => [...state.goals].sort((a, b) => a.due.localeCompare(b.due) || a.id - b.id),
@@ -81,6 +109,59 @@ export function GoalsScreen({ bloom }: { bloom: ReturnType<typeof useBloom> }) {
         {goals.map((goal) => {
           const pace = goalPace(goal);
           const gpct = Math.round((Math.min(goal.done, goal.target) / goal.target) * 100);
+          if (editId === goal.id) {
+            return (
+              <div className="goal-card" key={goal.id}>
+                <form
+                  className="add-form goal-add goal-edit"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    saveEdit(goal);
+                  }}
+                >
+                  <input
+                    className="add-input"
+                    value={editTitle}
+                    onChange={(e) => setEditTitle(e.target.value)}
+                    maxLength={60}
+                    aria-label={`Rename ${goal.title}`}
+                  />
+                  <input
+                    className="goal-date"
+                    type="date"
+                    value={editDue}
+                    onChange={(e) => setEditDue(e.target.value)}
+                    aria-label="Due date"
+                    required
+                  />
+                  <input
+                    className="goal-parts"
+                    type="number"
+                    value={editTarget}
+                    min={1}
+                    max={GOAL_TARGET_MAX}
+                    onChange={(e) => setEditTarget(e.target.value)}
+                    aria-label="How many parts"
+                    title="how many parts? (lectures, chapters…)"
+                  />
+                  <button
+                    type="submit"
+                    className="goal-go"
+                    disabled={!editTitle.trim() || !editDue}
+                  >
+                    save
+                  </button>
+                  <button
+                    type="button"
+                    className="goal-go goal-cancel"
+                    onClick={() => setEditId(null)}
+                  >
+                    keep as is
+                  </button>
+                </form>
+              </div>
+            );
+          }
           return (
             <div className="goal-card" key={goal.id}>
               <div className="goal-top">
@@ -89,6 +170,14 @@ export function GoalsScreen({ bloom }: { bloom: ReturnType<typeof useBloom> }) {
                   <div className="goal-when">due {shortDate(goal.due)}</div>
                 </div>
                 <span className={`goal-chip ${pace.status}`}>{dueLabel(goal)}</span>
+                <button
+                  className="task-del goal-edit-btn"
+                  onClick={() => beginEdit(goal)}
+                  aria-label={`Edit ${goal.title}`}
+                  title="edit name, date, or parts"
+                >
+                  ✎
+                </button>
                 <button
                   className="task-del"
                   onClick={() => actions.removeGoal(goal.id)}

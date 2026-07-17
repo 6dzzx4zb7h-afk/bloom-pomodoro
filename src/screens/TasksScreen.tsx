@@ -23,7 +23,15 @@ export function TasksScreen({ bloom }: { bloom: ReturnType<typeof useBloom> }) {
   const { state, palSprite, activeTask, actions } = bloom;
   const [draft, setDraft] = useState('');
   const [goal, setGoal] = useState(1);
+  const [linkGoalId, setLinkGoalId] = useState('');
   const [addedNotice, setAddedNotice] = useState(0);
+
+  // Optional task→goal link (a first slice of PLAN 8.12): only offered while
+  // the planner is on and a goal still has parts to go. Purely a label — the
+  // goal never moves on its own.
+  const openGoals = state.settings.planner
+    ? state.goals.filter((g) => g.done < g.target)
+    : [];
 
   useEffect(() => {
     if (!addedNotice) return;
@@ -109,7 +117,8 @@ export function TasksScreen({ bloom }: { bloom: ReturnType<typeof useBloom> }) {
   function submit(e: React.FormEvent) {
     e.preventDefault();
     if (!draft.trim()) return;
-    actions.addTask(draft, goal);
+    // Keep the goal link selected so a batch of tasks files in quickly.
+    actions.addTask(draft, goal, linkGoalId ? Number(linkGoalId) : undefined);
     setDraft('');
     setGoal(1);
     setAddedNotice((notice) => notice + 1);
@@ -376,6 +385,22 @@ export function TasksScreen({ bloom }: { bloom: ReturnType<typeof useBloom> }) {
             {goal}
             <span className="goal-cherry" />
           </button>
+          {openGoals.length > 0 && (
+            <select
+              className="goal-link"
+              value={linkGoalId}
+              onChange={(e) => setLinkGoalId(e.target.value)}
+              title="count this task toward a goal (optional)"
+              aria-label="Count this task toward a goal (optional)"
+            >
+              <option value="">no goal</option>
+              {openGoals.map((g) => (
+                <option key={g.id} value={g.id}>
+                  {g.title}
+                </option>
+              ))}
+            </select>
+          )}
         </form>
         <div className="task-add-note" role="status" aria-live="polite">
           {addedNotice ? 'added to your list ♡' : ''}

@@ -14,6 +14,7 @@
  */
 
 import type { SessionRecord } from '../store/sessions';
+import { dayKeyFor } from '../store/dayKey';
 import { type CompanionEvent, driftOnsetMin, phaseOf } from '../store/companion';
 import { completionRateByStartHour } from '../store/sessionStats';
 import { driftsForRecord } from './why';
@@ -50,7 +51,7 @@ export function weekKey(now: number = Date.now()): string {
   const d = new Date(now);
   d.setHours(0, 0, 0, 0);
   d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); // back to Monday
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  return dayKeyFor(d.getTime());
 }
 
 /* Thresholds — small and legible, same spirit as why.ts. */

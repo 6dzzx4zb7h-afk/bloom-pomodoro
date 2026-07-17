@@ -327,3 +327,91 @@ describe('persisted-state recovery', () => {
     expect(state.comeBack).toBe(true);
   });
 });
+
+describe('goal links and completion stamps (v19/v20 quick wins)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-16T09:00:00'));
+  });
+
+  afterEach(() => vi.useRealTimers());
+
+  const goal = { id: 3, title: 'read 12 papers', due: '2026-08-01', target: 12, done: 0, createdAt: 1 };
+
+  it('stamps completedAt when a task is checked off and clears it on un-check', () => {
+    const state = makeState();
+
+    const done = reducer(state, { type: 'toggleTask', id: 1 });
+    expect(done.tasks.find((t) => t.id === 1)?.completedAt).toBe(Date.now());
+
+    const undone = reducer(done, { type: 'toggleTask', id: 1 });
+    expect(undone.tasks.find((t) => t.id === 1)?.completedAt).toBeUndefined();
+  });
+
+  it('stamps completedAt on a goal only when the last part lands', () => {
+    const state = makeState({ goals: [{ ...goal, done: 10 }] });
+
+    const partway = reducer(state, { type: 'logGoal', id: 3, delta: 1 });
+    expect(partway.goals[0].completedAt).toBeUndefined();
+
+    const finished = reducer(partway, { type: 'logGoal', id: 3, delta: 1 });
+    expect(finished.goals[0].completedAt).toBe(Date.now());
+
+    const reopened = reducer(finished, { type: 'logGoal', id: 3, delta: -1 });
+    expect(reopened.goals[0].completedAt).toBeUndefined();
+  });
+
+  it('links a new task to a real goal and drops a stale link on goal removal', () => {
+    const state = makeState({ goals: [goal] });
+
+    const added = reducer(state, { type: 'addTask', text: 'skim paper 1', goal: 1, goalId: 3 });
+    const task = added.tasks[added.tasks.length - 1];
+    expect(task.goalId).toBe(3);
+
+    const phantom = reducer(state, { type: 'addTask', text: 'floating', goal: 1, goalId: 99 });
+    expect(phantom.tasks[phantom.tasks.length - 1].goalId).toBeUndefined();
+
+    const removed = reducer(added, { type: 'removeGoal', id: 3 });
+    expect(removed.tasks.every((t) => t.goalId === undefined)).toBe(true);
+  });
+
+  it('stamps the linked goal onto the session opened for that task', () => {
+    const withLink = reducer(
+      makeState({ goals: [goal], tasks: [], activeTaskId: null }),
+      { type: 'addTask', text: 'skim paper 1', goal: 1, goalId: 3 },
+    );
+
+    const started = reducer(withLink, { type: 'toggle' });
+    expect(started.openFocus?.goalId).toBe(3);
+
+    vi.advanceTimersByTime(25 * 60 * 1000);
+    const finished = reducer({ ...started, remaining: 0 }, { type: 'complete' });
+    const record = finished.sessionRecords[finished.sessionRecords.length - 1];
+    expect(record.goalId).toBe(3);
+    expect(record.outcome).toBe('completed');
+  });
+
+  it('updateGoal edits title, due, and target, clamping done into the new target', () => {
+    const state = makeState({ goals: [{ ...goal, done: 8 }] });
+
+    const edited = reducer(state, {
+      type: 'updateGoal',
+      id: 3,
+      patch: { title: '  read 6 papers  ', due: '2026-07-20', target: 6 },
+    });
+
+    expect(edited.goals[0]).toMatchObject({
+      title: 'read 6 papers',
+      due: '2026-07-20',
+      target: 6,
+      done: 6,
+    });
+    expect(edited.goals[0].completedAt).toBe(Date.now());
+
+    // A blank title or malformed date changes nothing it shouldn't.
+    const guarded = reducer(edited, { type: 'updateGoal', id: 3, patch: { title: '   ' } });
+    expect(guarded.goals[0].title).toBe('read 6 papers');
+    const badDate = reducer(edited, { type: 'updateGoal', id: 3, patch: { due: 'someday' } });
+    expect(badDate.goals[0].due).toBe('2026-07-20');
+  });
+});

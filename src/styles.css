@@ -2580,7 +2580,8 @@ button {
   row-gap: 7px;
 }
 .goal-date,
-.goal-parts {
+.goal-parts,
+.goal-link {
   flex: none;
   border: 2px solid #eaddf5;
   border-radius: 10px;
@@ -2592,8 +2593,13 @@ button {
   transition: border-color 0.15s;
 }
 .goal-date:focus,
-.goal-parts:focus {
+.goal-parts:focus,
+.goal-link:focus {
   border-color: var(--pink-2);
+}
+.goal-link {
+  max-width: 118px;
+  text-overflow: ellipsis;
 }
 .goal-date {
   width: 128px;
@@ -2619,6 +2625,14 @@ button {
 .goal-go:disabled {
   opacity: 0.45;
   cursor: default;
+}
+.goal-cancel {
+  background: #f4eafb;
+  color: var(--plum);
+}
+.goal-edit {
+  border-style: solid;
+  border-color: #eaddf5;
 }
 .goal-hint {
   margin-top: 6px;
@@ -2965,10 +2979,18 @@ body.night {
   background: rgba(16, 11, 34, 0.35);
 }
 .night .goal-date,
-.night .goal-parts {
+.night .goal-parts,
+.night .goal-link {
   background: #2e2557;
   border-color: #3f3570;
   color-scheme: dark;
+}
+.night .goal-cancel {
+  background: #2e2557;
+  color: var(--plum);
+}
+.night .goal-edit {
+  border-color: #3f3570;
 }
 
 /* ---------- wide screens ----------
