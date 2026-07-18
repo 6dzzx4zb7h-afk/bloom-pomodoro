@@ -3,7 +3,7 @@ import { PixelPal } from './PixelPal';
 import { loadEvents } from '../store/companion';
 import type { SessionRecord } from '../store/sessions';
 import type { AnimalKind } from '../engine/pixelpals';
-import { computeWeeklyReview } from '../insights/weekly';
+import { computeWeeklyReview, weekKey } from '../insights/weekly';
 import {
   personalCadenceForSurface,
   shouldRecomputePersonalCadence,
@@ -12,6 +12,10 @@ import {
   type PersonalCadenceRecommendation,
 } from '../insights/cadence';
 import type { Chronotype } from '../store/companion';
+import { GuideSuggestion } from './GuideSuggestion';
+import { guideSuggestionFor } from '../insights/surfacing';
+import type { GuideReadState } from '../store/guide';
+import type { GuideArticleId } from '../content/guide';
 
 /**
  * Weekly review card (PLAN 2.3): once per calendar week — or on demand from
@@ -32,6 +36,9 @@ export function WeeklyReview({
   currentCadence,
   personalCadence,
   chronotype,
+  guideRead,
+  onGuideSuggested,
+  onOpenGuideArticle,
 }: {
   /** The full session log — the engine windows it to the last 7 days. */
   records: SessionRecord[];
@@ -42,9 +49,22 @@ export function WeeklyReview({
   currentCadence: CadencePair;
   personalCadence: PersonalCadenceMemory;
   chronotype: Chronotype;
+  guideRead: GuideReadState;
+  onGuideSuggested: (id: GuideArticleId, momentKey: string) => void;
+  onOpenGuideArticle: (id: GuideArticleId) => void;
 }) {
   const events = useMemo(() => loadEvents(), []);
   const review = useMemo(() => computeWeeklyReview(records, events), [records, events]);
+  const guideSuggestion = useMemo(
+    () => guideSuggestionFor({
+      kind: 'weekly',
+      momentKey: `weekly:${weekKey()}`,
+      records,
+      events,
+      workSessionRunning: false,
+    }, guideRead, Date.now()),
+    [events, guideRead, records],
+  );
   const cadence = useMemo(
     () => personalCadenceForSurface(
       personalCadence,
@@ -59,6 +79,11 @@ export function WeeklyReview({
   useEffect(() => {
     if (cadenceNeedsRefresh) onCacheCadence(cadence, Date.now());
   }, [cadence, cadenceNeedsRefresh, onCacheCadence]);
+  useEffect(() => {
+    if (guideSuggestion) {
+      onGuideSuggested(guideSuggestion.articleId, guideSuggestion.momentKey);
+    }
+  }, [guideSuggestion, onGuideSuggested]);
   const cadenceIsSet =
     currentCadence.focusMin === cadence.preset.focusMin &&
     currentCadence.breakMin === cadence.preset.breakMin;
@@ -87,6 +112,13 @@ export function WeeklyReview({
           <div className="debrief-row cadence-because">
             cadence check: {cadence.text} {cadence.because}
           </div>
+          {guideSuggestion && (
+            <GuideSuggestion
+              articleId={guideSuggestion.articleId}
+              reason={guideSuggestion.reason}
+              onOpen={onOpenGuideArticle}
+            />
+          )}
           <div className="cadence-ladder" aria-label="Personal cadence ladder">
             {(['shorter', 'current', 'longer'] as const).map((slot) => {
               const rung = cadence.rungs[slot];

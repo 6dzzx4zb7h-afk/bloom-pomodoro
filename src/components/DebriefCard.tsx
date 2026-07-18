@@ -1,10 +1,14 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
 import { PixelPal } from './PixelPal';
 import { driftOnsetMin, loadEvents, phaseOf, type Phase } from '../store/companion';
 import type { SessionRecord, TargetOutcome } from '../store/sessions';
 import type { AnimalKind } from '../engine/pixelpals';
 import { driftsForRecord, whyFor } from '../insights/why';
 import { KindRestart } from './KindRestart';
+import { GuideSuggestion } from './GuideSuggestion';
+import { guideSuggestionFor } from '../insights/surfacing';
+import type { GuideReadState } from '../store/guide';
+import type { GuideArticleId } from '../content/guide';
 
 /**
  * Post-session debrief (PLAN 2.1): after a session ends — completed or
@@ -30,6 +34,9 @@ export function DebriefCard({
   palSprite,
   onTargetOutcome,
   onTinyRestart,
+  guideRead,
+  onGuideSuggested,
+  onOpenGuideArticle,
   onDismiss,
 }: {
   record: SessionRecord;
@@ -38,11 +45,30 @@ export function DebriefCard({
   palSprite: AnimalKind;
   onTargetOutcome: (outcome: TargetOutcome) => void;
   onTinyRestart: (nextStep: string) => void;
+  guideRead: GuideReadState;
+  onGuideSuggested: (id: GuideArticleId, momentKey: string) => void;
+  onOpenGuideArticle: (id: GuideArticleId) => void;
   onDismiss: () => void;
 }) {
   const events = useMemo(() => loadEvents(), [record]);
   const drifts = useMemo(() => driftsForRecord(record, events), [record, events]);
   const why = useMemo(() => whyFor(record, records, events), [record, records, events]);
+  const guideSuggestion = useMemo(
+    () => guideSuggestionFor({
+      kind: 'debrief',
+      momentKey: `debrief:${record.id}`,
+      record,
+      records,
+      events,
+      workSessionRunning: false,
+    }, guideRead, Date.now()),
+    [events, guideRead, record, records],
+  );
+  useEffect(() => {
+    if (guideSuggestion) {
+      onGuideSuggested(guideSuggestion.articleId, guideSuggestion.momentKey);
+    }
+  }, [guideSuggestion, onGuideSuggested]);
   const phaseCounts = useMemo(() => {
     const counts: Record<Phase, number> = { early: 0, mid: 0, late: 0 };
     for (const e of drifts) counts[phaseOf(driftOnsetMin(e), e.len)]++;
@@ -109,6 +135,13 @@ export function DebriefCard({
           <div className="debrief-row debrief-why" data-evidence={why.evidenceKey}>
             ✦ {why.text}
           </div>
+          {guideSuggestion && (
+            <GuideSuggestion
+              articleId={guideSuggestion.articleId}
+              reason={guideSuggestion.reason}
+              onOpen={onOpenGuideArticle}
+            />
+          )}
         </div>
         {record.outcome === 'abandoned' ? (
           <KindRestart

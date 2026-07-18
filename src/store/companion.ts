@@ -533,7 +533,7 @@ export function computeAttentionPlan(
   if (best && best.score >= 0.6) {
     items.push({
       emoji: '🌤️',
-      text: `${best.name} look like your golden hours — perhaps give them the task that asks the most of you.`,
+      text: `${best.name} have worked well for your recent sessions — perhaps try the task that asks the most of you then.`,
       because: `you chose “${tagLabel}”, and ${best.completed} of your ${best.total} sessions started in the ${TIME_BUCKET_PHRASE[best.name]} were completed (${pctOf(best.completed, best.total)}%); the tag is a gentle first guess, blended with what you’ve finished.`,
       evidenceKey: 'golden-hours',
     });
@@ -541,7 +541,7 @@ export function computeAttentionPlan(
   if (worst && best && worst.name !== best.name && worst.score <= 0.45) {
     items.push({
       emoji: '🌙',
-      text: `${worst.name} may run foggier for you — lighter tasks might fit that part of your day.`,
+      text: `fewer recent ${worst.name} sessions have finished — a lighter task could be worth trying then.`,
       because: `you chose “${tagLabel}”, and ${worst.completed} of your ${worst.total} sessions started in the ${TIME_BUCKET_PHRASE[worst.name]} were completed (${pctOf(worst.completed, worst.total)}%); your recent sessions have the louder voice as the log grows.`,
       evidenceKey: 'golden-hours',
     });

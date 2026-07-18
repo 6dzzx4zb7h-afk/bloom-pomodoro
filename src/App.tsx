@@ -10,11 +10,13 @@ import { GoalsScreen } from './screens/GoalsScreen';
 import { CollectionScreen } from './screens/CollectionScreen';
 import { useBloom } from './store/useBloom';
 import { useCompanion } from './store/useCompanion';
+import type { GuideArticleId } from './content/guide';
 
 export default function App() {
   const bloom = useBloom();
   const companion = useCompanion(bloom);
   const [screen, setScreen] = useState<ScreenName>('focus');
+  const [guideArticleId, setGuideArticleId] = useState<GuideArticleId | null>(null);
 
   const needsName = !bloom.state.settings.name.trim();
   const night = bloom.state.settings.night;
@@ -24,6 +26,17 @@ export default function App() {
     bloom.state.sessionRecords.some(
       (record) => record.outcome === 'interrupted' && record.resumeCuePending,
     );
+  const workSessionRunning =
+    bloom.state.running &&
+    (bloom.state.mode === 'focus' || bloom.state.mode === 'tiny' || bloom.state.mode === 'flow');
+
+  const openGuideArticle = (id: GuideArticleId) => {
+    // PLAN 6.3: contextual links wait for a natural pause. Manual browsing of
+    // Collection remains available, but no contextual path interrupts work.
+    if (workSessionRunning) return;
+    setGuideArticleId(id);
+    setScreen('collection');
+  };
 
   // Keep the page backdrop and the browser/status-bar chrome in sync with the theme.
   useEffect(() => {
@@ -67,10 +80,24 @@ export default function App() {
           <Onboarding bloom={bloom} />
         ) : (
           <>
-            {screen === 'focus' && <FocusScreen bloom={bloom} companion={companion} />}
-            {screen === 'tasks' && <TasksScreen bloom={bloom} />}
+            {screen === 'focus' && (
+              <FocusScreen
+                bloom={bloom}
+                companion={companion}
+                onOpenGuideArticle={openGuideArticle}
+              />
+            )}
+            {screen === 'tasks' && (
+              <TasksScreen bloom={bloom} onOpenGuideArticle={openGuideArticle} />
+            )}
             {screen === 'goals' && showGoals && <GoalsScreen bloom={bloom} />}
-            {screen === 'collection' && <CollectionScreen bloom={bloom} />}
+            {screen === 'collection' && (
+              <CollectionScreen
+                bloom={bloom}
+                guideArticleId={guideArticleId}
+                onGuideArticleHandled={() => setGuideArticleId(null)}
+              />
+            )}
             <TabBar
               active={screen}
               onChange={(next) => setScreen(hasResumeCue ? 'focus' : next)}

@@ -299,7 +299,7 @@ Rules of thumb:
 
 ## Phase 6 — The Field Guide (~12 cited articles, contextually surfaced)
 
-### - [ ] 6.1 Guide content model + bundled data
+### - [x] 6.1 Guide content model + bundled data
 
 - **Goal:** `src/content/guide.ts`: typed array of 12 articles matching the report's in-app briefs — id, `stageTag: 'start'|'stay'|'recover'|'science'`, title, 3–5 key-point paragraphs, one practical exercise, and a `sources` array of citation strings (author-year-journal; no external links required at runtime since we're offline — full references live in docs/science.md). Bodies may be PLACEHOLDER_COPY. The 12: first pebble · if-then beats try harder · tiny start · make your desk help you · attention naturally fades · breaks are fuel · what flow needs · music & lyrics · don't make it worse · parking lot · one-minute re-entry · why tracking helps.
 - **Science:** §In-app article briefs (all twelve, verbatim structure: stage tag, key points, practical exercise, sources).
@@ -307,7 +307,7 @@ Rules of thumb:
 - **Done when:** All 12 entries type-check, each has ≥1 source string and one exercise; a test asserts ids are unique and every `evidenceKey` used by `src/insights/*` maps to a real article.
 - **Depends on:** 0.1; ideally after 2.2 so evidence keys exist to map.
 
-### - [ ] 6.2 Guide reading UI
+### - [x] 6.2 Guide reading UI
 
 - **Goal:** A "Field Guide" section (inside CollectionScreen or a light new screen — follow existing nav patterns): browse by stage tag, read view with title/body/exercise/sources, read-state persisted (version bump) so the pet can suggest unread ones. Calm typography; an article is a 2-minute read.
 - **Science:** §Measurement closing paragraph (reflect clearly, don't gamify knowledge — no points for reading).
@@ -315,7 +315,7 @@ Rules of thumb:
 - **Done when:** All 12 articles browsable and readable offline; read-state persists and migrates.
 - **Depends on:** 6.1.
 
-### - [ ] 6.3 Contextual surfacing rules
+### - [x] 6.3 Contextual surfacing rules
 
 - **Goal:** `src/insights/surfacing.ts`: pure ruleset mapping moments → article suggestions, rendered only at natural pauses (debrief, break, weekly review, recipe "why?" links) — **never during a running session**. Mappings: rabbit-hole drift → parking-lot article; urge → parking lot; wander → attention-fades; restless → breaks-are-fuel; external → re-entry ritual; repeated abandons → first-pebble/tiny-start; recipe lines → their evidenceKey article. Caps: ≤1 suggestion per debrief, ≤3 per week, never repeat a read article within 30 days.
 - **Science:** §Measurement — JITAI row (conservative, transparent, low-burden); §Do not build — always-on nudging; §Staying — the drift-kind taxonomy the report endorses for Bloom's tags.
@@ -323,7 +323,7 @@ Rules of thumb:
 - **Done when:** Every mapping unit-tested; caps enforced in tests; manual check confirms zero surfacing paths during an active timer; 2.4's "why?" links now deep-link into the guide.
 - **Depends on:** 6.2, 2.4, and the drift taxonomy from `companion.ts`.
 
-### - [ ] 6.4 Guide copy pass (final wording)
+### - [x] 6.4 Guide copy pass (final wording)
 
 - **Goal:** Replace all PLACEHOLDER_COPY in the 12 articles with final prose written from §In-app article briefs: warm kawaii pet voice per docs/voice.md, honest hedging preserved exactly where the report hedges ("evidence is promising, but most direct studies are in education contexts"), citations kept accurate to docs/science.md.
 - **Science:** §In-app article briefs (source text); §Do not build (banned claims checklist); docs/voice.md.

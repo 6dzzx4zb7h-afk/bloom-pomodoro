@@ -47,6 +47,10 @@ function makeState(patch: Partial<BloomState> = {}): BloomState {
     sessionRecords: [...DEFAULT_STATE.sessionRecords],
     ifThenPlans: [...DEFAULT_STATE.ifThenPlans],
     parking: [...DEFAULT_STATE.parking],
+    guideRead: {
+      readAt: { ...DEFAULT_STATE.guideRead.readAt },
+      suggestions: [...DEFAULT_STATE.guideRead.suggestions],
+    },
     personalCadence: {
       ...DEFAULT_STATE.personalCadence,
       history: [...DEFAULT_STATE.personalCadence.history],
@@ -325,6 +329,98 @@ describe('persisted-state recovery', () => {
 
     expect(state.streak).toBe(40);
     expect(state.comeBack).toBe(true);
+  });
+
+  it('migrates v20 through capped guide state without moving existing data', () => {
+    const task = {
+      id: 42,
+      t: 'Keep this task',
+      done: false,
+      pomos: 3,
+      goal: 4,
+    };
+    localStorage.setItem(
+      'bloom-state',
+      JSON.stringify({
+        version: 20,
+        sessions: 7,
+        streak: 5,
+        tasks: [task],
+        settings: { name: 'Mira' },
+      }),
+    );
+
+    const persisted = readPersisted();
+
+    expect(persisted).toMatchObject({
+      version: 22,
+      sessions: 7,
+      streak: 5,
+      tasks: [task],
+      guideRead: { readAt: {}, suggestions: [] },
+      settings: { name: 'Mira' },
+    });
+  });
+
+  it('loads valid guide reads and drops unknown persisted article ids', () => {
+    localStorage.setItem(
+      'bloom-state',
+      JSON.stringify({
+        version: 21,
+        settings: { name: 'Mira' },
+        guideRead: {
+          readAt: {
+            'first-pebble': 1_752_660_000_000,
+            'not-an-article': 1_752_660_000_001,
+          },
+        },
+      }),
+    );
+
+    expect(loadState().guideRead).toEqual({
+      readAt: { 'first-pebble': 1_752_660_000_000 },
+      suggestions: [],
+    });
+  });
+});
+
+describe('Field Guide read markers', () => {
+  it('records an opened article without changing focus rewards', () => {
+    const state = makeState({ sessions: 4, streak: 3, palXp: { Mochi: 2 } });
+
+    const next = reducer(state, {
+      type: 'markGuideArticleRead',
+      id: 'parking-lot',
+      at: 1_752_660_000_000,
+    });
+
+    expect(next.guideRead).toEqual({
+      readAt: { 'parking-lot': 1_752_660_000_000 },
+      suggestions: [],
+    });
+    expect(next.sessions).toBe(4);
+    expect(next.streak).toBe(3);
+    expect(next.palXp).toEqual({ Mochi: 2 });
+  });
+
+  it('records a contextual suggestion without changing focus rewards', () => {
+    const state = makeState({ sessions: 4, streak: 3, palXp: { Mochi: 2 } });
+
+    const next = reducer(state, {
+      type: 'markGuideArticleSuggested',
+      id: 'parking-lot',
+      momentKey: 'debrief:s-1',
+      at: 1_752_660_000_000,
+    });
+
+    expect(next.guideRead.suggestions).toEqual([{
+      articleId: 'parking-lot',
+      momentKey: 'debrief:s-1',
+      surfacedAt: 1_752_660_000_000,
+    }]);
+    expect(next.sessions).toBe(4);
+    expect(next.streak).toBe(3);
+    expect(next.palXp).toEqual({ Mochi: 2 });
   });
 });
 

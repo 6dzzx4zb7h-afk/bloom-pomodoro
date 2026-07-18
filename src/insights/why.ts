@@ -81,8 +81,8 @@ export const EVIDENCE_EXPLAINERS: Record<EvidenceKey, { title: string; text: str
     text: 'the research says breaks help — and that there is no single perfect work/break ratio for everyone (Albulescu 2022). the useful move is fitting breaks to where your own focus actually bends.',
   },
   'golden-hours': {
-    title: 'everyone has stronger hours',
-    text: 'time of day genuinely shifts focus, most clearly for analytical work and in strong morning or evening types (May & Hasher 2023). your own check-ins show where your stronger hours sit.',
+    title: 'time-of-day patterns are clues',
+    text: 'research calls a chronotype-and-time match the synchrony effect, but results are mixed (May, Hasher & Healey 2023; Chauhan 2025). your recent sessions can suggest a time worth testing, not prove a fixed personal peak.',
   },
   'tiny-start': {
     title: 'tiny starts are real starts',
@@ -220,7 +220,7 @@ export function whyFor(
     const b = byHour.find((x) => x.hour === record.startHour);
     if (b && b.total >= GOLDEN_MIN_SAMPLES && b.rate >= GOLDEN_MIN_RATE) {
       return {
-        text: `this landed in your strong hours — sessions starting around ${fmtHour(record.startHour)} usually finish for you.`,
+        text: `this matched a stronger start time in your recent record — ${b.completed} of ${b.total} prior sessions around ${fmtHour(record.startHour)} finished.`,
         evidenceKey: 'golden-hours',
       };
     }

@@ -252,7 +252,7 @@ describe('computeAttentionPlan — explainability (PLAN 2.4)', () => {
     expect(strat!.because).toContain('mid-session');
   });
 
-  it('the golden-hours line cites the bucket’s own tallies', () => {
+  it('the time-of-day line cites the bucket’s own tallies', () => {
     const items = plan([...focusedAt(9, 4), ...driftsOf('urge', 3, 10, 23)], 25, {
       chronotype: 'betterEarlier',
       completionByStartHour: [completionAt(9, 4, 4), completionAt(23, 0, 3)],

@@ -8,18 +8,26 @@ import {
   loadEvents,
   RECIPE_MIN_SIGNALS,
 } from '../store/companion';
-import { EVIDENCE_EXPLAINERS, type EvidenceKey } from '../insights/why';
+import type { EvidenceKey } from '../insights/why';
 import {
   personalCadenceForSurface,
   shouldRecomputePersonalCadence,
   type CadencePair,
 } from '../insights/cadence';
 import { completionRateByStartHour } from '../store/sessionStats';
+import type { GuideArticleId } from '../content/guide';
+import { guideArticleForEvidenceKey } from '../insights/surfacing';
 
 const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 
-export function TasksScreen({ bloom }: { bloom: ReturnType<typeof useBloom> }) {
+export function TasksScreen({
+  bloom,
+  onOpenGuideArticle,
+}: {
+  bloom: ReturnType<typeof useBloom>;
+  onOpenGuideArticle: (id: GuideArticleId) => void;
+}) {
   const { state, palSprite, activeTask, actions } = bloom;
   const [draft, setDraft] = useState('');
   const [goal, setGoal] = useState(1);
@@ -99,9 +107,13 @@ export function TasksScreen({ bloom }: { bloom: ReturnType<typeof useBloom> }) {
   useEffect(() => {
     if (companionOn && cadenceNeedsRefresh) actions.cachePersonalCadence(cadence, Date.now());
   }, [actions, cadence, cadenceNeedsRefresh, companionOn]);
-  // The recipe's tappable "why?" (PLAN 2.4): a plain explainer sheet for now;
-  // 6.3 upgrades the same keys into Field Guide deep-links.
-  const [evidence, setEvidence] = useState<EvidenceKey | null>(null);
+  const workSessionRunning =
+    state.running &&
+    (state.mode === 'focus' || state.mode === 'tiny' || state.mode === 'flow');
+
+  function openEvidence(key: EvidenceKey) {
+    if (!workSessionRunning) onOpenGuideArticle(guideArticleForEvidenceKey(key));
+  }
 
   function cadenceIsSet(preset: CadencePair): boolean {
     return (
@@ -264,13 +276,15 @@ export function TasksScreen({ bloom }: { bloom: ReturnType<typeof useBloom> }) {
                 {cadence.text}
                 <span className="recipe-because">
                   {cadence.because}{' '}
-                  <button
-                    className="recipe-why"
-                    onClick={() => setEvidence(cadence.evidenceKey)}
-                    aria-label="Why this cadence suggestion?"
-                  >
-                    why?
-                  </button>
+                  {!workSessionRunning && (
+                    <button
+                      className="recipe-why"
+                      onClick={() => openEvidence(cadence.evidenceKey)}
+                      aria-label="Read why this cadence suggestion fits"
+                    >
+                      why?
+                    </button>
+                  )}
                 </span>
                 <span className="cadence-ladder" aria-label="Personal cadence ladder">
                   {(['shorter', 'current', 'longer'] as const).map((slot) => {
@@ -322,13 +336,15 @@ export function TasksScreen({ bloom }: { bloom: ReturnType<typeof useBloom> }) {
                     {item.text}
                     <span className="recipe-because">
                       {item.because}{' '}
-                      <button
-                        className="recipe-why"
-                        onClick={() => setEvidence(item.evidenceKey)}
-                        aria-label="Why this suggestion?"
-                      >
-                        why?
-                      </button>
+                      {!workSessionRunning && (
+                        <button
+                          className="recipe-why"
+                          onClick={() => openEvidence(item.evidenceKey)}
+                          aria-label="Read why this suggestion fits"
+                        >
+                          why?
+                        </button>
+                      )}
                     </span>
                   </span>
                 </div>
@@ -337,25 +353,6 @@ export function TasksScreen({ bloom }: { bloom: ReturnType<typeof useBloom> }) {
           </div>
         )}
       </div>
-
-      {evidence && (
-        <div className="sheet-backdrop" onClick={() => setEvidence(null)}>
-          <div
-            className="sheet evidence-sheet"
-            role="dialog"
-            aria-label="Why this suggestion"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="sheet-grip" />
-            <div className="sheet-title">{EVIDENCE_EXPLAINERS[evidence].title}</div>
-            <div className="evidence-text">{EVIDENCE_EXPLAINERS[evidence].text}</div>
-            <div className="evidence-src">the pet only suggests — you always know best ♡</div>
-            <button className="sheet-done" onClick={() => setEvidence(null)}>
-              ok ♡
-            </button>
-          </div>
-        </div>
-      )}
 
       <div className="add-row">
         <form className="add-form" onSubmit={submit}>

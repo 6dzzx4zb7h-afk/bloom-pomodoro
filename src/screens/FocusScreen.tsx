@@ -21,6 +21,10 @@ import {
   type useBloom,
 } from '../store/useBloom';
 import type { Companion } from '../store/useCompanion';
+import { GuideSuggestion } from '../components/GuideSuggestion';
+import { guideSuggestionFor } from '../insights/surfacing';
+import { loadEvents } from '../store/companion';
+import type { GuideArticleId } from '../content/guide';
 
 const RING_R = 92;
 const RING_C = 2 * Math.PI * RING_R;
@@ -35,9 +39,11 @@ const MODE_LABEL: Record<TimerMode, string> = {
 export function FocusScreen({
   bloom,
   companion,
+  onOpenGuideArticle,
 }: {
   bloom: ReturnType<typeof useBloom>;
   companion: Companion;
+  onOpenGuideArticle: (id: GuideArticleId) => void;
 }) {
   const { state, mood, statusLabel, palSprite, activeTask, actions, mmss, clock } = bloom;
   const [showSettings, setShowSettings] = useState(false);
@@ -274,6 +280,37 @@ export function FocusScreen({
     Boolean(isFlow ? state.openFlow : state.openFocus) &&
     (state.mode === 'focus' || state.mode === 'tiny' || state.mode === 'flow') &&
     !state.justDone;
+  const breakGuideEligible =
+    Boolean(lastRecord) &&
+    (state.mode === 'short' || state.mode === 'long') &&
+    !debrief &&
+    !weekly &&
+    !showSettings &&
+    !showTinyOffer &&
+    !hasResumeCue &&
+    !hasBlockingReturnedParking;
+  const guideEvents = useMemo(() => loadEvents(), [records]);
+  const breakGuideSuggestion = useMemo(
+    () => breakGuideEligible && lastRecord
+      ? guideSuggestionFor({
+          kind: 'break',
+          momentKey: `break:${lastRecord.id}`,
+          record: lastRecord,
+          records,
+          events: guideEvents,
+          workSessionRunning: false,
+        }, state.guideRead, Date.now())
+      : null,
+    [breakGuideEligible, guideEvents, lastRecord, records, state.guideRead],
+  );
+  useEffect(() => {
+    if (breakGuideSuggestion) {
+      actions.markGuideArticleSuggested(
+        breakGuideSuggestion.articleId,
+        breakGuideSuggestion.momentKey,
+      );
+    }
+  }, [actions, breakGuideSuggestion]);
 
   return (
     <div className="screen focus-bg">
@@ -459,6 +496,14 @@ export function FocusScreen({
         onSnoozeReturned={() => setParkingDeferred(true)}
       />
 
+      {breakGuideSuggestion && (
+        <GuideSuggestion
+          articleId={breakGuideSuggestion.articleId}
+          reason={breakGuideSuggestion.reason}
+          onOpen={onOpenGuideArticle}
+        />
+      )}
+
       {resumeSession && (
         <ResumeCue
           palSprite={palSprite}
@@ -590,6 +635,9 @@ export function FocusScreen({
             actions.pickTiny(TINY_START_OPTIONS[0]);
             actions.toggle(undefined, nextStep);
           }}
+          guideRead={state.guideRead}
+          onGuideSuggested={actions.markGuideArticleSuggested}
+          onOpenGuideArticle={onOpenGuideArticle}
           onDismiss={() => setDebrief(null)}
         />
       )}
@@ -605,6 +653,9 @@ export function FocusScreen({
           }}
           personalCadence={state.personalCadence}
           chronotype={state.settings.chronotype}
+          guideRead={state.guideRead}
+          onGuideSuggested={actions.markGuideArticleSuggested}
+          onOpenGuideArticle={onOpenGuideArticle}
           onCacheCadence={actions.cachePersonalCadence}
           onApplyCadence={actions.applyCadence}
           onDismiss={() => setWeekly(false)}

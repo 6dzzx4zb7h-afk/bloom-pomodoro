@@ -25,6 +25,14 @@ import { DEFAULT_COMPANION, type Chronotype, type CompanionSettings } from './co
 import { dayKeyFor } from './dayKey';
 import { GOAL_TARGET_MAX, type Goal } from './goals';
 import {
+  EMPTY_GUIDE_READ_STATE,
+  markGuideArticleRead,
+  markGuideArticleSuggested,
+  sanitizeGuideReadState,
+  type GuideReadState,
+} from './guide';
+import type { GuideArticleId } from '../content/guide';
+import {
   addIfThenPlan,
   markIfThenPlanUsed,
   removeIfThenPlan,
@@ -169,6 +177,8 @@ export interface BloomState {
   personalCadence: PersonalCadenceMemory;
   /** Thoughts hidden during a session and returned at its next pause (PLAN 5.1). */
   parking: ParkedThought[];
+  /** Neutral, timestamped Field Guide read markers (PLAN 6.2). */
+  guideRead: GuideReadState;
   settings: Settings;
 }
 
@@ -220,6 +230,7 @@ export const DEFAULT_STATE: BloomState = {
   preSlump: EMPTY_PRE_SLUMP_CAPS,
   personalCadence: EMPTY_PERSONAL_CADENCE,
   parking: [],
+  guideRead: EMPTY_GUIDE_READ_STATE,
   settings: DEFAULT_SETTINGS,
 };
 
@@ -237,7 +248,7 @@ export const DEFAULT_STATE: BloomState = {
 const STORAGE_KEY = 'bloom-state';
 /** Older keys we still read from once, newest first. */
 const LEGACY_KEYS = ['bloom-state-v2', 'bloom-state-v1'];
-const SCHEMA_VERSION = 20;
+const SCHEMA_VERSION = 22;
 
 interface PersistedShape {
   version: number;
@@ -272,6 +283,8 @@ interface PersistedShape {
   personalCadence: PersonalCadenceMemory;
   /** Persisted distraction parking lot (PLAN 5.1). */
   parking: ParkedThought[];
+  /** Article ids mapped to the last time their read view opened (PLAN 6.2). */
+  guideRead: GuideReadState;
   settings: Settings;
 }
 
@@ -389,6 +402,20 @@ const MIGRATIONS: Array<(blob: Record<string, unknown>) => Record<string, unknow
   // gets it written. Optional everywhere, so existing data passes through
   // untouched.
   (blob) => blob,
+  // v20 -> v21: Field Guide read state (PLAN 6.2). Existing users have not
+  // opened a guide article yet; every other persisted slice passes through
+  // untouched and the bundled article content remains outside localStorage.
+  (blob) => ({ ...blob, guideRead: EMPTY_GUIDE_READ_STATE }),
+  // v21 -> v22: contextual Field Guide presentation markers (PLAN 6.3).
+  // Preserve every article read timestamp; the new suggestion log starts
+  // empty so weekly and 30-day caps can be enforced across future reloads.
+  (blob) => ({
+    ...blob,
+    guideRead: {
+      ...((blob.guideRead && typeof blob.guideRead === 'object') ? blob.guideRead : {}),
+      suggestions: [],
+    },
+  }),
 ];
 
 function dayStr(d = new Date()): string {
@@ -464,6 +491,7 @@ function withDefaults(blob: Record<string, unknown>): PersistedShape {
     preSlump: sanitizePreSlumpCaps(b.preSlump),
     personalCadence: sanitizePersonalCadenceMemory(b.personalCadence),
     parking: sanitizeParkedThoughts(b.parking),
+    guideRead: sanitizeGuideReadState(b.guideRead),
     settings,
   };
 }
@@ -562,6 +590,7 @@ export function loadState(): BloomState {
     preSlump: p.preSlump,
     personalCadence: p.personalCadence,
     parking,
+    guideRead: p.guideRead,
   };
   if (pendingReturn && p.openFocus?.returnSnapshot) {
     // The clock kept moving while away; show the live countdown (held at
@@ -625,6 +654,7 @@ function persist(s: BloomState) {
     preSlump: s.preSlump,
     personalCadence: s.personalCadence,
     parking: s.parking,
+    guideRead: s.guideRead,
     settings: s.settings,
   };
   try {
@@ -771,6 +801,13 @@ export type Action =
   | { type: 'parkThought'; text: string }
   | { type: 'sendParkedToTasks'; id: string }
   | { type: 'dismissParked'; id: string }
+  | { type: 'markGuideArticleRead'; id: GuideArticleId; at: number }
+  | {
+      type: 'markGuideArticleSuggested';
+      id: GuideArticleId;
+      momentKey: string;
+      at: number;
+    }
   | { type: 'captureTabLeave'; at: number }
   | { type: 'markTabReturn'; at: number; thresholdSec: number }
   | { type: 'resolveTabReturn'; resolution: ReturnResolution }
@@ -1392,6 +1429,14 @@ export function reducer(s: BloomState, a: Action): BloomState {
       return s.parking.some((thought) => thought.id === a.id && thought.revealedAt !== null)
         ? { ...s, parking: removeParkedThought(s.parking, a.id) }
         : s;
+    case 'markGuideArticleRead': {
+      const guideRead = markGuideArticleRead(s.guideRead, a.id, a.at);
+      return guideRead === s.guideRead ? s : { ...s, guideRead };
+    }
+    case 'markGuideArticleSuggested': {
+      const guideRead = markGuideArticleSuggested(s.guideRead, a.id, a.momentKey, a.at);
+      return guideRead === s.guideRead ? s : { ...s, guideRead };
+    }
     case 'captureTabLeave': {
       if (
         !s.running ||
@@ -1595,7 +1640,7 @@ export function useBloom() {
   // per-second tick only touches `remaining`, which is not persisted.
   useEffect(() => {
     persist(state);
-  }, [state.sessions, state.streak, state.lastFocusDay, state.restDayUsedOn, state.comeBack, state.tasks, state.activeTaskId, state.palXp, state.goals, state.flowStart, state.flowAcc, state.running, state.mode, state.sessionRecords, state.openFocus, state.openFlow, state.lastWeeklyReviewWeek, state.ifThenPlans, state.ritual, state.lastWoopOfferAt, state.preSlump, state.personalCadence, state.parking, state.settings]);
+  }, [state.sessions, state.streak, state.lastFocusDay, state.restDayUsedOn, state.comeBack, state.tasks, state.activeTaskId, state.palXp, state.goals, state.flowStart, state.flowAcc, state.running, state.mode, state.sessionRecords, state.openFocus, state.openFlow, state.lastWeeklyReviewWeek, state.ifThenPlans, state.ritual, state.lastWoopOfferAt, state.preSlump, state.personalCadence, state.parking, state.guideRead, state.settings]);
 
   // Wall-clock tick: recompute remaining ~4x/sec. Reads Date.now(), so it
   // stays accurate even when the tab is throttled in the background.
@@ -1747,6 +1792,10 @@ export function useBloom() {
       parkThought: (text: string) => dispatch({ type: 'parkThought', text }),
       sendParkedToTasks: (id: string) => dispatch({ type: 'sendParkedToTasks', id }),
       dismissParked: (id: string) => dispatch({ type: 'dismissParked', id }),
+      markGuideArticleRead: (id: GuideArticleId) =>
+        dispatch({ type: 'markGuideArticleRead', id, at: Date.now() }),
+      markGuideArticleSuggested: (id: GuideArticleId, momentKey: string) =>
+        dispatch({ type: 'markGuideArticleSuggested', id, momentKey, at: Date.now() }),
       captureTabLeave: (at: number) => dispatch({ type: 'captureTabLeave', at }),
       markTabReturn: (at: number, thresholdSec: number) =>
         dispatch({ type: 'markTabReturn', at, thresholdSec }),
