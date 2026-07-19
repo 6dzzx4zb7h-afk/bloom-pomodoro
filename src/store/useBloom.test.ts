@@ -3,12 +3,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   DEFAULT_STATE,
   completionNotice,
+  flowCreditsForElapsed,
   loadState,
   readPersisted,
   reducer,
   type BloomState,
 } from './useBloom';
-import { newOpenSession } from './sessions';
+import { finalizeSession, newOpenSession } from './sessions';
 
 class MemoryStorage implements Storage {
   private values = new Map<string, string>();
@@ -270,6 +271,168 @@ describe('timer lifecycle invariants', () => {
     const once = reducer(opened, { type: 'finishFlow' });
     expect(reducer(once, { type: 'finishFlow' })).toBe(once);
   });
+
+  it('uses one nearest-block rule for Flow preview and reducer credit', () => {
+    expect(flowCreditsForElapsed(12.49 * 60, 25 * 60)).toBe(0);
+    expect(flowCreditsForElapsed(12.5 * 60, 25 * 60)).toBe(1);
+    expect(flowCreditsForElapsed(37.5 * 60, 25 * 60)).toBe(2);
+    expect(flowCreditsForElapsed(24 * 60 * 60, 25 * 60)).toBe(12);
+
+    const state = makeState({
+      mode: 'flow',
+      flowAcc: 37.5 * 60,
+      remaining: 37.5 * 60,
+      openFlow: { ...newOpenSession('flow', null, 1), running: false },
+    });
+    const next = reducer(state, { type: 'finishFlow' });
+
+    expect(next.sessions).toBe(flowCreditsForElapsed(37.5 * 60, 25 * 60));
+    expect(next.palXp.Mochi).toBe(2);
+  });
+
+  it.each(['focus', 'tiny'] as const)(
+    'keeps an open %s session\'s exact identity and duration through unrelated edits',
+    (mode) => {
+      const plannedMin = mode === 'focus' ? 25 : 5;
+      const openFocus = {
+        ...newOpenSession(mode, plannedMin, 1),
+        targetText: 'Draft the first paragraph',
+        running: false,
+        remainingSec: 137,
+      };
+      const state = makeState({
+        mode,
+        running: false,
+        remaining: 137,
+        openFocus,
+      });
+
+      const selected = reducer(state, { type: 'setActiveTask', id: 2 });
+      const renamed = reducer(selected, { type: 'patchSettings', patch: { name: 'Mira' } });
+      const resized = reducer(renamed, {
+        type: 'patchSettings',
+        patch: { durations: { ...renamed.settings.durations, focus: 40 * 60 } },
+      });
+
+      expect(resized.remaining).toBe(137);
+      expect(resized.openFocus).toMatchObject({
+        id: openFocus.id,
+        mode,
+        plannedMin,
+        taskId: 1,
+        targetText: 'Draft the first paragraph',
+      });
+    },
+  );
+
+  it.each(['short', 'long'] as const)(
+    'completes a %s break once, advances once, and writes no work record',
+    (mode) => {
+      const state = makeState({
+        mode,
+        running: true,
+        endsAt: Date.now(),
+        remaining: 0,
+        sessions: mode === 'long' ? 4 : 1,
+      });
+
+      const completed = reducer(state, { type: 'complete' });
+      const duplicateComplete = reducer(completed, { type: 'complete' });
+      const advanced = reducer(duplicateComplete, { type: 'clearDone' });
+      const duplicateAdvance = reducer(advanced, { type: 'clearDone' });
+
+      expect(duplicateComplete).toBe(completed);
+      expect(advanced.mode).toBe('focus');
+      expect(advanced.sessionRecords).toHaveLength(0);
+      expect(advanced.sessions).toBe(state.sessions);
+      expect(duplicateAdvance).toBe(advanced);
+    },
+  );
+
+  it('auto-starts and finalizes the next work record at most once', () => {
+    const breakDone = makeState({
+      mode: 'short',
+      justDone: true,
+      remaining: 0,
+      settings: { ...DEFAULT_STATE.settings, autoStart: true },
+    });
+    const started = reducer(breakDone, { type: 'clearDone' });
+    const duplicateStart = reducer(started, { type: 'clearDone' });
+    const completed = reducer(
+      { ...duplicateStart, remaining: 0, endsAt: Date.now() },
+      { type: 'complete' },
+    );
+    const duplicateCompletion = reducer(completed, { type: 'complete' });
+
+    expect(duplicateStart).toBe(started);
+    expect(started.openFocus).not.toBeNull();
+    expect(duplicateCompletion).toBe(completed);
+    expect(completed.sessionRecords).toHaveLength(1);
+    expect(completed.sessionRecords[0]).toMatchObject({
+      id: started.openFocus?.id,
+      outcome: 'completed',
+    });
+  });
+
+  it.each([
+    ['reset', { type: 'reset' } as const],
+    ['mode switch', { type: 'pick', mode: 'short' } as const],
+    ['skip', { type: 'skip' } as const],
+  ])('finalizes an abandoned session at most once through %s', (_label, action) => {
+    const openFocus = {
+      ...newOpenSession('focus', 25, 1),
+      running: false,
+      remainingSec: 20 * 60,
+    };
+    const state = makeState({
+      mode: 'focus',
+      running: false,
+      remaining: 20 * 60,
+      openFocus,
+    });
+
+    const once = reducer(state, action);
+    const twice = reducer(once, action);
+
+    expect(once.sessionRecords.filter((record) => record.id === openFocus.id)).toHaveLength(1);
+    expect(twice.sessionRecords.filter((record) => record.id === openFocus.id)).toHaveLength(1);
+    expect(once.sessionRecords[0]?.outcome).toBe('abandoned');
+  });
+
+  it('holds an elapsed return at zero, then completes once after the answer', () => {
+    const capturedAt = Date.now() - 2 * 60_000;
+    const openFocus = {
+      ...newOpenSession('focus', 1, 1, undefined, capturedAt - 60_000),
+      endsAt: Date.now() - 60_000,
+      returnSnapshot: {
+        capturedAt,
+        returnedAt: Date.now(),
+        elapsedSec: 30,
+        remainingSec: 30,
+        mode: 'focus' as const,
+        round: 1,
+        sessionId: '',
+      },
+    };
+    openFocus.returnSnapshot.sessionId = openFocus.id;
+    const pending = makeState({
+      mode: 'focus',
+      running: true,
+      endsAt: openFocus.endsAt,
+      remaining: 0,
+      openFocus,
+    });
+
+    const held = reducer(pending, { type: 'tick' });
+    const completed = reducer(held, { type: 'resolveTabReturn', resolution: 'focused' });
+    const repeated = reducer(completed, { type: 'resolveTabReturn', resolution: 'focused' });
+
+    expect(held.sessionRecords).toHaveLength(0);
+    expect(held.openFocus?.returnSnapshot).toBeDefined();
+    expect(completed.sessionRecords).toHaveLength(1);
+    expect(completed.sessionRecords[0]).toMatchObject({ id: openFocus.id, outcome: 'completed' });
+    expect(repeated).toBe(completed);
+  });
 });
 
 describe('completionNotice', () => {
@@ -509,5 +672,97 @@ describe('goal links and completion stamps (v19/v20 quick wins)', () => {
     expect(guarded.goals[0].title).toBe('read 6 papers');
     const badDate = reducer(edited, { type: 'updateGoal', id: 3, patch: { due: 'someday' } });
     expect(badDate.goals[0].due).toBe('2026-07-20');
+  });
+
+  it('restores a removed task intact and returns active focus to it', () => {
+    const task = { ...DEFAULT_STATE.tasks[0], pomos: 3, completedAt: Date.now() };
+    const state = makeState({ tasks: [task, { ...DEFAULT_STATE.tasks[1] }], activeTaskId: task.id });
+
+    const removed = reducer(state, { type: 'removeTask', id: task.id });
+    const restored = reducer(removed, {
+      type: 'restoreTask',
+      task,
+      index: 0,
+      wasActive: true,
+    });
+
+    expect(restored.tasks[0]).toEqual(task);
+    expect(restored.activeTaskId).toBe(task.id);
+  });
+
+  it('restores a removed goal with its id, progress, completion stamp, and task links', () => {
+    const completedGoal = { ...goal, done: 12, completedAt: Date.now() };
+    const state = makeState({
+      goals: [completedGoal],
+      tasks: [{ ...DEFAULT_STATE.tasks[0], goalId: goal.id }],
+    });
+
+    const removed = reducer(state, { type: 'removeGoal', id: goal.id });
+    const restored = reducer(removed, {
+      type: 'restoreGoal',
+      goal: completedGoal,
+      index: 0,
+      linkedTaskIds: [DEFAULT_STATE.tasks[0].id],
+    });
+
+    expect(restored.goals).toEqual([completedGoal]);
+    expect(restored.tasks[0].goalId).toBe(goal.id);
+  });
+});
+
+describe('focus-history clearing', () => {
+  it('clears raw reflection history and its cadence cache in one state transition', () => {
+    const record = finalizeSession(newOpenSession('focus', 25, 1), 'completed', 25);
+    const task = { ...DEFAULT_STATE.tasks[0], pomos: 4, done: true };
+    const goal = {
+      id: 9,
+      title: 'Keep this progress',
+      due: '2026-08-01',
+      target: 10,
+      done: 4,
+      createdAt: 1,
+    };
+    const state = makeState({
+      sessions: 8,
+      streak: 5,
+      palXp: { Mochi: 7 },
+      tasks: [task],
+      goals: [goal],
+      sessionRecords: [record],
+      lastWeeklyReviewWeek: '2026-07-13',
+      personalCadence: {
+        computedAt: Date.now(),
+        recommendation: {
+          preset: { id: '20-5', label: '20 / 5', focusMin: 20, breakMin: 5 },
+          kind: 'shrink',
+          text: 'try a shorter block',
+          because: 'recent session history',
+          evidenceKey: 'breaks-are-fuel',
+          rungs: {
+            shorter: { id: '15-4', label: '15 / 4', focusMin: 15, breakMin: 4 },
+            current: { id: '20-5', label: '20 / 5', focusMin: 20, breakMin: 5 },
+            longer: { id: '25-5', label: '25 / 5', focusMin: 25, breakMin: 5 },
+          },
+        },
+        history: [{ focusMin: 25, breakMin: 5 }],
+      },
+    });
+
+    const cleared = reducer(state, { type: 'clearFocusData' });
+
+    expect(cleared.sessionRecords).toEqual([]);
+    expect(cleared.lastWeeklyReviewWeek).toBeNull();
+    expect(cleared.personalCadence).toEqual({
+      computedAt: null,
+      recommendation: null,
+      history: [{ focusMin: 25, breakMin: 5 }],
+    });
+    expect(cleared).toMatchObject({
+      sessions: 8,
+      streak: 5,
+      palXp: { Mochi: 7 },
+      tasks: [task],
+      goals: [goal],
+    });
   });
 });

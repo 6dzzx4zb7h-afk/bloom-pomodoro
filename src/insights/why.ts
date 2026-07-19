@@ -78,7 +78,7 @@ export const EVIDENCE_EXPLAINERS: Record<EvidenceKey, { title: string; text: str
   },
   'breaks-are-fuel': {
     title: 'breaks help attention recover',
-    text: 'the research says breaks help — and that there is no single perfect work/break ratio for everyone (Albulescu 2022). the useful move is fitting breaks to where your own focus actually bends.',
+    text: 'research finds that breaks tend to help — and that there is no single perfect work/break ratio for everyone (Albulescu 2022). the useful move is fitting breaks to where your own focus actually bends.',
   },
   'golden-hours': {
     title: 'time-of-day patterns are clues',

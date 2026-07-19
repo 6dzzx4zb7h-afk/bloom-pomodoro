@@ -4,7 +4,6 @@ import { audioEngine, BG_SOUNDS, requestNotifyPermission, type BgSound } from '.
 import {
   AWAY_CHOICES,
   CHECKIN_CHOICES,
-  clearEvents,
   loadEvents,
   type Chronotype,
 } from '../store/companion';
@@ -28,12 +27,15 @@ interface SettingsSheetProps {
   personalCadence: PersonalCadenceMemory;
   /** Whether a session is currently running (previews only fire when idle). */
   running: boolean;
+  /** Includes paused work records whose history still belongs to the timer. */
+  hasOpenSession: boolean;
   onPatch: (patch: Partial<Settings>) => void;
   onCacheCadence: (recommendation: PersonalCadenceRecommendation, at: number) => void;
   onApplyCadence: (pair: CadencePair) => void;
   ritual: RitualSettings;
   onPatchRitual: (patch: Partial<Pick<RitualSettings, 'enabled' | 'suggestionSeen'>>) => void;
   onUpdateRitualItem: (id: string, text: string) => void;
+  onClearFocusData: () => void;
   onClose: () => void;
   /** Open the weekly review card on demand (PLAN 2.3); closes the sheet. */
   onShowWeekly?: () => void;
@@ -112,11 +114,13 @@ export function SettingsSheet({
   personalCadence,
   ritual,
   running,
+  hasOpenSession,
   onPatch,
   onCacheCadence,
   onApplyCadence,
   onPatchRitual,
   onUpdateRitualItem,
+  onClearFocusData,
   onClose,
   onShowWeekly,
 }: SettingsSheetProps) {
@@ -128,7 +132,9 @@ export function SettingsSheet({
   const [waving, setWaving] = useState(false);
   const waveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [eventCount, setEventCount] = useState(() => loadEvents().length);
-  const cadenceEvents = useMemo(() => loadEvents(), []);
+  const [cadenceEvents, setCadenceEvents] = useState(() => loadEvents());
+  const [clearedNote, setClearedNote] = useState(false);
+  const [showClearScope, setShowClearScope] = useState(false);
   const currentCadence = useMemo(
     () => ({
       focusMin: Math.round(settings.durations.focus / 60),
@@ -148,9 +154,8 @@ export function SettingsSheet({
   );
   const cadenceNeedsRefresh = shouldRecomputePersonalCadence(personalCadence);
   useEffect(() => {
-    if (cadenceNeedsRefresh) onCacheCadence(learnedCadence, Date.now());
-  }, [cadenceNeedsRefresh, learnedCadence, onCacheCadence]);
-  const [clearedNote, setClearedNote] = useState(false);
+    if (!clearedNote && cadenceNeedsRefresh) onCacheCadence(learnedCadence, Date.now());
+  }, [cadenceNeedsRefresh, clearedNote, learnedCadence, onCacheCadence]);
   useEffect(() => setNameDraft(settings.name), [settings.name]);
   useEffect(
     () => () => {
@@ -215,6 +220,23 @@ export function SettingsSheet({
     // While a session runs the store live-switches ambience; when idle, play a
     // short taste so the choice can be heard.
     if (!running) audioEngine.previewAmbience(kind);
+  }
+
+  function confirmClearFocusData() {
+    const sessionLabel = `${records.length} session record${records.length === 1 ? '' : 's'}`;
+    const momentLabel = `${eventCount} Companion moment${eventCount === 1 ? '' : 's'}`;
+    if (
+      !window.confirm(
+        `Clear ${sessionLabel} and ${momentLabel}? Your bloom total, streak, friend XP, task cherries, and goal progress stay.`,
+      )
+    ) {
+      return;
+    }
+    onClearFocusData();
+    setCadenceEvents([]);
+    setEventCount(0);
+    setShowClearScope(false);
+    setClearedNote(true);
   }
 
   return (
@@ -722,7 +744,7 @@ export function SettingsSheet({
               <span className="set-sub">
                 {running
                   ? 'available when the current timer stops'
-                  : 'a tiny look back — what helped you start, and what helped you recover'}
+                  : 'appears once a week, or opens here anytime'}
               </span>
             </span>
             <button
@@ -736,28 +758,53 @@ export function SettingsSheet({
           </div>
         )}
 
-        {(eventCount > 0 || clearedNote) && (
-          <div className="set-row">
-            <span className="set-label">
-              Focus data
-              <span className="set-sub">
-                {clearedNote
-                  ? 'cleared ♡'
-                  : `${eventCount} moment${eventCount === 1 ? '' : 's'} · stays on this device`}
-              </span>
+        <div className="set-row">
+          <span className="set-label">
+            Focus history
+            <span className="set-sub">
+              {clearedNote
+                ? 'reflection history cleared ♡'
+                : `${records.length} session${records.length === 1 ? '' : 's'} · ${eventCount} Companion moment${eventCount === 1 ? '' : 's'} · on this device`}
             </span>
-            {!clearedNote && (
-              <button
-                className="mini-btn"
-                onClick={() => {
-                  clearEvents();
-                  setEventCount(0);
-                  setClearedNote(true);
-                }}
-              >
-                clear my focus data
+          </span>
+          {!clearedNote && (
+            <button
+              className="mini-btn"
+              onClick={() => setShowClearScope((open) => !open)}
+              disabled={running || hasOpenSession}
+              aria-expanded={showClearScope}
+              aria-controls="focus-clear-scope"
+              title={
+                running || hasOpenSession
+                  ? 'Finish or reset the current timer before clearing its history'
+                  : undefined
+              }
+            >
+              review clear scope
+            </button>
+          )}
+        </div>
+
+        {showClearScope && !clearedNote && (
+          <div className="focus-clear-scope" id="focus-clear-scope" role="region" aria-label="Focus history clear scope">
+            <p>
+              <strong>Removes:</strong> completed, interrupted, and stopped session records;
+              Companion check-ins and tab-away moments; and the learned cadence suggestion built
+              from them.
+            </p>
+            <p>
+              <strong>Keeps:</strong> your bloom total, streak, friend XP, task completions and
+              cherries, goal progress, current cadence settings, saved plans, parking lot, and
+              Field Guide reads.
+            </p>
+            <div className="focus-clear-actions">
+              <button className="mini-btn" type="button" onClick={confirmClearFocusData}>
+                clear reflection history
               </button>
-            )}
+              <button className="mini-btn focus-clear-keep" type="button" onClick={() => setShowClearScope(false)}>
+                keep it
+              </button>
+            </div>
           </div>
         )}
 

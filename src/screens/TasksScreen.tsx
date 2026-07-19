@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { PixelPal } from '../components/PixelPal';
-import type { useBloom } from '../store/useBloom';
+import type { Task, useBloom } from '../store/useBloom';
 import {
   computeAttentionPlan,
   computeInsights,
@@ -21,6 +21,12 @@ import { guideArticleForEvidenceKey } from '../insights/surfacing';
 const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 
+interface DeletedTask {
+  task: Task;
+  index: number;
+  wasActive: boolean;
+}
+
 export function TasksScreen({
   bloom,
   onOpenGuideArticle,
@@ -33,6 +39,7 @@ export function TasksScreen({
   const [goal, setGoal] = useState(1);
   const [linkGoalId, setLinkGoalId] = useState('');
   const [addedNotice, setAddedNotice] = useState(0);
+  const [deletedTask, setDeletedTask] = useState<DeletedTask | null>(null);
 
   // Optional task→goal link (a first slice of PLAN 8.12): only offered while
   // the planner is on and a goal still has parts to go. Purely a label — the
@@ -46,6 +53,12 @@ export function TasksScreen({
     const timeout = window.setTimeout(() => setAddedNotice(0), 2200);
     return () => window.clearTimeout(timeout);
   }, [addedNotice]);
+
+  useEffect(() => {
+    if (!deletedTask) return;
+    const timeout = window.setTimeout(() => setDeletedTask(null), 6000);
+    return () => window.clearTimeout(timeout);
+  }, [deletedTask]);
 
   const doneCount = state.tasks.filter((t) => t.done).length;
   const total = state.tasks.length;
@@ -136,6 +149,17 @@ export function TasksScreen({
     setAddedNotice((notice) => notice + 1);
   }
 
+  function removeTask(task: Task, index: number) {
+    setDeletedTask({ task: { ...task }, index, wasActive: state.activeTaskId === task.id });
+    actions.removeTask(task.id);
+  }
+
+  function undoTaskDelete() {
+    if (!deletedTask) return;
+    actions.restoreTask(deletedTask.task, deletedTask.index, deletedTask.wasActive);
+    setDeletedTask(null);
+  }
+
   return (
     <div className="screen tasks-bg">
       <div className="head">
@@ -165,7 +189,7 @@ export function TasksScreen({
       </div>
 
       <div className="task-list">
-        {state.tasks.map((task) => {
+        {state.tasks.map((task, index) => {
           const isActive = activeTask?.id === task.id;
           return (
             <div className={`task-row${isActive ? ' active' : ''}`} key={task.id}>
@@ -203,7 +227,7 @@ export function TasksScreen({
                   ))}
                 </div>
               </button>
-              <button className="task-del" onClick={() => actions.removeTask(task.id)} aria-label={`Delete ${task.t}`}>
+              <button className="task-del" onClick={() => removeTask(task, index)} aria-label={`Delete ${task.t}`}>
                 &times;
               </button>
             </div>
@@ -353,6 +377,13 @@ export function TasksScreen({
           </div>
         )}
       </div>
+
+      {deletedTask && (
+        <div className="undo-toast" role="status" aria-live="polite">
+          <span>“{deletedTask.task.t}” removed</span>
+          <button type="button" onClick={undoTaskDelete}>undo</button>
+        </div>
+      )}
 
       <div className="add-row">
         <form className="add-form" onSubmit={submit}>

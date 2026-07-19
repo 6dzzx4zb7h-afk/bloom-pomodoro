@@ -15,6 +15,7 @@ import {
   SESSION_TARGET_MAX,
   TINY_EXTENSION_MIN,
   TINY_START_OPTIONS,
+  flowCreditsForElapsed,
   isTinyFirstRung,
   type TimerMode,
   type TinyStartMinutes,
@@ -259,8 +260,9 @@ export function FocusScreen({
         : state.settings.durations[state.mode] || 1;
   const ringFrac = isFlow ? (state.remaining % focusLen) / focusLen : state.remaining / total;
   const ringOffset = RING_C * (1 - ringFrac);
-  // Keep the preview identical to finishFlow's nearest-length credit rule.
-  const laps = isFlow ? Math.min(12, Math.round(state.remaining / focusLen)) : 0;
+  // Shared with finishFlow so the displayed bank preview cannot disagree
+  // with the reducer at half-block boundaries (PLAN 7.4f).
+  const laps = isFlow ? flowCreditsForElapsed(state.remaining, focusLen) : 0;
 
   const modes: TimerMode[] = state.settings.flow
     ? ['focus', 'flow', 'tiny', 'short', 'long']
@@ -683,11 +685,13 @@ export function FocusScreen({
           personalCadence={state.personalCadence}
           ritual={state.ritual}
           running={state.running}
+          hasOpenSession={Boolean(state.openFocus || state.openFlow)}
           onPatch={actions.patchSettings}
           onCacheCadence={actions.cachePersonalCadence}
           onApplyCadence={actions.applyCadence}
           onPatchRitual={actions.patchRitual}
           onUpdateRitualItem={actions.updateRitualItem}
+          onClearFocusData={actions.clearFocusData}
           onClose={() => setShowSettings(false)}
           onShowWeekly={() => {
             setShowSettings(false);

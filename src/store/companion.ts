@@ -414,27 +414,27 @@ function chronotypePrior(chronotype: Chronotype, bucket: TimeBucket): number {
 const RECIPE_STRATEGY: Record<DriftKind, { emoji: string; text: string; evidenceKey: EvidenceKey }> = {
   rabbit: {
     emoji: '🕳️',
-    text: 'rabbit holes have shown up most often lately — keep a "later list" beside you and park links there unopened; visit them in one batch after the timer.',
+    text: 'rabbit holes have shown up most often lately — a "later list" could hold links unopened until one batch after the timer.',
     evidenceKey: 'parking-lot',
   },
   external: {
     emoji: '🔕',
-    text: 'interruptions have shown up most often lately — try do-not-disturb during sessions and a quick "back in a bit" when that fits.',
+    text: 'interruptions have shown up most often lately — want to try do-not-disturb and a quick "back in a bit" when that fits?',
     evidenceKey: 'desk-help',
   },
   urge: {
     emoji: '🌊',
-    text: 'check-urges have shown up most often lately — put the phone out of reach, and when an urge hits, give it two minutes before deciding.',
+    text: 'check-urges have shown up most often lately — worth an experiment: phone out of reach, then two minutes before deciding.',
     evidenceKey: 'parking-lot',
   },
   wander: {
     emoji: '💭',
-    text: 'mind-wandering has shown up most often lately — write one tiny intention before each session and re-read the last line whenever you notice drifting.',
+    text: 'mind-wandering has shown up most often lately — want to try one tiny intention, then re-read it after a drift?',
     evidenceKey: 'if-then',
   },
   restless: {
     emoji: '🐇',
-    text: 'restlessness has shown up most often lately — try moving each break (a stretch, shake-out, or lap of the room) before sitting back down.',
+    text: 'restlessness has shown up most often lately — a moving break could be worth trying before sitting back down.',
     evidenceKey: 'breaks-are-fuel',
   },
 };
@@ -486,14 +486,14 @@ export function computeAttentionPlan(
       const shorter = Math.max(15, focusLenMins - 5);
       items.push({
         emoji: '⏱️',
-        text: `your focus tends to fade near the end — try ${shorter}-minute sessions for a week; ending strong beats lasting long.`,
+        text: `your focus tends to fade near the end — want to try ${shorter}-minute sessions for a week and compare the endings?`,
         because: `${late.length} of your ${drifts.length} drifts these last ${span} started in the final stretch of a session.`,
         evidenceKey: 'attention-fades',
       });
     } else if (early.length > drifts.length / 2) {
       items.push({
         emoji: '🚀',
-        text: 'drifts cluster right after you start — a 30-second warm-up (clear desk, one intention, water) helps you land in the session.',
+        text: 'drifts cluster right after you start — a 30-second warm-up may help you land in the session.',
         because: `${early.length} of your ${drifts.length} drifts these last ${span} came in the opening minutes.`,
         evidenceKey: 'desk-help',
       });

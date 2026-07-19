@@ -133,6 +133,7 @@ export function GuideScreen({
       <div className="guide-intro">
         <strong>Small notes for focus</strong>
         <span>Twelve quiet reads, bundled for offline moments.</span>
+        <span>Bloom offers at most three a week. Each note rests for 30 days.</span>
       </div>
 
       <div

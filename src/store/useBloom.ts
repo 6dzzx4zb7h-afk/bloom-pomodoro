@@ -21,7 +21,12 @@ import {
   type PersonalCadenceMemory,
   type PersonalCadenceRecommendation,
 } from '../insights/cadence';
-import { DEFAULT_COMPANION, type Chronotype, type CompanionSettings } from './companion';
+import {
+  clearEvents,
+  DEFAULT_COMPANION,
+  type Chronotype,
+  type CompanionSettings,
+} from './companion';
 import { dayKeyFor } from './dayKey';
 import { GOAL_TARGET_MAX, type Goal } from './goals';
 import {
@@ -690,6 +695,16 @@ function flowElapsed(s: BloomState, now = Date.now()): number {
 /** A finished flow banks at most this many pomodoro-equivalents. */
 const FLOW_CREDIT_CAP = 12;
 
+/**
+ * Convert elapsed Flow time into the same nearest-block credit used by both
+ * the live preview and the reducer reward (PLAN 7.4f).
+ */
+export function flowCreditsForElapsed(elapsedSec: number, focusSec: number): number {
+  const safeElapsed = Number.isFinite(elapsedSec) ? Math.max(0, elapsedSec) : 0;
+  const safeFocus = Number.isFinite(focusSec) ? Math.max(60, focusSec) : 60;
+  return Math.min(FLOW_CREDIT_CAP, Math.round(safeElapsed / safeFocus));
+}
+
 /** Minutes the open focus countdown has actually run (paused time excluded). */
 function focusElapsedMin(s: BloomState, now = Date.now()): number {
   const plannedSec = (s.openFocus?.plannedMin ?? 0) * 60;
@@ -779,11 +794,14 @@ export type Action =
   | { type: 'toggleTask'; id: number }
   | { type: 'addTask'; text: string; goal: number; goalId?: number }
   | { type: 'removeTask'; id: number }
+  | { type: 'restoreTask'; task: Task; index: number; wasActive: boolean }
   | { type: 'setActiveTask'; id: number }
   | { type: 'addGoal'; title: string; due: string; target: number }
   | { type: 'updateGoal'; id: number; patch: Partial<Pick<Goal, 'title' | 'due' | 'target'>> }
   | { type: 'removeGoal'; id: number }
+  | { type: 'restoreGoal'; goal: Goal; index: number; linkedTaskIds: number[] }
   | { type: 'logGoal'; id: number; delta: number }
+  | { type: 'clearFocusData' }
   | { type: 'linkDrift'; eventId: string; sessionId: string }
   | { type: 'markWeeklyReview'; week: string }
   | { type: 'addIfThenPlan'; cueType: CueType; cueText: string; actionText: string; taskId?: number }
@@ -988,10 +1006,9 @@ export function reducer(s: BloomState, a: Action): BloomState {
         finalizeSession(s.openFlow, 'completed', elapsed / 60),
       );
       const parking = revealParkedThoughts(s.parking, s.openFlow?.id);
-      const focusLen = Math.max(60, dur.focus);
       // Nearest focus-length wins: half a session or more banks the first
       // bloom. Capped so a stopwatch left running can't mint a day of XP.
-      const credited = Math.min(FLOW_CREDIT_CAP, Math.round(elapsed / focusLen));
+      const credited = flowCreditsForElapsed(elapsed, dur.focus);
       if (credited < 1) {
         // Too short to bank XP, but still a deliberately finished work
         // session. It can gently mark today without minting a pomodoro.
@@ -1227,6 +1244,16 @@ export function reducer(s: BloomState, a: Action): BloomState {
         s.activeTaskId === a.id ? (tasks.find((t) => !t.done)?.id ?? null) : s.activeTaskId;
       return { ...s, tasks, activeTaskId };
     }
+    case 'restoreTask': {
+      if (s.tasks.some((task) => task.id === a.task.id)) return s;
+      const tasks = [...s.tasks];
+      tasks.splice(Math.max(0, Math.min(a.index, tasks.length)), 0, { ...a.task });
+      return {
+        ...s,
+        tasks,
+        activeTaskId: a.wasActive && !a.task.done ? a.task.id : s.activeTaskId,
+      };
+    }
     case 'setActiveTask': {
       const t = s.tasks.find((x) => x.id === a.id);
       if (!t || t.done) return s;
@@ -1267,6 +1294,19 @@ export function reducer(s: BloomState, a: Action): BloomState {
         goals: s.goals.filter((g) => g.id !== a.id),
         tasks: s.tasks.map((t) => (t.goalId === a.id ? { ...t, goalId: undefined } : t)),
       };
+    case 'restoreGoal': {
+      if (s.goals.some((goal) => goal.id === a.goal.id)) return s;
+      const goals = [...s.goals];
+      goals.splice(Math.max(0, Math.min(a.index, goals.length)), 0, { ...a.goal });
+      const linkedTaskIds = new Set(a.linkedTaskIds);
+      return {
+        ...s,
+        goals,
+        tasks: s.tasks.map((task) =>
+          linkedTaskIds.has(task.id) ? { ...task, goalId: a.goal.id } : task,
+        ),
+      };
+    }
     case 'updateGoal': {
       let changed = false;
       const goals = s.goals.map((g) => {
@@ -1360,6 +1400,21 @@ export function reducer(s: BloomState, a: Action): BloomState {
         },
       };
     }
+    case 'clearFocusData':
+      // One reducer transition clears the raw reflection history and the
+      // recommendation derived from it. Accomplishment counters and explicit
+      // task/goal progress stay intact; Settings explains that scope before
+      // dispatching this action (PLAN 8.2).
+      return {
+        ...s,
+        sessionRecords: [],
+        lastWeeklyReviewWeek: null,
+        personalCadence: {
+          ...s.personalCadence,
+          computedAt: null,
+          recommendation: null,
+        },
+      };
     case 'applyCadence': {
       const next: CadencePair = {
         focusMin: Math.max(CADENCE_FOCUS_MIN, Math.min(CADENCE_FOCUS_MAX, Math.round(a.pair.focusMin))),
@@ -1752,6 +1807,8 @@ export function useBloom() {
       addTask: (text: string, goal = 1, goalId?: number) =>
         dispatch({ type: 'addTask', text, goal, goalId }),
       removeTask: (id: number) => dispatch({ type: 'removeTask', id }),
+      restoreTask: (task: Task, index: number, wasActive = false) =>
+        dispatch({ type: 'restoreTask', task, index, wasActive }),
       setActiveTask: (id: number) => dispatch({ type: 'setActiveTask', id }),
       finishFlow: () => dispatch({ type: 'finishFlow' }),
       extendTiny: () => {
@@ -1764,7 +1821,16 @@ export function useBloom() {
       updateGoal: (id: number, patch: Partial<Pick<Goal, 'title' | 'due' | 'target'>>) =>
         dispatch({ type: 'updateGoal', id, patch }),
       removeGoal: (id: number) => dispatch({ type: 'removeGoal', id }),
+      restoreGoal: (goal: Goal, index: number, linkedTaskIds: number[] = []) =>
+        dispatch({ type: 'restoreGoal', goal, index, linkedTaskIds }),
       logGoal: (id: number, delta: number) => dispatch({ type: 'logGoal', id, delta }),
+      clearFocusData: () => {
+        // The companion log has its own localStorage key. Keep the public
+        // action cohesive: one user confirmation clears that key and one
+        // reducer action clears every dependent main-store slice.
+        clearEvents();
+        dispatch({ type: 'clearFocusData' });
+      },
       linkDriftEvent: (eventId: string, sessionId: string) =>
         dispatch({ type: 'linkDrift', eventId, sessionId }),
       markWeeklyReview: (week: string) => dispatch({ type: 'markWeeklyReview', week }),

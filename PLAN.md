@@ -335,7 +335,7 @@ Rules of thumb:
 
 ## Phase 7 — Verification & release
 
-### - [ ] 7.1 Migration test suite
+### - [x] 7.1 Migration test suite
 
 - **Goal:** Vitest suite with a localStorage fixture for *every* schema version shipped during this plan; each fixture runs the full forward-migration chain to latest and asserts: no key loss, streak/XP/pets/tasks/goals intact, new slices initialized. Add a CI-friendly `npm run test:migrations`. **Audit note (July 2026):** the Companion event log persists under its *own* localStorage key with an independent internal version (`LOG_KEY` in `src/store/companion.ts`), outside the main versioned blob — fixtures must cover that key too, or the suite proves less than constraint #2 requires.
 - **Science:** Constraint #2 made mechanically enforceable — insight features are worthless if they eat the data they explain (§Measurement — monitoring requires trustworthy records).
@@ -351,7 +351,7 @@ Rules of thumb:
 - **Done when:** Zero network requests in a full manual pass over debrief, weekly review, planner, tiny-start, ritual, parking lot, resume cue, kind restart, guide.
 - **Depends on:** Phases 1–6.
 
-### - [ ] 7.3 Voice & do-not-build copy audit
+### - [x] 7.3 Voice & do-not-build copy audit
 
 - **Goal:** Sweep every user-facing string added by this plan against docs/voice.md and §Do not build: no guilt, no shame, no "scientifically optimal", no dead-pet/loss framing, no ADHD-treatment implications (the report's approved boundary sentence — "some people, including some people with ADHD, may find shorter steps and stronger external cues helpful; this app is not medical advice" — may appear in the guide's science article only). Fix violations in the same session.
 - **Science:** §Do not build (entire table); §Recovering — self-forgiveness row; docs/voice.md.
@@ -359,7 +359,7 @@ Rules of thumb:
 - **Done when:** Grep list of banned phrases returns clean; a read-through of every new card/screen in the preview passes the voice checklist.
 - **Depends on:** 6.4 and all feature phases.
 
-### - [ ] 7.4 Timer/session lifecycle invariant suite
+### - [x] 7.4 Timer/session lifecycle invariant suite
 
 - **Goal:** Add executable integration coverage at the reducer/hook boundary instead of relying on
   isolated selector tests and manual localStorage inspection. Cover every work-session entry and
@@ -381,11 +381,11 @@ Rules of thumb:
   warning is ignored; `npm test` and `npm run build` are green.
 - **Depends on:** Phase 1 timer/session work. Land the deterministic harness first; every relevant
   Phase 8 closure must add its regression to this suite, and the full suite must pass before release QA.
-- **Progress (July 2026):** A deterministic reducer seam and initial regression file now cover
-  auto-start record creation, paused settings/cadence preservation, idle cadence sync, session-owned
-  Focus/Flow task credit, short-Flow streak policy, duplicate completion guards, break notification
-  copy, corrupt-current legacy fallback, and lossless set-aside streak loading. The step stays open:
-  component/hook controls, every exit mode, reload/return races, and the full matrix above remain.
+- **Closed (July 2026):** The deterministic reducer seam now covers Focus, Tiny, Flow, short/long
+  breaks, auto-start, pause, settings/cadence/task changes, every exit outcome, return-at-zero races,
+  reload sweeps, and repeated finalization. Flow preview/reward share one rounding helper. Real
+  `useBloom` + `FocusScreen` tests exercise Start/Pause/Reset, Tiny/Skip, Flow/Finish, return pause,
+  and interrupted-session resume controls with deterministic clocks and localStorage.
 
 ### - [ ] 7.5 QA script + Android release
 
@@ -409,15 +409,17 @@ Rules of thumb:
 - **Closed (July 2026):** The row now has a labelled submit button, blank guard, Enter submit, and a
   polite acknowledgement; production build and the full test suite are green.
 
-### - [ ] 8.2 Safe destructive data actions + goal editing
+### - [x] 8.2 Safe destructive data actions + goal editing
 
 - **Goal:** Task and goal deletion is instant with no confirmation, undo, or recovery, and goals can't be edited after creation (fixing a typo requires deletion). Add an undo toast for deletes; require confirmation only when a goal carries meaningful progress; add an edit action for goal title/date/parts. Settings' "clear focus data" action also needs precise scope and safe semantics: say which session, Companion, cadence-cache, streak, XP, task-credit, and goal-credit data will remain or be removed; confirm before clearing; perform one atomic store update; and do not leave derived insight/cadence caches describing deleted events.
 - **Files:** `src/screens/TasksScreen.tsx`, `src/screens/GoalsScreen.tsx`, `src/components/SettingsSheet.tsx`, persistence/store actions.
 - **Done when:** Delete → undo restores intact (id, progress); goal with progress asks first; goals editable in place; focus-data clearing has a truthful preview + confirmation, clears the documented dependent data atomically, invalidates derived caches, and has a reload regression test.
-- **Progress (July 2026):** Goals are now editable in place: an `updateGoal` action (title/date/parts
-  with the same validation and clamps as `addGoal`) plus an inline edit form on each goal card, and
-  shrinking the target below the logged count asks first. Remaining: undo toasts for task/goal
-  deletes, delete confirmation for goals with progress, and the safe "clear focus data" semantics.
+- **Closed (July 2026):** Task and goal deletes now offer lossless undo; progressed goals ask before
+  removal, and undo restores ids, progress, active-task state, and goal links. Goal editing retains
+  its validated inline form. Settings previews the exact focus-history scope, confirms the clear,
+  removes session/Companion evidence plus its learned cadence cache in one store action, and keeps
+  streak, XP, task credit, goal progress, settings, plans, parking, and Guide reads. Reducer,
+  component, persistence/reload, full-suite, build, and browser checks are green.
 
 ### - [ ] 8.3 Calendar labels and daily task scope roll over correctly
 

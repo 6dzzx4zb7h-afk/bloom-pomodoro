@@ -1071,6 +1071,41 @@ button {
 .task-del:hover {
   color: var(--pink-3);
 }
+.undo-toast {
+  position: absolute;
+  left: 50%;
+  bottom: 76px;
+  z-index: 48;
+  width: max-content;
+  max-width: calc(100% - 36px);
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px 10px 15px;
+  border: 1px solid rgba(160, 112, 140, 0.18);
+  border-radius: 14px;
+  background: rgba(255, 251, 254, 0.97);
+  color: var(--plum);
+  box-shadow: 0 10px 24px -10px rgba(110, 85, 119, 0.5);
+  font: 600 12.5px var(--font-body);
+}
+.undo-toast span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.undo-toast button {
+  flex: none;
+  border: none;
+  border-radius: 9px;
+  padding: 6px 9px;
+  background: #f4eafb;
+  color: var(--purple);
+  cursor: pointer;
+  font: 700 11.5px var(--font-display);
+}
 
 .add-row {
   margin: 8px 18px 14px;
@@ -2656,6 +2691,36 @@ button {
   cursor: default;
   opacity: 0.55;
   transform: none;
+}
+.focus-clear-scope {
+  margin: 0 0 8px;
+  padding: 11px 12px;
+  border: 1px solid rgba(160, 112, 140, 0.16);
+  border-radius: 13px;
+  background: rgba(244, 234, 251, 0.55);
+  color: var(--soft2);
+  font: 600 11px/1.5 var(--font-body);
+}
+.focus-clear-scope p {
+  margin: 0 0 7px;
+}
+.focus-clear-scope p:last-of-type {
+  margin-bottom: 10px;
+}
+.focus-clear-scope strong {
+  color: var(--plum);
+}
+.focus-clear-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 7px;
+}
+.focus-clear-actions .mini-btn:first-child {
+  background: #f8e2ec;
+  color: #9f587b;
+}
+.focus-clear-keep {
+  background: rgba(255, 255, 255, 0.85);
 }
 
 /* ---------- attention recipe (Tasks screen, Companion Mode only) ---------- */

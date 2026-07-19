@@ -1,9 +1,15 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { PixelPal } from '../components/PixelPal';
 import type { useBloom } from '../store/useBloom';
 import { GOAL_TARGET_MAX, dueLabel, goalPace, parseDue, todayStr, type Goal } from '../store/goals';
 
 const MONTHS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+interface DeletedGoal {
+  goal: Goal;
+  index: number;
+  linkedTaskIds: number[];
+}
 
 function shortDate(due: string): string {
   const d = parseDue(due);
@@ -26,6 +32,13 @@ export function GoalsScreen({ bloom }: { bloom: ReturnType<typeof useBloom> }) {
   const [editTitle, setEditTitle] = useState('');
   const [editDue, setEditDue] = useState('');
   const [editTarget, setEditTarget] = useState('1');
+  const [deletedGoal, setDeletedGoal] = useState<DeletedGoal | null>(null);
+
+  useEffect(() => {
+    if (!deletedGoal) return;
+    const timeout = window.setTimeout(() => setDeletedGoal(null), 6000);
+    return () => window.clearTimeout(timeout);
+  }, [deletedGoal]);
 
   function beginEdit(goal: Goal) {
     setEditId(goal.id);
@@ -49,6 +62,29 @@ export function GoalsScreen({ bloom }: { bloom: ReturnType<typeof useBloom> }) {
     }
     actions.updateGoal(goal.id, { title: editTitle, due: editDue, target: nextTarget });
     setEditId(null);
+  }
+
+  function removeGoal(goal: Goal) {
+    if (
+      goal.done > 0 &&
+      !window.confirm(
+        `“${goal.title}” has ${goal.done} of ${goal.target} parts logged. Remove it? You can undo for a moment.`,
+      )
+    ) {
+      return;
+    }
+    setDeletedGoal({
+      goal: { ...goal },
+      index: state.goals.findIndex((item) => item.id === goal.id),
+      linkedTaskIds: state.tasks.filter((task) => task.goalId === goal.id).map((task) => task.id),
+    });
+    actions.removeGoal(goal.id);
+  }
+
+  function undoGoalDelete() {
+    if (!deletedGoal) return;
+    actions.restoreGoal(deletedGoal.goal, deletedGoal.index, deletedGoal.linkedTaskIds);
+    setDeletedGoal(null);
   }
 
   const goals = useMemo(
@@ -180,7 +216,7 @@ export function GoalsScreen({ bloom }: { bloom: ReturnType<typeof useBloom> }) {
                 </button>
                 <button
                   className="task-del"
-                  onClick={() => actions.removeGoal(goal.id)}
+                  onClick={() => removeGoal(goal)}
                   aria-label={`Delete ${goal.title}`}
                 >
                   &times;
@@ -233,6 +269,13 @@ export function GoalsScreen({ bloom }: { bloom: ReturnType<typeof useBloom> }) {
           </div>
         )}
       </div>
+
+      {deletedGoal && (
+        <div className="undo-toast" role="status" aria-live="polite">
+          <span>“{deletedGoal.goal.title}” removed</span>
+          <button type="button" onClick={undoGoalDelete}>undo</button>
+        </div>
+      )}
 
       <div className="add-row">
         <form className="add-form goal-add" onSubmit={submit}>

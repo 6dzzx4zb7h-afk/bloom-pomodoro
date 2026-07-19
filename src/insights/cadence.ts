@@ -436,7 +436,7 @@ export function suggestPersonalCadence(
     return {
       preset,
       kind: 'stretch',
-      text: `Your current rung looks steady — want to try ${preset.focusMin}/${preset.breakMin} as the best fit for you right now?`,
+      text: `Your current rung looks steady — want to try ${preset.focusMin}/${preset.breakMin} as a small experiment?`,
       because: `${rollingCompleted} of your last ${rolling.length} ${current.focusMin}-minute sessions finished (${Math.round(rollingRate * 100)}%). ${phaseText} ${chrono.text}`,
       evidenceKey: 'breaks-are-fuel',
       rungs,
@@ -463,7 +463,7 @@ export function suggestPersonalCadence(
     return {
       preset,
       kind: 'drift-fit',
-      text: `${preset.focusMin}/${preset.breakMin} looks like the best fit for you right now — a small experiment, not a forever rule.`,
+      text: `${preset.focusMin}/${preset.breakMin} looks worth trying right now — a small experiment, not a forever rule.`,
       because: `Across ${driftedSessions} sessions, your first drift was around minute ${Math.round(median)}. ${completionText} ${phaseText} ${chrono.text}`,
       evidenceKey: 'breaks-are-fuel',
       rungs,

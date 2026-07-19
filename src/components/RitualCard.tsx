@@ -78,7 +78,7 @@ export function RitualSuggestion({
       <PixelPal sprite={sprite} mode="idle" scale={3} size={54} className="pop-pal" />
       <div className="pop-body">
         <div className="pop-text">want to try a tiny reset before a session?</div>
-        <div className="pop-tip">A few taps for your phone, task, first move, and tabs. Totally optional.</div>
+        <div className="pop-tip">A one-time hello about four tiny taps. Totally optional.</div>
         <div className="pop-actions">
           <button className="pop-btn primary" onClick={onEnable}>try it next time</button>
           <button className="pop-btn" onClick={onDismiss}>maybe later</button>

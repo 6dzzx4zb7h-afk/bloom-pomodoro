@@ -79,3 +79,7 @@ The ten rows of [science.md §do-not-build](science.md#do-not-build), translated
 ## How to apply this page
 
 Before a step's copy ships: run each new string through the 10-point checklist; grep the diff's user-facing strings for the never-ship list; check the feature against the feature-level guardrails; then read each string aloud in the pet's voice — if it sounds like a boss, a coach with a clipboard, or a disappointed parent, rewrite it. Placeholder strings (marked `PLACEHOLDER_COPY`) must still pass rules 2, 3, 6 and 10 — skeletons never guilt, and never make medical claims, either.
+
+## Audit log
+
+- 2026-07-19 — PLAN 7.3: audited Phase 1–6 runtime copy against the checklist, never-ship lexicon, and do-not-build rules. Softened directive and over-certain adaptive copy; made automated-surface frequency caps visible.

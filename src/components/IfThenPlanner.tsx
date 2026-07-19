@@ -101,7 +101,7 @@ export function IfThenPlanner({
           ×
         </button>
       </div>
-      <div className="ifthen-sub">pre-deciding the first step makes starting lighter. skip anytime.</div>
+      <div className="ifthen-sub">pre-deciding the first step tends to make starting lighter. skip anytime.</div>
 
       {plans.length > 0 && (
         <div className="ifthen-list">
