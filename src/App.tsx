@@ -10,11 +10,13 @@ import { GoalsScreen } from './screens/GoalsScreen';
 import { CollectionScreen } from './screens/CollectionScreen';
 import { useBloom } from './store/useBloom';
 import { useCompanion } from './store/useCompanion';
+import { useLocalDayRefresh } from './store/useLocalDayRefresh';
 import type { GuideArticleId } from './content/guide';
 
 export default function App() {
   const bloom = useBloom();
   const companion = useCompanion(bloom);
+  const localNow = useLocalDayRefresh();
   const [screen, setScreen] = useState<ScreenName>('focus');
   const [guideArticleId, setGuideArticleId] = useState<GuideArticleId | null>(null);
 
@@ -84,13 +86,14 @@ export default function App() {
               <FocusScreen
                 bloom={bloom}
                 companion={companion}
+                now={localNow}
                 onOpenGuideArticle={openGuideArticle}
               />
             )}
             {screen === 'tasks' && (
-              <TasksScreen bloom={bloom} onOpenGuideArticle={openGuideArticle} />
+              <TasksScreen bloom={bloom} now={localNow} onOpenGuideArticle={openGuideArticle} />
             )}
-            {screen === 'goals' && showGoals && <GoalsScreen bloom={bloom} />}
+            {screen === 'goals' && showGoals && <GoalsScreen bloom={bloom} now={localNow} />}
             {screen === 'collection' && (
               <CollectionScreen
                 bloom={bloom}

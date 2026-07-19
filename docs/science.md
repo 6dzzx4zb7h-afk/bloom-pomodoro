@@ -1,4 +1,4 @@
-<!-- docs/science.md — source of truth for Bloom's evidence base.
+<!-- docs/science.md — source of truth for Bloom's behavioral evidence and scientific claims.
      PLAN.md steps cite the anchors: #starting #staying #recovering #measurement
      #feature-ranking #article-briefs #do-not-build
      Derived from "Science of Focus for Bloom" (corrected version, July 2026). -->
@@ -14,6 +14,12 @@
 **Remaining limitations.** A handful of effect sizes were taken from abstracts or search snippets rather than full texts (the report flags these in-line with phrases like “not shown in snippet”), and several links resolve to repository or ResearchGate copies rather than the journal of record. These do not change any conclusion, but anyone relying on a specific number for a design decision should open the primary paper first. The very recent 2025 citations (e.g. Chauhan; Kim & Jung; Schwartzman) are the least independently confirmable and are worth a second look before quoting.
 
 ## How to read this report
+
+This report governs behavior-change mechanisms and user-facing scientific claims. It is not an
+approval gate for ordinary UX/UI, accessibility, privacy, security, reliability, performance,
+testing, or architecture work. Those areas use [`product-quality.md`](product-quality.md) and may
+correctly state `Science: n/a`; user-facing wording also follows [`voice.md`](voice.md). Never invent
+a behavioral-science justification for non-behavioral work.
 
 This document is written for product design, not for diagnosis or treatment. Where findings differ for people with ADHD, I note only what is in the published literature, and Bloom should present those ideas as optional supports rather than medical claims. This app is **not medical advice**. [[1]](https://www.tandfonline.com/doi/full/10.1080/00050067.2023.2218540)
 
@@ -211,7 +217,7 @@ A good product strategy would treat the top seven features as the evidence-backe
 
 ### Open questions where evidence is thin
 
-The biggest unresolved product question is not whether focus varies. It does. The unresolved question is **how to best personalize a response** using lightweight, mostly self-reported data. The current literature supports JIT adaptation in principle, but it does not yet say which low-burden features are best for an offline focus app with no rich sensor stream. [[65]](https://www.researchgate.net/publication/335656965_Just-in-the-Moment_Adaptive_Interventions_JITAI_A_Meta-Analytical_Review)
+The biggest unresolved product question is not whether focus varies. It does. The unresolved question is **how to best personalize a response** using lightweight, mostly self-reported data. The current literature supports JIT adaptation in principle, but it does not yet say which low-burden features are best for a local-first focus app with no rich sensor stream. Cross-device sync is a data-stewardship capability, not a focus intervention, so Bloom makes no behavior-change claim for it. [[65]](https://www.researchgate.net/publication/335656965_Just-in-the-Moment_Adaptive_Interventions_JITAI_A_Meta-Analytical_Review)
 
 The evidence is also thin on the most product-specific issue for Bloom: whether a **virtual companion** improves adherence after the novelty phase in non-clinical focus apps. Related evidence from virtual pets, social support, conversational agents, and supportive accountability is encouraging but not definitive, and some chatbot syntheses show no retention benefit. [[66]](https://www.researchgate.net/publication/272118751_Caring_for_Mobile_Phone-Based_Virtual_Pets_can_Influence_Youth_Eating_Behaviors)
 

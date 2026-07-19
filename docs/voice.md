@@ -1,10 +1,13 @@
 # Bloom voice & copy guardrails
 
-*Every user-facing string added by PLAN.md steps must pass this page (plan step 0.2). Evidence grounding: [science.md](science.md) — [§do-not-build](science.md#do-not-build), [§recovering](science.md#recovering) (self-forgiveness row), [§measurement](science.md#measurement) (supportive accountability row).*
+*Every user-facing string added by PLAN.md steps must pass this page (plan step 0.2). This page owns
+voice and copy; [science.md](science.md) owns behavioral evidence and scientific claims, and
+[product-quality.md](product-quality.md) owns semantics, usability, accessibility, operational
+states, privacy, security, reliability, performance, and testing.*
 
 ## The voice in one breath
 
-Bloom's pet is a small warm friend who sits **beside** you — never a boss, a coach with a clipboard, or a disappointed parent. It suggests, wonders, and celebrates. It treats drifting attention as weather ("a wander blew through"), not as sin. It is honest about evidence: it says "worth a try", never "science proves". And everything it offers can be skipped in one tap, with no commentary about the skip.
+Bloom's pet is a small warm friend who sits **beside** you — never a boss, a coach with a clipboard, or a disappointed parent. It suggests, wonders, and celebrates. It treats drifting attention as weather ("a wander blew through"), not as sin. It is honest about evidence: it says "worth a try", never "science proves". Every optional coaching offer can be skipped in one tap, with no commentary about the skip.
 
 Why this is a hard rule and not a vibe (see science.md):
 
@@ -16,23 +19,39 @@ Why this is a hard rule and not a vibe (see science.md):
 
 Lint every new user-facing string by hand. Every answer must be "yes" — and when an item's trigger doesn't apply to the string (no setback, no data-fired prompt, no metric), that item counts as "yes".
 
-1. **Invites, doesn't command.** Offers and questions ("want to…?", "we could…"); never orders, never "you should".
+1. **Optional coaching invites, it doesn't command.** Offers and questions ("want to…?", "we
+   could…"); never "you should". Operational, safety, privacy, and recovery instructions may be
+   calm and direct when clarity or error prevention requires it.
 2. **Zero guilt vocabulary.** Nothing from the never-ship lexicon below; no "only/just" used to diminish ("only 2 sessions").
 3. **Setbacks get restart framing.** If the string responds to an abandon, drift, or missed day: acknowledge without judgment, then offer a smallest next step. Template: "That happened. Smallest next step?"
 4. **Metrics are mirrors, not grades.** If the string reports numbers: neutral or warm, no "good day / bad day", no grading the user — and no praising the *absence* of drifts (celebrate recoveries instead; science.md §measurement reflects back starts, completions, and recoveries).
 5. **Hedges match the evidence.** Claims carry the same confidence as science.md: strong meta-analysis → "tends to help"; promising or thin → "worth an experiment"; never "proven", "optimal", "guaranteed".
 6. **The pet's feelings are never leverage.** The pet is never described as sad, sick, hungry, disappointed, or gone because of anything the user did or didn't do. Coming back always gets a glad welcome.
 7. **Autonomy is visible.** Optional things read as optional ("if you like", "skip anytime").
-8. **Explains itself.** If the prompt fires from data, the string itself says why in plain words ("based on when your drifts usually start").
-9. **Small words, short lines.** Sentences of roughly 12 words or fewer; at most one emoji per message; no invented diminutives and no cooing at the user. "Mochi did a happy bounce" is warm; "Mochi wuvs your focus!" is babytalk.
+8. **Explains itself.** If a behavior-change or re-engagement prompt fires from data, the string
+   itself says why in plain words ("based on when your drifts usually start"). Operational status
+   and error copy follows `product-quality.md`: state what happened and the recovery action.
+9. **Small words, short lines.** Pet and coaching sentences aim for roughly 12 words or fewer; at
+   most one emoji per message; no invented diminutives and no cooing at the user. Disclosures and
+   error/recovery copy stay concise but may be longer when completeness prevents harm or data loss.
+   "Mochi did a happy bounce" is warm; "Mochi wuvs your focus!" is babytalk.
 10. **No medical territory.** Nothing implies diagnosing or treating anything. The approved ADHD boundary sentence (see below) appears verbatim in exactly one place in user-facing copy: the Field Guide article tagged stage `science` ("Why tracking helps and when it turns into pressure", step 6.1). Guardrail docs (this page, science.md) may quote it to define the rule.
 
 ### Feature-level guardrails (reviewed per feature, not per string)
 
 - No red / failure / broken styling on metrics, streaks, or setbacks.
-- Skipping any offer costs nothing and triggers no follow-up.
-- Every automated prompt has a frequency cap, stated where the user can see it (e.g. its Settings toggle).
-- Sound never autoplays.
+- Skipping any optional coaching or behavior-change offer costs nothing and triggers no follow-up.
+- Every automated behavior-change or re-engagement prompt has a frequency cap, stated where the
+  user can see it (e.g. its Settings toggle). Necessary error, conflict, permission, security, and
+  recovery status messages appear when their state requires them; they are not nudges.
+- Background audio and soundscapes never start without the user's explicit choice. A configured
+  completion cue, direct-manipulation preview, or accessibility alert may play for its disclosed
+  purpose after the required user activation/permission, with a clear way to turn it off.
+- No optional network feature gates the app or repeatedly prompts someone who chose local-only.
+  Before first transmission, Bloom plainly says what will leave the device and where it goes.
+  Network failures and conflicts report state without blame; pause, export, remote deletion, and
+  local deletion use distinct wording. Diagnostic reporting additionally discloses its minimized,
+  redacted payload before enablement and contains no behavioral analytics by default.
 
 ## Allowed vs. banned phrasings
 
@@ -50,6 +69,7 @@ Lint every new user-facing string by hand. Every answer must be "yes" — and wh
 | 10 | Sharing a data insight | "Your focus is terrible after lunch." | "Your data hints mornings are your golden hours — afternoons might like lighter tasks." |
 | 11 | User returns after days away | "We missed you! Don't abandon your pet again." | "Hi again! Pick something small and cozy to start?" |
 | 12 | Describing a soundscape | "Focus music, scientifically tuned for deep work." | "Calm music — many folks like it for routine work; silence is great too." |
+| 13 | Offering cross-device sync | "Sign in to protect your progress." | "Want Bloom on your other devices? Sync is optional. Local-only works too." |
 
 Note on #5: the allowed copy is a **reply to a drift the user tagged themselves**. A prompt the app fires from data must additionally satisfy checklist item 8 (state its basis in the string) and carry a frequency cap per the feature-level guardrails.
 
@@ -61,12 +81,15 @@ The ten rows of [science.md §do-not-build](science.md#do-not-build), translated
 
 - Never: punitive or loss-aversion streak framing — no "streak lost", "back to zero", "don't break the chain", "protect your streak". Streaks may be shown, never guarded; gaps get the welcome-back framing of pair #4.
 - Never: pet death, sickness, sadness, or any pet-welfare consequence tied to user behavior.
-- Never: shame notifications, guilt-tinged prompts, or unexplained nudges; every automated prompt states its trigger and respects a frequency cap.
+- Never: shame notifications, guilt-tinged prompts, or unexplained behavior-change/re-engagement
+  nudges; each such automated prompt states its trigger and respects a frequency cap.
 - Never: "scientifically optimal / proven" about any cadence — 25/5, 52/17, and 90-minute ultradian cycles included.
 - Never: "dopamine detox" or "dopamine reset" language.
 - Never: willpower-as-a-tank / ego-depletion framing ("you've used up your focus juice").
 - Never: promises that Bloom trains multitasking or that multitasking helps focus.
-- Never: autoplaying sound, or copy overselling audio; lyric-heavy audio gets an honest caveat for reading/writing tasks.
+- Never: forced or unsolicited soundtracks, or copy overselling audio. User-configured completion
+  cues and direct-manipulation previews are allowed; lyric-heavy audio gets an honest caveat for
+  reading/writing tasks.
 - Never: anything implying ADHD (or any condition) diagnosis or treatment. The one approved boundary sentence, allowed verbatim only in the Field Guide article tagged stage `science` (step 6.1): "Some people, including some people with ADHD, may find shorter steps and stronger external cues helpful; this app is not medical advice."
 - Never *(addition beyond the table — from science.md §measurement, Lally et al. 2010)*: "21 days to build a habit" — habit copy says consistency over months (median 66 days, range 18–254).
 
@@ -74,11 +97,23 @@ The ten rows of [science.md §do-not-build](science.md#do-not-build), translated
 
 **Reach for:** tiny, seed, sprout, bloom, wander, drift, park it, cozy, gentle, "want to…?", "we could…", "worth a try", "when you're ready", "welcome back", "that happened", "this one counts".
 
-**Never ship (in user-facing strings):** fail(ure), broke(n), lazy, wasted, discipline, willpower, guilty, shame, excuses, optimal, proven, detox, "you should", "be honest", "no excuses", "we missed you"; lost / lose / "back to zero" / "break the chain" / "protect your streak" (about streaks or progress); sad / sick / hungry / disappointed / gone (about the pet).
+**Never apply to the user, their effort/progress, or the pet:** fail(ure), broke(n), lazy, wasted,
+discipline, willpower, guilty, shame, excuses, optimal, proven, detox, "you should", "be honest",
+"no excuses", "we missed you"; lost / lose / "back to zero" / "break the chain" / "protect your
+streak" (about streaks or progress); sad / sick / hungry / disappointed / gone (about the pet).
+Operational error copy should prefer plain, non-blaming language such as "couldn't save". A precise
+technical term may be used when it is necessary to explain or recover from a system state, never as
+a judgment of the person.
 
 ## How to apply this page
 
-Before a step's copy ships: run each new string through the 10-point checklist; grep the diff's user-facing strings for the never-ship list; check the feature against the feature-level guardrails; then read each string aloud in the pet's voice — if it sounds like a boss, a coach with a clipboard, or a disappointed parent, rewrite it. Placeholder strings (marked `PLACEHOLDER_COPY`) must still pass rules 2, 3, 6 and 10 — skeletons never guilt, and never make medical claims, either.
+Before a step's copy ships: run each new string through the 10-point checklist; grep the diff's
+user-facing strings for the never-ship list and review operational matches in context; check the
+feature against the feature-level guardrails; then read pet/coaching copy aloud in the pet's voice —
+if it sounds like a boss, a coach with a clipboard, or a disappointed parent, rewrite it. Check
+operational copy against `product-quality.md` for completeness, semantics, and recovery. Placeholder
+strings (marked `PLACEHOLDER_COPY`) must still pass rules 2, 3, 6 and 10 — skeletons never guilt, and
+never make medical claims, either.
 
 ## Audit log
 

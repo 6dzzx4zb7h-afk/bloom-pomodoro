@@ -110,7 +110,7 @@ function FocusHarness() {
   };
   return (
     <>
-      <FocusScreen bloom={bloom} companion={companion} onOpenGuideArticle={vi.fn()} />
+      <FocusScreen bloom={bloom} companion={companion} now={Date.now()} onOpenGuideArticle={vi.fn()} />
       <output data-testid="bloom-state">{JSON.stringify(probe)}</output>
     </>
   );
@@ -120,7 +120,7 @@ function TasksHarness() {
   const bloom = useBloom();
   return (
     <>
-      <TasksScreen bloom={bloom} onOpenGuideArticle={vi.fn()} />
+      <TasksScreen bloom={bloom} now={Date.now()} onOpenGuideArticle={vi.fn()} />
       <output data-testid="destructive-state">
         {JSON.stringify({ tasks: bloom.state.tasks, activeTaskId: bloom.state.activeTaskId })}
       </output>
@@ -132,7 +132,7 @@ function GoalsHarness() {
   const bloom = useBloom();
   return (
     <>
-      <GoalsScreen bloom={bloom} />
+      <GoalsScreen bloom={bloom} now={Date.now()} />
       <output data-testid="destructive-state">
         {JSON.stringify({ tasks: bloom.state.tasks, goals: bloom.state.goals })}
       </output>

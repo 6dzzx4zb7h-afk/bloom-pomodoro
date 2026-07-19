@@ -23,7 +23,7 @@ function shortDate(due: string): string {
  * the real question: "what pace gets me there?". Suggestions stay quiet when
  * a deadline is missed or a pace is out of reach; no guilt, no fantasy math.
  */
-export function GoalsScreen({ bloom }: { bloom: ReturnType<typeof useBloom> }) {
+export function GoalsScreen({ bloom, now }: { bloom: ReturnType<typeof useBloom>; now: number }) {
   const { state, palSprite, actions } = bloom;
   const [title, setTitle] = useState('');
   const [due, setDue] = useState('');
@@ -101,7 +101,7 @@ export function GoalsScreen({ bloom }: { bloom: ReturnType<typeof useBloom> }) {
   );
   const pct = totals.target ? Math.round((totals.done / totals.target) * 100) : 0;
   const allDone = goals.length > 0 && totals.done >= totals.target;
-  const nextUp = goals.find((g) => goalPace(g).status === 'active');
+  const nextUp = goals.find((g) => goalPace(g, now).status === 'active');
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -131,7 +131,7 @@ export function GoalsScreen({ bloom }: { bloom: ReturnType<typeof useBloom> }) {
               {allDone
                 ? 'every goal is fully logged — lovely work ♡'
                 : nextUp
-                  ? `next up: ${nextUp.title} · ${dueLabel(nextUp)}`
+                  ? `next up: ${nextUp.title} · ${dueLabel(nextUp, now)}`
                   : 'nothing pressing — breathe easy'}
             </div>
             <div className="prog-track">
@@ -143,7 +143,7 @@ export function GoalsScreen({ bloom }: { bloom: ReturnType<typeof useBloom> }) {
 
       <div className="task-list">
         {goals.map((goal) => {
-          const pace = goalPace(goal);
+          const pace = goalPace(goal, now);
           const gpct = Math.round((Math.min(goal.done, goal.target) / goal.target) * 100);
           if (editId === goal.id) {
             return (
@@ -205,7 +205,7 @@ export function GoalsScreen({ bloom }: { bloom: ReturnType<typeof useBloom> }) {
                   <div className="goal-title">{goal.title}</div>
                   <div className="goal-when">due {shortDate(goal.due)}</div>
                 </div>
-                <span className={`goal-chip ${pace.status}`}>{dueLabel(goal)}</span>
+                <span className={`goal-chip ${pace.status}`}>{dueLabel(goal, now)}</span>
                 <button
                   className="task-del goal-edit-btn"
                   onClick={() => beginEdit(goal)}
@@ -292,7 +292,7 @@ export function GoalsScreen({ bloom }: { bloom: ReturnType<typeof useBloom> }) {
             className="goal-date"
             type="date"
             value={due}
-            min={todayStr()}
+            min={todayStr(new Date(now))}
             onChange={(e) => setDue(e.target.value)}
             aria-label="Due date"
             required

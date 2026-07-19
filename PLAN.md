@@ -1,6 +1,8 @@
-# Bloom — Evidence-Based Iterative Build Plan
+# Bloom — Evidence-Informed Iterative Build Plan
 
-This plan turns the findings in `docs/science.md` (the corrected "Science of Focus for Bloom" report) into small, independently committable build steps. Each step is sized for **one focused Claude Code session**.
+This plan turns Bloom's behavioral evidence, product-quality standards, and engineering constraints
+into small, independently committable build steps. Each numbered step is sized for one focused
+implementation session.
 
 ---
 
@@ -9,12 +11,23 @@ This plan turns the findings in `docs/science.md` (the corrected "Science of Foc
 Paste this exact prompt into Claude Code each session, replacing `X.Y`:
 
 ```
-Read PLAN.md and docs/science.md. Do step X.Y ONLY — nothing else.
+Read PLAN.md and docs/product-quality.md. Read docs/science.md when the step changes a
+behavior-change mechanism or makes a scientific claim, and docs/voice.md whenever it changes
+user-facing copy. Do numbered step X.Y ONLY — nothing else.
 
 Hard constraints (apply to every step, no exceptions):
-1. Offline-first: no network calls, no remote fonts/CDNs; all content is bundled in the repo.
+1. Local-first, with optional network features: no account is required and, after the app shell loads,
+   local-only mode makes no application-data requests and sends no user data. The complete core
+   app, content, fonts, audio, and other assets bundle locally and work offline. A networked
+   capability requires its own numbered step, separate feature-specific opt-in, a documented
+   endpoint allowlist and exact data inventory, local-only regression coverage, and precise pause,
+   export, and deletion semantics. No CDN/remote fonts, ads, tracking, default behavioral telemetry,
+   or remote runtime assets. Optional diagnostics are separately planned, off by default, explicitly
+   enabled, minimized, redacted, disclosed before enabling, and contain no behavioral analytics by
+   default. Pausing a feature or signing out keeps a complete local copy unless the user explicitly
+   removes it from that device.
 2. Any change to persisted state bumps the schema version in src/store/useBloom.ts and adds a
-   forward migration. Never wipe or orphan existing user data.
+   forward migration. Never wipe, orphan, or blindly overwrite existing user data.
 3. Warm kawaii voice: the pet suggests and encourages — it never guilts, shames, or moralizes.
 4. Respect the "Do NOT build" list in docs/science.md (no punitive streaks, no dead-pet outcomes,
    no "scientifically optimal cadence" claims, no always-on nudging, no dopamine-detox framing,
@@ -22,29 +35,60 @@ Hard constraints (apply to every step, no exceptions):
 5. Feature skeletons may ship with clearly-marked placeholder copy (PLACEHOLDER_COPY comment);
    final wording lands in the designated copy-pass steps.
 
-When done: tick the step's checkbox in PLAN.md, verify in the browser preview (npm run dev),
-and give me a short summary of what changed and how you verified it.
+Evidence routing: behavioral mechanisms and scientific claims use docs/science.md; voice/copy uses
+docs/voice.md; UX/UI, accessibility, privacy, security, reliability, performance, architecture, and
+engineering quality use docs/product-quality.md. Ordinary engineering work may say Science: n/a;
+never invent a behavioral rationale.
 
-If the step is blocked, or the real codebase differs from what PLAN.md assumes, STOP and tell me
-what you found instead of improvising.
+When done: tick only this step's checkbox in PLAN.md; run npm test and npm run build; verify in the
+browser preview (npm run dev) plus every applicable docs/product-quality.md acceptance check; and
+give me a short summary of what changed and how you verified it.
+
+If blocked, report what you found. Minor implementation differences that preserve this unchecked
+step's goal and scope may be reconciled by updating its assumptions, Files, and tests. STOP for user
+direction when the difference materially changes product behavior, privacy, persisted data,
+security, or the numbered step's scope. Never rewrite completed-step history.
 ```
 
 Rules of thumb:
 
-- Do steps in order **within** a phase; phases 3, 4, 5 can be interleaved after Phase 2 is done, but respect the per-step "Depends on" lines.
-- Every step must leave the app shippable (`npm run build` green, no console errors).
-- If a step turns out to be too big for one session, split it and add the new sub-steps to this file before continuing.
+- Do exactly one numbered step per implementation run. Do steps in order **within** a phase; phases
+  3, 4, 5 can be interleaved after Phase 2 is done, but respect the per-step "Depends on" lines.
+- Every step must leave the app shippable (`npm test` and `npm run build` green, no relevant console
+  errors) and meet the applicable product-quality acceptance criteria.
+- If a step is too big for one run, split it in this file before implementation, then run only one
+  of the resulting numbered steps.
+- Completed numbered steps are historical records. Never uncheck, rename, or materially rewrite
+  them. Apply new requirements prospectively by strengthening unchecked steps or adding a narrowly
+  scoped remediation step when no unchecked step owns the gap.
 
 > **Verification status (July 2026):** Checked boxes in Phases 0–5 show that their feature work was
 > attempted and landed; they are not, by themselves, proof that the cross-feature behavior is
 > complete. A full repository/UI review found lifecycle and integration gaps around auto-start,
 > paused timers, cadence changes, session-owned metadata, return prompts, Flow rewards, persistence,
 > and date rollover. Those closures are now explicit in 7.4 and Phase 8. Do not describe Phases 0–5
-> as verified until those milestones pass.
+> as verified until those milestones pass. Phase 11 adds optional sync under the local-first
+> constraint; it does not weaken any earlier offline, migration, lifecycle, or data-integrity gate.
+> `docs/product-quality.md` was adopted prospectively in July 2026. No completed feature is presumed
+> to meet that baseline until its relevant open remediation and verification steps pass.
 
 ---
 
-## Global design principles (from docs/science.md)
+## Evidence routing and non-behavioral product quality
+
+- **Behavioral evidence:** `docs/science.md` governs behavior-change mechanisms and user-facing
+  scientific claims, including evidence strength and the complete Do-not-build list.
+- **Voice and copy:** `docs/voice.md` governs every user-visible string, including scientific
+  hedging and non-shaming operational recovery copy.
+- **Product quality:** `docs/product-quality.md` governs UX/UI, accessibility, semantics, keyboard,
+  touch, screen readers, responsive layouts, safe areas, virtual keyboards, contrast, reduced
+  motion, error prevention/recovery, loading/empty/offline/conflict/failure states, performance,
+  privacy, security, browser/device verification, architecture changes, and regression testing.
+- An unchecked non-behavioral step may use `Science: n/a` plus a `Quality:` citation. Tests,
+  measurements, platform guidance, standards, and observed user behavior are legitimate evidence.
+  Behavioral-science citations must never be fabricated to justify ordinary engineering work.
+
+## Behavioral design principles (from docs/science.md)
 
 - **Starting**: don't motivate harder — make the first action concrete, tiny, and cued (§Starting, closing paragraph).
 - **Staying**: attention sag and mind-wandering are *expected*, not failure; manage fluctuation, don't pretend to eliminate it (§Staying, closing paragraph).
@@ -301,7 +345,7 @@ Rules of thumb:
 
 ### - [x] 6.1 Guide content model + bundled data
 
-- **Goal:** `src/content/guide.ts`: typed array of 12 articles matching the report's in-app briefs — id, `stageTag: 'start'|'stay'|'recover'|'science'`, title, 3–5 key-point paragraphs, one practical exercise, and a `sources` array of citation strings (author-year-journal; no external links required at runtime since we're offline — full references live in docs/science.md). Bodies may be PLACEHOLDER_COPY. The 12: first pebble · if-then beats try harder · tiny start · make your desk help you · attention naturally fades · breaks are fuel · what flow needs · music & lyrics · don't make it worse · parking lot · one-minute re-entry · why tracking helps.
+- **Goal:** `src/content/guide.ts`: typed array of 12 articles matching the report's in-app briefs — id, `stageTag: 'start'|'stay'|'recover'|'science'`, title, 3–5 key-point paragraphs, one practical exercise, and a `sources` array of citation strings (author-year-journal; no external links required at runtime, so the Guide stays bundled and works in local-only/offline mode — full references live in docs/science.md). Bodies may be PLACEHOLDER_COPY. The 12: first pebble · if-then beats try harder · tiny start · make your desk help you · attention naturally fades · breaks are fuel · what flow needs · music & lyrics · don't make it worse · parking lot · one-minute re-entry · why tracking helps.
 - **Science:** §In-app article briefs (all twelve, verbatim structure: stage tag, key points, practical exercise, sources).
 - **Files:** `src/content/guide.ts` (new), `src/content/guide.test.ts` (shape validation).
 - **Done when:** All 12 entries type-check, each has ≥1 source string and one exercise; a test asserts ids are unique and every `evidenceKey` used by `src/insights/*` maps to a real article.
@@ -343,13 +387,15 @@ Rules of thumb:
 - **Done when:** One fixture per version; suite green; intentionally corrupting a fixture fails the suite (verified once, then reverted).
 - **Depends on:** all schema-bumping steps (1.1–6.2).
 
-### - [ ] 7.2 Offline audit
+### - [ ] 7.2 Local-only/offline audit
 
-- **Goal:** Prove the offline claim: grep the bundle/source for `fetch(`, `XMLHttpRequest`, `WebSocket`, external URLs in `src/`; verify all guide content, fonts and audio are bundled (audio is synthesized — assert no audio asset imports appeared); run the production build with DevTools network-blocked and exercise every new screen.
-- **Science:** Constraint #1; also §Do not build — an offline app cannot quietly become a telemetry app.
+- **Goal:** Prove the local-only/offline claim: grep the bundle/source for `fetch(`, `XMLHttpRequest`, `WebSocket`, and external URLs in `src/`; verify all guide content, fonts, images, audio, and other runtime assets are bundled locally; run the production build with DevTools network-blocked and exercise every new screen. Audit with every optional network feature and diagnostic reporter absent or disabled. Enabled network capabilities are audited only in their own numbered release steps against their allowlist and data inventory.
+- **Science:** n/a — privacy, offline reliability, and release verification.
+- **Quality:** `docs/product-quality.md` — Privacy and security; Loading, empty, offline, conflict, and failure states; Browser and device verification.
 - **Files:** none (audit) or a small `scripts/offline-audit.sh`.
-- **Done when:** Zero network requests in a full manual pass over debrief, weekly review, planner, tiny-start, ritual, parking lot, resume cue, kind restart, guide.
-- **Depends on:** Phases 1–6.
+- **Done when:** With all optional network features and diagnostics off or absent, a full manual pass over debrief, weekly review, planner, tiny-start, ritual, parking lot, resume cue, kind restart, guide, export/import, and every core screen makes zero application-data requests and sends zero user data after the app shell loads; the same pass works with the network blocked and retains honest offline/empty/failure states. Self-hosted app-shell delivery and service-worker update checks are not user-data egress. Bundled local runtime assets are allowed; remote runtime assets are not.
+- **Depends on:** Phases 1–6 and 8.10 → 8.15 for deployed-web offline proof. Re-run the
+  local-only pass in the release step for each later optional network capability.
 
 ### - [x] 7.3 Voice & do-not-build copy audit
 
@@ -389,17 +435,22 @@ Rules of thumb:
 
 ### - [ ] 7.5 QA script + Android release
 
-- **Goal:** Write `docs/qa.md` (10-minute manual smoke script covering the golden path: ritual → if-then → tiny start → grow → drift → park → resume cue → complete → debrief → guide link → weekly review). Then `npm run build`, `npx cap sync android`, build the APK, run the script on a device including airplane-mode and an upgrade-install over the previous APK (migration proof on-device). Tag the release.
-- **Science:** n/a — ship it.
-- **Files:** `docs/qa.md` (new), android build artifacts.
-- **Done when:** Script passes on web preview and on-device; upgrade install preserves all data; release tagged.
-- **Depends on:** 7.1–7.4.
+- **Goal:** Write `docs/qa.md` with two layers: (a) a 10-minute golden-path smoke (ritual → if-then → tiny start → grow → drift → park → resume cue → complete → debrief → guide link → weekly review), and (b) the release matrix from `docs/product-quality.md`: keyboard/touch/screen reader; responsive, safe-area, and virtual-keyboard layouts; both themes, contrast, zoom, and reduced motion; loading/empty/offline/error/recovery states; measured performance; and supported browser/device checks. Then `npm run build`, `npx cap sync android`, build the APK, run the smoke on a device in local-only airplane mode, and upgrade-install over the previous APK to prove migrations on-device. Tag the release. Phase 11 adds its own opt-in multi-device release gate; an account must never become a prerequisite for the core path. If authoring and executing the full matrix cannot fit one run, split 7.5 in `PLAN.md` before implementation.
+- **Science:** n/a — release, accessibility, reliability, and platform verification.
+- **Quality:** `docs/product-quality.md` — all applicable acceptance sections, especially Browser and device verification.
+- **Files:** `docs/qa.md` (new; link to 8.21's `docs/testing.md` automated-test/baseline guidance), android build artifacts.
+- **Done when:** `docs/qa.md` links the automated-test and baseline rules in `docs/testing.md`; the
+  fast smoke passes on web preview and a real Android device; every release-matrix cell is recorded
+  with browser/device/settings and result; automated checks are supplemented by keyboard,
+  screen-reader, touch, and real-device evidence; performance conditions and measurements are
+  recorded; local-only airplane mode works; upgrade install preserves all data; release tagged.
+- **Depends on:** 7.1–7.4 and all release-blocking Phase 8 remediation, including 8.21.
 
 ---
 
 ## Phase 8 — Remediation from the external delivery review (July 2026)
 
-> An external review audited the shipped app. The findings below were verified against this codebase and are real. Steps are independent of Phases 1–7 unless noted; each is one session.
+> An external review audited the shipped app. The findings below were verified against this codebase and are real. Steps are independent of Phases 1–7 unless noted; each is one session. Every open remediation step applies the relevant acceptance criteria in `docs/product-quality.md`; use `Science: n/a` unless the step actually changes a behavior-change mechanism or scientific claim. Completed features do not satisfy the new baseline until their relevant remediation and verification steps pass.
 
 ### - [x] 8.1 Real submit button on the task add row
 
@@ -421,26 +472,33 @@ Rules of thumb:
   streak, XP, task credit, goal progress, settings, plans, parking, and Guide reads. Reducer,
   component, persistence/reload, full-suite, build, and browser checks are green.
 
-### - [ ] 8.3 Calendar labels and daily task scope roll over correctly
+### - [x] 8.3 Calendar labels and daily task scope roll over correctly
 
 - **Goal:** Date-derived UI is computed only at render, so an app left open across midnight can show stale "due today/tomorrow/overdue," streak, weekly-review, and task labels. Add one shared local-day refresh signal that fires at the next boundary and on `visibilitychange`/foreground. Resolve the current "Today's tasks" mismatch too: tasks persist indefinitely with no day/archive semantics. Either make the list honestly ongoing, or store a completion/day key and roll completed items into History while carrying open items forward; do not silently delete them. Label rolling-24-hour insight windows as "last 24 hours," not "today."
 - **Files:** `src/screens/GoalsScreen.tsx`, `src/screens/TasksScreen.tsx`, weekly/insight UI, `src/store/goals.ts` (`goalPace`), shared day-boundary helper; coordinate with 9.2/9.3.
 - **Done when:** Advancing across the configured day boundary updates every date-derived label without remount; open tasks carry forward and completed tasks remain recoverable in History (or the list is renamed ongoing); rolling windows are labelled accurately; boundary, foreground, and DST-edge tests pass.
-- **Progress (July 2026):** The current task surface is now honestly labelled as an ongoing list,
-  and the rolling insight selector says “last 24 hours.” Midnight refresh, completion-day history,
-  and boundary/DST tests remain.
+- **Closed (July 2026):** One app-level local-day signal refreshes at the configured boundary and
+  on foreground/visibility return. Tasks remains an honest ongoing list (open and completed items
+  stay recoverable there), rolling windows say “last 24 hours,” Goals uses calendar-safe pace and
+  due labels, and Focus refreshes weekly-review and gentle-streak state without a remount. Boundary,
+  foreground, configured-hour, and DST-edge regressions, the full suite, build, and browser checks
+  are green.
 
 ### - [ ] 8.4 Accessible dialog primitive + Settings restructure
 
 - **Goal:** Settings and destructive/decision overlays use incomplete dialog semantics: no reliable `aria-modal`, inert background, initial focus, trap, Escape handling, or focus restoration, and Settings' only close control is at the bottom of a long sheet. Build reusable Sheet/Dialog primitives (persistent top close for sheets), then use them only for interactions that truly block the app: settings, destructive confirmations, and the honest-return decision while timer truth is unresolved. Routine Companion check-ins and tips must remain accessible **non-modal** status/region surfaces that do not steal focus or trap the user. Group Settings into collapsible sections (identity · timer · sound · theme · planner · companion · data).
+- **Science:** n/a — accessible interaction semantics and error prevention.
+- **Quality:** `docs/product-quality.md` — Accessibility and semantics; Keyboard, touch, and screen readers; APG dialog pattern.
 - **Files:** new `src/components/Sheet.tsx` / `Dialog.tsx`, `src/components/SettingsSheet.tsx`, `CompanionPrompt` and return/resume surfaces.
-- **Done when:** True dialogs make the background inert, announce name/description, place and trap focus, close on Escape where safe, and restore the invoker; a close control stays visible; routine check-ins remain reachable but non-modal and never hijack typing; keyboard and screen-reader passes succeed.
+- **Done when:** True dialogs make the background inert, announce name/description, place and trap focus, close on Escape where safe, and restore the invoker; a close control stays visible; routine check-ins remain reachable but non-modal and never hijack typing. Component tests cover naming, initial focus, Tab/Shift+Tab containment, inert background, Escape policy, restoration, and non-modal Companion behavior; manual keyboard and screen-reader passes succeed.
 
 ### - [ ] 8.5 Semantic structure and named controls
 
 - **Goal:** Screens are generic divs — no `main`, no headings; custom task checkboxes expose `role="checkbox"` with no accessible name; the task-select title area is a clickable div with no role/keyboard support; inputs rely on placeholders. Add landmarks and h1/h2 per screen, give checkboxes names containing the task title, make task-select a real button with selected state, add visible labels + inline validation to task/goal forms. Cadence ladder/rung chips also need programmatic names that announce their focus/break pair, current selection, recommendation direction, and apply/revert action instead of exposing decorative numbers alone.
+- **Science:** n/a — semantics, form usability, and assistive-technology support.
+- **Quality:** `docs/product-quality.md` — Accessibility and semantics; Keyboard, touch, and screen readers.
 - **Files:** all screens, `TasksScreen.tsx`, `GoalsScreen.tsx`, `TabBar.tsx`.
-- **Done when:** Screen-reader pass announces screen titles, task names on checkboxes, selection state, and cadence rung purpose/pair; no unlabeled form fields or ambiguous numeric controls.
+- **Done when:** Screen-reader pass announces screen titles, task names on checkboxes, selection state, and cadence rung purpose/pair; programmatic purpose/state never relies on color or position; no unlabeled form fields or ambiguous numeric controls; automated accessibility checks cover representative screen/form states and are supplemented by a manual screen-reader pass.
 - **Progress (July 2026):** Task completion controls now include the task name, task selection is a
   real pressed-state button, and cadence rungs announce direction plus focus/break minutes. Landmarks,
   headings, visible labels, and the full screen-reader pass remain.
@@ -448,33 +506,62 @@ Rules of thumb:
 ### - [ ] 8.6 Focus-visible system
 
 - **Goal:** styles.css removes outlines in six places and most controls define only hover/active states, so keyboard focus is invisible. Add a high-contrast `:focus-visible` token applied to every interactive element; remove all `outline: none` without a replacement.
+- **Science:** n/a — keyboard accessibility.
+- **Quality:** `docs/product-quality.md` — Keyboard, touch, and screen readers; WCAG focus visible and focus not obscured.
 - **Files:** `src/styles.css`.
-- **Done when:** Tabbing through every screen shows a visible focus ring everywhere; grep for `outline: none` returns only lines paired with a focus-visible style.
+- **Done when:** A full keyboard traversal reaches every control in logical order and shows a visible, contrast-safe, unobscured focus indicator; focus remains visible around sticky navigation and overlays; grep for `outline: none` returns only lines paired with a focus-visible replacement.
 - **Progress (July 2026):** A theme-aware global `:focus-visible` ring now overrides the legacy
   outline removals for native controls and custom checkbox/switch/tabindex controls. The step stays
   open until the full keyboard traversal confirms every control is reachable and visibly framed.
 
 ### - [ ] 8.7 Reduced motion + animation scheduler
 
-- **Goal:** Sky canvases redraw every frame, each PixelPal runs its own 50 ms interval (six at once on Friends), and nothing honors `prefers-reduced-motion`. Share one scheduler, pause when hidden/obscured, drop decorative frame rates, and freeze decorative animation under reduced motion.
+- **Goal:** Sky canvases redraw every frame, each PixelPal runs its own 50 ms interval (six at once on Friends), and nothing honors `prefers-reduced-motion`. Share one scheduler, pause when hidden/obscured, drop decorative frame rates, and freeze or replace decorative animation under reduced motion. Before implementation, record a reproducible Friends-screen baseline and set an explicit callback/frame/main-thread budget for the same fixture; record the production bundle delta and before/after trace.
+- **Science:** n/a — reduced-motion accessibility and measured performance.
+- **Quality:** `docs/product-quality.md` — Visual hierarchy, readability, contrast, and motion; Perceived and measured performance.
 - **Files:** `DaySky.tsx`, `NightSky.tsx`, `PixelPal.tsx`, new shared scheduler module.
-- **Done when:** With reduced motion on, skies/pals are static; hidden tab → zero animation work; Friends screen CPU visibly drops.
+- **Done when:** With reduced motion on, nonessential sky/pal motion is static while state remains understandable; a hidden/obscured tab performs zero decorative animation work; one scheduler replaces per-pal intervals; the recorded trace meets the predeclared budget and shows no interaction/Core-Web-Vitals regression under the stated conditions; bundle delta and measurements are saved with verification notes.
 
 ### - [ ] 8.8 Touch targets and small-screen layouts
 
-- **Goal:** Settings (34 px), steppers (28 px), switches, and delete controls fall below 44×44 px guidance; the goal add form crams name + date + parts + button into one row at 390 px; the Focus screen has no height-based variant and the shell hides overflow (short phones/landscape clip content). Enlarge hit areas (padding, not icon size), make the goal form two rows on mobile, add compact-height breakpoints that shrink the timer ring before hiding anything. Also set every text input/textarea/select to **≥16 px font-size on mobile**: iOS Safari force-zooms the whole page when focusing any smaller input, and Bloom's task/goal/target/onboarding fields currently trigger that zoom-jump. Onboarding needs explicit virtual-keyboard treatment: use dynamic viewport units/safe-area padding, allow the card to scroll above the keyboard, and avoid autofocus when it would open the keyboard before the user chooses to type.
+- **Goal:** Settings (34 px), steppers (28 px), switches, and delete controls fall below Bloom's
+  44×44 CSS px web target and Android's 48×48 dp platform recommendation; the goal add form crams
+  name + date + parts + button into one row at 390 px; the Focus screen has no height-based variant
+  and the shell hides overflow (short phones/landscape clip content). Enlarge hit areas (padding,
+  not icon size), make the goal form two rows on mobile, add compact-height breakpoints that shrink
+  the timer ring before hiding anything. Also set every text input/textarea/select to **≥16 px
+  font-size on mobile**: iOS Safari force-zooms the whole page when focusing any smaller input, and
+  Bloom's task/goal/target/onboarding fields currently trigger that zoom-jump. Onboarding needs
+  explicit virtual-keyboard treatment: use dynamic viewport units/safe-area padding, allow the card
+  to scroll above the keyboard, and avoid autofocus when it would open the keyboard before the user
+  chooses to type.
+- **Science:** n/a — responsive/mobile ergonomics and accessibility.
+- **Quality:** `docs/product-quality.md` — Keyboard, touch, and screen readers; Responsive layout,
+  safe areas, and virtual keyboards. Bloom's 44 CSS px web target and Android's 48 dp target are
+  stricter product/platform choices than WCAG 2.2 AA's target-size floor.
 - **Files:** `src/styles.css`, `GoalsScreen.tsx`, `FocusScreen.tsx`, `Onboarding.tsx`.
-- **Done when:** All targets ≥44 px effective; goal form usable at 390 px; Focus fits a 568 px-tall viewport without clipping controls; no input triggers the iOS focus zoom; onboarding remains fully visible/actionable with iOS and Android keyboards open in portrait and landscape.
+- **Done when:** All ordinary web touch targets have an effective area ≥44 CSS px with safe
+  separation, and the Android wrapper verifies ≥48 dp; goal form is usable at 390 px; at 320 CSS px
+  and 200% zoom ordinary content reflows without two-dimensional scrolling; Focus fits a 568 px-tall
+  viewport without clipping controls; safe areas and gesture insets do not cover actions; no input
+  triggers iOS focus zoom; onboarding remains fully visible/actionable with iOS and Android keyboards
+  open in portrait and landscape. Verify the keyboard/safe-area path on real iOS Safari and Android
+  WebView as well as emulation.
 
 ### - [ ] 8.9 Readability over the animated sky
 
 - **Goal:** Low-contrast lavender text sits directly on the moving sky and becomes illegible as clouds pass; several essential labels are 10.5–12.5 px. Put instructional text on stable translucent surfaces or darken it to verified contrast; raise supporting text to a practical minimum (~13 px), reserving smaller type for nonessential metadata. Also add a `@media (prefers-contrast: more)` layer answering the OS "Increase Contrast" accessibility setting: opaque surfaces instead of translucency, stronger borders, full-contrast text — Bloom's pastel palette currently ignores the request entirely.
+- **Science:** n/a — visual accessibility and readability.
+- **Quality:** `docs/product-quality.md` — Visual hierarchy, readability, contrast, and motion; WCAG contrast, use-of-color, resize, and reflow criteria.
 - **Files:** `src/styles.css`, affected screens.
-- **Done when:** Contrast spot-checks pass at the lightest sky moment in both themes; no essential text below the minimum; with Increase Contrast enabled, surfaces go opaque and borders/text pass the stricter check on every screen.
+- **Done when:** Measured text and non-text contrast pass at the worst-case sky frame in both themes and across focus/pressed/selected/error states; meaning never relies on color alone; no essential text is below the documented practical minimum; 200% zoom and text-spacing overrides do not clip it; with Increase Contrast/forced colors enabled, surfaces, borders, focus, and state text remain legible. Stable visual-regression fixtures cover both themes and preference modes.
 
 ### - [ ] 8.10 Self-host the fonts (offline constraint violation — fix now, don't wait for 7.2)
 
-- **Goal:** `index.html` loads Fredoka and Nunito from Google Fonts, violating hard constraint #1 (offline-first, no remote fonts) today. Bundle the woff2 files in the repo, `@font-face` them locally, remove the preconnect/link tags.
+- **Goal:** `index.html` loads Fredoka and Nunito from Google Fonts, violating hard constraint #1 (local-first, no remote runtime fonts) today. Bundle the woff2 files in the repo, `@font-face` them locally, remove the preconnect/link tags.
+- **Science:** n/a — offline/privacy engineering, not a behavior-change mechanism.
+- **Quality:** `docs/product-quality.md` — Privacy and security; Perceived and measured performance;
+  Visual hierarchy and readability. Verify local font loading, fallback behavior, and layout shift.
 - **Files:** `index.html`, `src/styles.css` or a fonts CSS module, `public/fonts/`.
 - **Done when:** Production build renders correct typography with DevTools network fully blocked; no `fonts.googleapis` anywhere (grep).
 - **Depends on:** nothing; makes 7.2 pass on this point.
@@ -482,8 +569,10 @@ Rules of thumb:
 ### - [ ] 8.11 Persisted-data validation + storage-error surfacing
 
 - **Goal:** Tasks are cast straight from storage, goals only partially validated (ranges/createdAt unchecked), and storage read/write failures are silently swallowed. Validate and normalize the full persisted schema on load; on unrecoverable corruption or write failure, show one calm, recoverable warning instead of silent data loss. The fallback reader must not let a malformed current `bloom-state` key prevent recovery from a valid legacy key: parse the current key in its own guarded attempt, then try each legacy key independently, migrate the first valid candidate, and preserve the corrupt payload for export/debug rather than overwriting it during the same failed boot. Companion's independent log key needs equivalent version/shape/error coverage.
+- **Science:** n/a — data integrity, failure recovery, and accessible status reporting.
+- **Quality:** `docs/product-quality.md` — Error prevention, confirmation, undo, and recovery; Loading, empty, offline, conflict, and failure states; Privacy and security.
 - **Files:** `src/store/useBloom.ts`, store slices.
-- **Done when:** Hand-corrupted localStorage boots to a sane state with a visible notice; corrupt-current + valid-legacy recovers the legacy data; corrupt legacy candidates do not block later valid candidates; write failure is visible and retryable; valid data is untouched; Companion log corruption is isolated; complements (not replaces) 7.1's migration tests.
+- **Done when:** Hand-corrupted localStorage boots to a sane state with a visible, accessibly announced notice and a concrete retry/export/recovery path; corrupt-current + valid-legacy recovers the legacy data; corrupt legacy candidates do not block later valid candidates; write failure is visible and retryable; a failed read/write leaves the last known-good state unchanged atomically; the preserved corrupt payload is never overwritten before export/recovery; valid data is untouched; Companion log corruption is isolated; complements (not replaces) 7.1's migration tests.
 - **Progress (July 2026):** Independent guarded reads and regressions now recover a valid legacy blob
   after a corrupt current key and continue past a corrupt first legacy candidate. Full-shape
   validation, corrupt-payload preservation/export, Companion validation, and visible read/write
@@ -492,8 +581,17 @@ Rules of thumb:
 ### - [ ] 8.12 Credit goal progress from real work (promoted from optional, July 2026 — Phase 10 builds on it)
 
 - **Goal:** Goal progress is only adjusted manually with +/−, disconnected from tasks and focus sessions, so users maintain two progress systems. Session records already carry `goalId` (1.1). Let a task or focus session be linked to a goal, and offer — transparently, with the manual override kept — to advance the goal when linked work completes. Label aggregate progress honestly (parts across goals aren't equal work).
+- **Science:** §Staying — flow row (clear goals and immediate feedback); §Measurement — progress
+  monitoring and autonomy-preserving feedback. Evidence applies to the feedback mechanism and any
+  user-facing claim, not to the linking or record-integrity implementation.
+- **Quality:** `docs/product-quality.md` — Accessibility and semantics; Keyboard, touch, and
+  screen-reader support; Error prevention, confirmation, undo, and recovery; component/integration
+  testing.
 - **Files:** `src/store/goals.ts`, `src/store/sessions.ts`, `GoalsScreen.tsx`, `TasksScreen.tsx`.
-- **Done when:** Completing a linked session/task offers or applies a goal tick per user setting; manual +/− still works; nothing auto-moves without the user having opted in.
+- **Done when:** Completing a linked session/task offers or applies a goal tick per user setting;
+  manual +/− still works; nothing auto-moves without the user having opted in; linking, unlinking,
+  deleted-goal, skip, reload, and exactly-once credit paths have integration coverage; controls expose
+  their goal and state and work by keyboard, touch, and screen reader.
 - **Depends on:** 1.2.
 - **Progress (July 2026):** The recording half landed (schema v20, pass-through migration): tasks
   carry an optional `goalId` chosen from a planner-gated select on the add row, `OpenSession`
@@ -502,38 +600,43 @@ Rules of thumb:
   automatically yet — the offer/apply debrief flow (and 10.2's one-tap credit built on it)
   remains, as does linking from the task edit path (8.2).
 
-### - [ ] 8.13 (Optional, low) Onboarding + engineering polish
+### - [ ] 8.13 (Optional, low) Honest onboarding and empty-state polish
 
-- **Goal:** Bundle of small accepted findings: (a) replace the three realistic seeded starter tasks ("Finish history essay"…) with a clearly-marked, dismissible guided example or a true empty state with a strong call-to-action; (b) begin extracting timer/task/goal reducers from `useBloom.ts` and splitting `styles.css` by feature — do this opportunistically as other steps touch those areas, not as a big-bang refactor. (Audit note, July 2026: `useBloom.ts` has grown to ~1,630 lines and `styles.css` to ~2,960 — more than double what this step originally described; the opportunistic-extraction rule matters more now, and any session touching the timer reducer should carve out at least one slice.)
-- **Files:** `src/store/useBloom.ts`, `src/styles.css`, `Onboarding.tsx`.
-- **Done when:** New users see honest example content; no regression in migrations or visuals.
+- **Goal:** Replace the three realistic seeded starter tasks ("Finish history essay"…) with either a clearly marked, dismissible guided example or a true empty state with one strong call to action. Do not present sample work as user-created data. Reducer/style extraction is not a condition of this UX step; material architecture work belongs in its own numbered step under `docs/product-quality.md`'s architecture-change requirements, while small in-scope refactors remain allowed.
+- **Science:** n/a — honest onboarding and empty-state usability.
+- **Quality:** `docs/product-quality.md` — Loading, empty, offline, conflict, and failure states; Visual hierarchy, readability, contrast, and motion.
+- **Files:** onboarding/task seed or default-state files, `Onboarding.tsx`, `TasksScreen.tsx`, affected styles and tests.
+- **Done when:** New users can distinguish example content from their own data or see an honest empty state with one obvious action; dismissing an example does not create or delete real work; keyboard, screen-reader, narrow-layout, migration, and visual-regression fixtures pass.
 
 ### - [ ] 8.14 Guard the running timer against accidental resets
 
 - **Goal:** Every control that can discard, finalize, overwrite, or reclassify live timer state needs one shared guard — not just Focus/Short/Long/Tiny mode tabs. Audit and route **Reset, Skip, selecting another active task, switching into/out of Flow, disabling Flow in Settings, applying duration/cadence changes, and navigation actions that replace an unresolved return snapshot** through explicit transition policy. For Focus/Tiny, keep the two-tier mode-switch fix: **(a) false-start grace** — a switch within ~15 s is discarded entirely; **(b) confirmation beyond the grace** — "You're 12 min into this focus — end it and switch?" → **[keep going]** / **[end & switch]**. Reset and Skip must state whether they discard, abandon, or complete; active-task changes must not retag the open session; Flow-off must never orphan a banked/open stopwatch. A confirmed abandon is intentional signal; a stray tap is not.
-- **Science:** Error-prevention + record integrity, not behavior change. Every accidental tap writes a **false `abandoned` record**, polluting `completionRateByPlannedLength()` and `abandonStreakInfo()` — the trigger for 3.5's WOOP offer — so stray taps can make the pet believe the user has a starting problem they don't have (§Measurement — progress monitoring row: monitoring only works when records reflect actual behavior). The grace window is deliberately short (~15 s): genuine early bails (15 s+) are the strongest start-failure signal WOOP exists for and must stay in the record once confirmed. Dialog copy is protective, never scolding (docs/voice.md).
+- **Science:** n/a — error prevention and record integrity, not a behavior-change mechanism.
+- **Quality:** `docs/product-quality.md` — Error prevention, confirmation, undo, and recovery; Component, integration, accessibility, and visual regression testing. Accidental actions must not write false `abandoned` records that pollute downstream selectors; the short grace window preserves confirmed session truth. Dialog copy remains protective and non-scolding under `docs/voice.md`.
 - **Files:** `src/screens/FocusScreen.tsx`, task/navigation controls, `SettingsSheet.tsx`, `src/store/useBloom.ts` (one transition guard/state machine), `src/store/sessions.ts` if a discard helper is cleaner, reuse 8.4's Dialog primitive.
-- **Done when:** The behavior matrix for Mode, Reset, Skip, active-task change, Flow enter/exit/off, cadence/duration edit, and unresolved-return navigation is documented and integration-tested; grace-switch leaves zero record; "keep going" is byte-for-byte state preserving; confirmed actions finalize/discard exactly once; no path orphans `openFocus`, `openFlow`, or a return snapshot; `abandonStreakInfo()` cannot be fed by sub-grace noise.
+- **Done when:** The behavior matrix for Mode, Reset, Skip, active-task change, Flow enter/exit/off, cadence/duration edit, and unresolved-return navigation is documented and integration-tested for keyboard and touch; focus placement/restoration and safe Escape/cancel behavior are covered; grace-switch leaves zero record; "keep going" is byte-for-byte state preserving; confirmed actions finalize/discard exactly once; no path orphans `openFocus`, `openFlow`, or a return snapshot; `abandonStreakInfo()` cannot be fed by sub-grace noise.
 - **Depends on:** nothing (8.4's primitive is a nice-to-have, not a blocker).
 
 ### - [ ] 8.15 Service worker — make the *web* deploy actually offline
 
-- **Goal:** The offline-first constraint currently holds only inside the Android APK (assets bundled by Capacitor). The Cloudflare Pages web deploy ships a PWA manifest (`public/manifest.webmanifest`, linked from `index.html`) but **no service worker**, so an installed PWA or any revisit without network gets a blank page — the app that promises "fully offline" isn't, on the web. Add a minimal precache service worker (build-hash-versioned app shell, cache-first, no runtime network dependencies; old caches cleaned on activate) and register it from `main.tsx`.
+- **Goal:** The local-first/offline constraint currently holds only inside the Android APK (assets bundled by Capacitor). The Cloudflare Pages web deploy ships a PWA manifest (`public/manifest.webmanifest`, linked from `index.html`) but **no service worker**, so an installed PWA or any revisit without network gets a blank page — the app that promises a complete local mode does not yet deliver it on the web. Add a minimal precache service worker (build-hash-versioned app shell, cache-first, no runtime asset dependencies; old caches cleaned on activate) and register it from `main.tsx`. Future Phase 11 auth/sync API requests are opt-in data traffic and must never be treated as app-shell assets or required for boot.
 - **Science:** n/a — this is hard constraint #1 applied to the web target, found by the July 2026 full audit.
 - **Files:** service worker (hand-rolled in `public/` or generated via a Vite PWA plugin), `src/main.tsx`, `vite.config.ts` if a plugin is used.
 - **Done when:** After one online visit, a full reload with DevTools network blocked boots the app and every Phase 1–5 feature works; deploying a new build updates cleanly (no stale-cache strand); 7.2's audit passes against the deployed web build, not just the APK.
 - **Depends on:** 8.10 (fonts must be local before the shell precache is complete).
 
-### - [ ] 8.16 Add a linter, align test dependencies, and wire both into CI
+### - [ ] 8.16 Add a linter, align dependencies/toolchain, and wire both into CI
 
-- **Goal:** The repo has **no ESLint/Prettier config at all**, and until July 2026 CI never ran the test suite (fixed during the audit: `.github/workflows/deploy.yml` now runs `npm test` before build/deploy). With many people and models committing, there is no automated correctness/style gate beyond `tsc`. Add an ESLint flat config (typescript-eslint recommended + react-hooks rules), fix or explicitly justify every finding, add `npm run lint`, and a CI lint step before tests. Also remove the current Vitest transform warnings caused by incompatible/duplicated Vite/plugin resolution: align supported Vite/Vitest/plugin-react versions or give Vitest a standalone config that does not load browser-only React transforms for pure tests. Pin the compatible set and document intentional major-version differences; do not suppress warnings.
+- **Goal:** The repo has **no ESLint/Prettier config at all**, and until July 2026 CI never ran the test suite (fixed during the audit: `.github/workflows/deploy.yml` now runs `npm test` before build/deploy). With many people and models committing, there is no automated correctness/style gate beyond `tsc`. Add an ESLint flat config (typescript-eslint recommended + react-hooks rules), fix or explicitly justify every finding, add `npm run lint`, and a CI lint step before tests. Also remove the current Vitest transform warnings caused by incompatible/duplicated Vite/plugin resolution: align supported Vite/Vitest/plugin-react versions or give Vitest a standalone config that does not load browser-only React transforms for pure tests. Pin the compatible set and document intentional major-version differences; do not suppress warnings. Align the Actions Node/npm toolchain with dependency engine requirements, regenerate the lockfile with that CI toolchain, and require a pristine CI-version `npm ci` check for every future dependency change. This closes the July 2026 regression where npm 11 accepted the committed lockfile but the Node 20/npm 10 runner rejected it as missing `esbuild@0.28.1` platform packages; the same resolution also introduced Wrangler packages requiring Node 22.
 - **Science:** n/a — engineering hygiene, found by the July 2026 full audit.
 - **Files:** `eslint.config.js` (new), `vitest.config.ts` if needed, `package.json`/lockfile, `.github/workflows/deploy.yml`.
-- **Done when:** `npm run lint`, `npm test`, and `npm run build` are warning-free locally and green in CI; CI fails before deploy on lint/test/build failure; dependency-tree output shows one intentional compatible Vite transform path; the lint config is the standard recommended sets, not a hand-tuned rule zoo.
+- **Done when:** A fresh checkout completes `npm ci`, `npm run lint`, `npm test`, and `npm run build` with the exact Node/npm toolchain used by Actions, and the pushed workflow is green through deployment; CI fails before deploy on lint/test/build failure; every resolved package supports the runner's Node version; dependency-tree output shows one intentional compatible Vite transform path; the lint config is the standard recommended sets, not a hand-tuned rule zoo. `AGENTS.md` and `CLAUDE.md` keep the same clean CI-version lockfile check as an evergreen rule for later dependency changes.
 - **Depends on:** nothing.
 - **Progress (July 2026):** `vitest.config.ts` now keeps pure Node tests off the browser React
-  transform, removing the prior Vite/esbuild warnings. ESLint, formatting policy, version alignment,
-  dependency pinning, and the CI lint gate remain.
+  transform, removing the prior Vite/esbuild warnings. The latest dependency refresh exposed a
+  lockfile-parser/toolchain mismatch in Actions (`npm ci` fails before tests); Node/npm alignment and
+  a regenerated lockfile now belong to this step. ESLint, formatting policy, version alignment,
+  dependency pinning, the clean-install gate, and the CI lint gate remain.
 
 ### - [ ] 8.17 Coordinate interruption, return, parking, and debrief surfaces
 
@@ -545,11 +648,14 @@ Rules of thumb:
   and withdraw when Companion is turned off/Quiet. Navigation must not hide a pending truth decision.
   Tiny follows Focus return semantics. Decide Flow explicitly: implement elapsed/snapshot semantics,
   or document/test why count-up Flow is excluded while still preserving its open record.
+- **Science:** n/a — interaction-state coordination, accessibility, and recovery integrity.
+- **Quality:** `docs/product-quality.md` — Keyboard, touch, and screen readers; Error prevention, confirmation, undo, and recovery; Loading, empty, offline, conflict, and failure states.
 - **Files:** `src/store/useCompanion.ts`, `src/store/useBloom.ts`, `FocusScreen.tsx`, `App.tsx`,
   `ResumeCue.tsx`, `ParkingLot.tsx`, `CompanionPrompt.tsx`; reuse 8.4 primitives.
 - **Done when:** A state-transition table and component/hook tests cover priority, focus ownership,
   navigation, reload, Quiet/off, parking snooze, Resume/Not now, repeated leaves, Tiny, and the chosen
-  Flow policy; every "I drifted" path writes exactly one linked event even if triage is skipped or
+  Flow policy plus accessible announcements, failure/reload recovery, and keyboard/touch focus
+  ownership; every "I drifted" path writes exactly one linked event even if triage is skipped or
   reloaded; no prompt is lost, duplicated, or able to operate on the wrong session.
 - **Depends on:** 5.1–5.3, 8.4; use the 7.4 harness for its integration tests.
 - **Progress (July 2026):** Parking “not now” now releases debrief/review without deleting thoughts;
@@ -569,12 +675,16 @@ Rules of thumb:
   the weekly engine's computed `experiment` (currently calculated but replaced by cadence UI), make
   Weekly Review discoverable at an honest cadence, refresh/revert cadence rungs coherently after
   apply, and align all Settings/suggestion duration bounds.
+- **Science:** n/a for the hierarchy and integration work; existing cadence mechanisms retain their
+  evidence and claims from steps 4.1/4.6.
+- **Quality:** `docs/product-quality.md` — Accessibility and semantics; Responsive layout, safe areas, and virtual keyboards; Visual hierarchy, readability, contrast, and motion.
 - **Files:** `FocusScreen.tsx`, `App.tsx`, `SettingsSheet.tsx`, `WeeklyReview.tsx`, cadence engine/cache,
   pre-start components and styles.
-- **Done when:** Keyboard, mobile, and first-run tests show one obvious Start path with optional prep
+- **Done when:** Keyboard, screen-reader, mobile, and first-run tests show one obvious Start path with optional prep
   before it; started sessions retain task/target/planned duration; Weekly Review exposes its real
   experiment and has a discoverable entry condition; cadence controls share one set of bounds,
-  invalidate stale suggestions, and apply/revert without mismatching the idle countdown.
+  invalidate stale suggestions, and apply/revert without mismatching the idle countdown; narrow/wide
+  visual-regression fixtures prove hierarchy and progressive disclosure without clipping.
 - **Depends on:** 3.2, 3.4, 4.1, 4.2, 4.6, 8.5; use the 7.4 harness for lifecycle tests.
 - **Progress (July 2026):** The weekly engine's actual experiment is rendered; cadence bounds now
   match Settings, stale recommendations invalidate after apply/manual duration edits, a fresh idle
@@ -591,6 +701,11 @@ Rules of thumb:
   one current event cannot manufacture its own pattern. Require an explicit minimum sample for
   "usual" language, and keep classified drift-kind denominators separate from skipped/unclassified
   drift events while retaining the latter for honest total counts.
+- **Science:** Required only for the resulting behavioral explanations and evidence hedging; use
+  `docs/science.md`. Timestamp validation, sample integrity, and test design are `Science: n/a`.
+- **Quality:** `docs/product-quality.md` — Privacy and security (input validation); Component,
+  integration, accessibility, and visual regression testing. Behavioral claims and hedging still
+  trace to `docs/science.md`.
 - **Files:** `src/store/companion.ts`, `src/store/sessionStats.ts`, `src/insights/why.ts`, weekly/cadence
   selectors and tests.
 - **Done when:** Fixtures cover future timestamps, delayed answers (`shownAt` ≠ `ts`), estimated-onset
@@ -609,8 +724,11 @@ Rules of thumb:
   reopened), migrate old completed items as timestamp-unknown, and base "met/beat the deadline" copy
   only on a known completion time relative to the deadline. Use task completion day keys for 8.3's
   rollover and 9.3's History ledger; never invent historical dates for migrated records.
+- **Science:** n/a — calendar accuracy, data integrity, and truthful copy.
+- **Quality:** `docs/product-quality.md` — Error prevention, confirmation, undo, and recovery;
+  Component, integration, accessibility, and visual regression testing.
 - **Files:** task/goal models and migrations, `TasksScreen.tsx`, `GoalsScreen.tsx`, `HistoryScreen.tsx`.
-- **Done when:** Completing, reopening, and re-completing records stable timestamps; deadline copy is
+- **Done when:** Completing, reopening, and re-completing record stable timestamps; deadline copy is
   accurate before/on/after the due boundary and neutral when legacy completion time is unknown; task
   history groups by the recorded day; migration and timezone-boundary tests pass losslessly.
 - **Depends on:** 7.1, 8.3; supports 9.3.
@@ -621,16 +739,49 @@ Rules of thumb:
   completed items correctly stay timestamp-unknown. Remaining: deadline copy keyed to the known
   completion time, History day-grouping (9.3), and the timezone-boundary fixture tests.
 
+### - [ ] 8.21 Cross-screen accessibility, component, and visual regression baseline
+
+- **Goal:** Consolidate and close the cross-screen regression coverage that individual feature steps
+  cannot prove. Start with a coverage inventory that reuses and counts the assertions and fixtures
+  required by 8.4–8.20; do not duplicate passing coverage, and add only missing screen/state/matrix
+  cells. Ensure deterministic fixtures cover every current screen and shared overlay in representative
+  normal, empty, dense-data, error, offline, and modal/non-modal states. Complete automated
+  accessibility assertions; component/integration coverage for semantics, keyboard/focus,
+  touch-equivalent actions, undo, and recovery; and pinned visual
+  baselines at small-phone, short-landscape, tablet, and desktop sizes in both themes plus reduced
+  motion and increased-contrast modes. Document baseline-update/review rules and wire the suites into
+  CI. Automated checks supplement, not replace, the manual keyboard/screen-reader/device matrix in
+  7.5. If the screen/state inventory cannot fit one run, split this step in `PLAN.md` before implementation.
+- **Science:** n/a — accessibility and engineering verification.
+- **Quality:** `docs/product-quality.md` — Browser and device verification; Component, integration,
+  accessibility, and visual regression testing.
+- **Files:** component/screen test files and fixtures, accessibility/visual test setup, pinned browser
+  configuration, CI, `docs/testing.md` automated-test and baseline-update guidance (new; 7.5's
+  release QA links to it).
+- **Done when:** Every current screen and shared sheet/dialog/check-in has representative automated
+  accessibility and component coverage; critical undo/recovery/focus paths have integration tests;
+  visual diffs fail CI in the pinned environment across the required states/sizes/themes/preferences;
+  baseline changes require intentional review; known defects are tracked in open remediation rather
+  than accepted by regenerating snapshots; manual evidence remains required by 7.5.
+- **Depends on:** coordinate with 8.4–8.10 and 8.16 so the primitives, visual states, and CI toolchain
+  are stable enough to test.
+
 ---
 
 ## Phase 9 — Own your record (measurement integrity & data stewardship, July 2026)
 
-> These close the feature gap with the Friction Journal app, but each step was vetted against docs/science.md before inclusion — everything here either strengthens the *trustworthiness of the record* (the precondition Harkin 2016 puts on monitoring working at all) or reflects an already-recorded behavior back to the user in the simple, low-frequency form Krukowski 2024 supports. Vetted and **rejected**: a stats-heavy analytics dashboard (fails the "metrics zoo" warning — weekly review + recipe already carry the insight duty), unlimited session editing (undermines record trust and invites self-deception; only the clamped, labeled repair in 9.5 survives), and cloud sync (conflicts with hard constraint #1 — that is a constraint amendment needing its own design decision, not a plan step; 9.4 covers data portability meanwhile).
+> These close the feature gap with the Friction Journal app. Behavior-change mechanisms and scientific
+> claims in this phase are vetted against `docs/science.md`; data stewardship, interaction design,
+> reliability, and engineering use `docs/product-quality.md` and may say `Science: n/a`. Vetted and
+> **rejected**: a stats-heavy analytics dashboard (fails the "metrics zoo" warning — weekly review +
+> recipe already carry the insight duty) and unlimited session editing (undermines record trust; only
+> the clamped, labeled repair in 9.5 survives). Optional cloud sync is isolated in Phase 11; 9.4 remains
+> the account-free portability and recovery baseline.
 
 ### - [ ] 9.1 Evidence addendum for measurement-integrity features
 
 - **Goal:** Append a short, honestly-graded section to `docs/science.md` (new anchor `#measurement-integrity`) covering the evidence 9.5/9.6 rest on: **proximal subgoals** (Bandura & Schunk 1981, *J. Personality and Social Psychology* 41(3): proximal goals raised self-efficacy and intrinsic interest in self-directed learning; Locke & Latham 2002, *American Psychologist*: specific goals outperform vague ones); **planning fallacy** (Buehler, Griffin & Ross 1994, *JPSP* 67(3): people underestimate completion times; feedback from past actuals improves calibration); **recall bias in retrospective self-report** (grounds for why 9.5's repairs are labeled estimates). Grade each claim's evidence type per the report's convention, and follow the verification note's rule: open the primary paper before quoting a number.
-- **Science:** The report's own methodology (§How to read this report — graded claims, honest hedging). No new feature may cite evidence that isn't in the repo's source of truth.
+- **Science:** The report's own methodology (§How to read this report — graded claims, honest hedging). No new behavior-change mechanism or user-facing scientific claim may cite behavioral evidence that is not in the repo's behavioral source of truth. Non-behavioral quality work uses `docs/product-quality.md`.
 - **Files:** `docs/science.md`.
 - **Done when:** Anchor resolves; each claim has an evidence grade and at least one full citation; a provenance sentence in the verification-note style is included.
 - **Depends on:** 0.1.
@@ -638,7 +789,8 @@ Rules of thumb:
 ### - [ ] 9.2 Custom study-day boundary
 
 - **Goal:** Settings question: "When does your day roll over?" → `dayStartHour` (default midnight; presets 00:00 / 03:00 / 05:00, custom hour). One shared `dayKeyFor(ts)` helper; **every** daily computation routes through it — streak, sessions-today, weekly-review windows, per-day grouping in stats — while raw records keep exact timestamps. Version bump + migration; changing the boundary re-derives summaries losslessly from raw records.
-- **Science:** §Measurement — progress monitoring row (Harkin 2016: monitoring requires records that reflect actual behavior; a 00:30 session belongs to the evening's study day, not "tomorrow"); §Staying — chronotype row (May & Hasher 2023: evening types routinely work past midnight — a midnight boundary systematically distorts their per-day stats and streaks specifically); §Do not build — punitive streak loss (a midnight-split streak reset is a *false* setback, the same family of unfair loss 5.4 removes).
+- **Science:** n/a — user-controlled calendar semantics and data accuracy, not a behavior-change mechanism.
+- **Quality:** `docs/product-quality.md` — Error prevention, confirmation, undo, and recovery; Component, integration, accessibility, and visual regression testing. The raw record remains unchanged and the chosen boundary re-derives every daily view consistently.
 - **Files:** `SettingsSheet.tsx`, `src/store/useBloom.ts` (version bump + migration), `src/store/sessions.ts` / `sessionStats.ts` (dayKey helper), streak logic.
 - **Done when:** A 00:30 session counts toward the previous study day in streak, history grouping, and weekly review; changing the boundary re-derives all summaries without touching raw records; unit tests cover boundary edges (session at boundary−1 min, at boundary, DST transition).
 - **Depends on:** 1.4; must land before 9.3.
@@ -653,32 +805,49 @@ Rules of thumb:
 
 - **Goal:** A browsable record of past study days — a **calm ledger, not an analytics dashboard**. Sessions grouped by study day (9.2): each day row shows focus minutes, session count, drifts, recoveries, and completed-task count; expanding a day shows session cards (mode, planned vs actual, outcome, target, drift-phase chips, parked-thought count) plus task completions recorded by 8.20; load-more paging. Open tasks carried across days remain in the active list and are not duplicated as completions. Deliberately **no new aggregate metrics** beyond what `sessionStats` already computes. Also replace the silent 500-record ring-buffer drop: archive older records to a compact slice instead of discarding — a user's history must never silently truncate.
 - **Science:** §Measurement — progress monitoring row (Harkin 2016: d = 0.40 on attainment; works when behavior is *physically recorded and reflected back* — 1.2 built the recording half, this is the reflecting half; the row's design implication says the dashboard should "highlight behavior patterns, not just time totals"); §Measurement — feedback row (Krukowski 2024: simple, low-frequency feedback; hence a ledger and a hard cap on derived metrics); §Article brief "Why tracking helps and when it turns into pressure" (no judgment words, no red/failure styling anywhere).
+- **Quality:** `docs/product-quality.md` — Accessibility and semantics; Responsive layout, safe areas, and virtual keyboards; Loading, empty, offline, conflict, and failure states; regression testing.
 - **Files:** `src/screens/HistoryScreen.tsx` (new), `TabBar.tsx`, task model, `src/store/sessions.ts` (archive slice, version bump), `sessionStats.ts`.
-- **Done when:** Fixture data renders grouped days with correct session/task summaries; carried-open and reopened tasks are not misreported as completed; no derived metric appears that doesn't already exist in `sessionStats`; archive path unit-tested (records past the cap survive); all copy passes docs/voice.md. If this exceeds one session, split UI and archive-storage into sub-steps per the rules of thumb.
+- **Done when:** Fixture data renders grouped days with correct session/task summaries; semantic headings/lists and paging controls work by keyboard and screen reader; empty, loading/paging, large-history, and failure states are responsive and recoverable; carried-open and reopened tasks are not misreported as completed; no derived metric appears that doesn't already exist in `sessionStats`; archive path unit-tested (records past the cap survive); component and narrow/wide visual-regression fixtures pass; all copy passes docs/voice.md. If this exceeds one session, split UI and archive-storage into sub-steps before implementation.
 - **Depends on:** 9.2, 1.4, 8.20.
 
 ### - [ ] 9.4 Data export & import
 
-- **Goal:** Settings → "Your data": one-tap **JSON export** of the entire persisted state (schema-version stamped; *entire* includes the Companion event log's separate localStorage key — see the 7.1 audit note) and a **CSV export** of session records; **import** validates the file, migrates older-schema files forward through the existing migration chain (a v12 file is treated like v12 localStorage), previews what it holds ("this backup has X sessions, Y tasks, Z goals"), then merges by stable id — never a blind overwrite — after automatically backing up the current state.
-- **Science:** Honest framing — this step makes **no behavior-change claim**. It is data stewardship: it operationalizes hard constraint #2 (never lose user data) and Harkin's precondition that monitoring is only as good as the durability of the record; autonomy-supportive per §Measurement — supportive accountability row (the user owns the record; the app is a coach, not a gatekeeper). Fully offline (file download/picker, zero network) — 7.2 must still pass.
+- **Goal:** Settings → "Your data": one-tap **JSON export** of the entire persisted state (schema-version stamped; *entire* includes the Companion event log's separate localStorage key — see the 7.1 audit note) and a **CSV export** of session records; **import** validates the file, migrates older-schema files forward through the existing migration chain (a v12 file is treated like v12 localStorage), previews what it holds ("this backup has X sessions, Y tasks, Z goals"), then merges by stable id — never a blind overwrite — after automatically backing up the current state. Large files show accessible progress and allow cancellation before the atomic commit; any validation, migration, or merge failure leaves current state unchanged and offers a recovery/export path.
+- **Science:** n/a — offline data stewardship and recovery; no behavior-change claim.
+- **Quality:** `docs/product-quality.md` — Error prevention, confirmation, undo, and recovery; Loading, empty, offline, conflict, and failure states; Privacy and security. Export/import stays fully offline, works without an account, and becomes Phase 11's validated envelope/merge baseline.
 - **Files:** `src/store/exportImport.ts` (new + tests), `SettingsSheet.tsx`; reuses 7.1's version fixtures.
-- **Done when:** Export → wipe localStorage → import round-trips losslessly (automated test); importing an older-schema export migrates forward correctly; a malformed file produces one calm error and zero state change; the CSV opens in a spreadsheet with sane columns.
+- **Done when:** Export → wipe localStorage → import round-trips losslessly (automated test); importing an older-schema export migrates forward correctly; malformed, oversized, canceled, and injected merge-failure fixtures produce a calm accessible result and zero state change; progress never becomes a blank or infinite wait; the CSV opens in a spreadsheet with sane columns; the canonical validated envelope and stable-id merge helpers are reusable by Phase 11 without making export/import depend on an account or network.
 - **Depends on:** 1.1; strengthened by 7.1 and 8.11 (not blocked by them).
 
 ### - [ ] 9.5 Session repair & retroactive drift notes
 
 - **Goal:** From History (9.3) or the debrief, let the user fix a wrong record: adjust the end time or outcome of an `interrupted`/recent session within **clamped bounds** (cannot exceed the wall-clock gap; cannot overlap another session), or add a retroactive drift note ("was away ~20 min around 3pm"). Repaired fields set `edited: true` and render with the same **estimate label** 1.5 established for `estOnsetMin`. Insights prefer repaired values; **XP, confetti, and streak are never retroactively granted** — records serve truth, celebrations serve the moment, and this removes any incentive to flatter the record. Repair is offered only at natural pauses (reopening onto an interrupted session, History row) — never a nag.
 - **Science:** §Measurement — progress monitoring row (a force-closed laptop logging `interrupted` for a genuinely finished session is *false data* that then feeds every 2.x insight); 1.5's precedent (self-report is labeled an estimate — never fake precision); §Recovering — self-forgiveness row (Wohl 2010: false "failures" the user cannot correct create exactly the shame→avoidance loop Phase 5 exists to prevent); recall-bias entry in the 9.1 addendum (why edits are clamped and labeled, and automatic capture stays primary).
+- **Quality:** `docs/product-quality.md` — Accessibility and semantics; Keyboard, touch, and
+  screen-reader support; Error prevention, confirmation, undo, and recovery; Responsive layout;
+  component/integration/visual regression testing.
 - **Files:** `src/store/sessions.ts` (version bump: `edited`/estimate flags), `HistoryScreen.tsx`, `DebriefCard.tsx`, `sessionStats.ts` (respect repaired values).
-- **Done when:** Repair flow is ≤3 taps; clamps enforced and unit-tested; a repaired session shows its estimate label in History and debrief; a test proves no XP path exists from repair; stats reflect repaired values.
+- **Done when:** Repair flow is ≤3 taps; clamps enforced and unit-tested; a repaired session shows its
+  estimate label in History and debrief; validation/cancel/failure paths preserve the prior record and
+  offer recovery; the flow is operable by keyboard, touch, and screen reader at narrow and wide sizes;
+  component fixtures cover valid, clamped, labeled, canceled, and error states; a test proves no XP
+  path exists from repair; stats reflect repaired values.
 - **Depends on:** 9.3, 1.5, 9.1.
 
 ### - [ ] 9.6 Today's slice — a daily target with planned vs actual
 
 - **Goal:** Optional per-day target: pick a goal (or task) and set "today: N parts" — the pace math in `goals.ts` *suggests* N, the user decides (a target you chose yourself, per supportive accountability). A quiet chip on FocusScreen ("today: 2/3 lectures"); linked sessions/tasks advance it through 8.12's crediting; the debrief echoes it; the weekly review gains **one calibration line** from planned-vs-actual history ("you usually plan 5 and land 3 — planning 3 might feel better"). Planned/actual pairs persist (version bump). A missed target renders neutral-warm ("2 of 3 — that's real progress"), never as failure.
 - **Science:** §Staying — flow row (Fong et al. 2015: clear, specific, finishable goals with immediate feedback — this generalizes 4.2's session target to the day); §Measurement — progress monitoring row (Harkin 2016) and feature rank 8 (pattern-aware reflection); 9.1 addendum: proximal subgoals build self-efficacy and intrinsic interest (Bandura & Schunk 1981), specific beats vague (Locke & Latham 2002), and the calibration line is the planning-fallacy correction (Buehler 1994) — the most evidence-backed part of the step, not an optional garnish. Guardrails: §Do not build (metrics never moralized) and docs/voice.md on all missed-target copy.
+- **Quality:** `docs/product-quality.md` — Accessibility and semantics; Keyboard, touch, and
+  screen-reader support; Responsive layout and virtual keyboards; Error prevention and recovery;
+  component/integration/visual regression testing.
 - **Files:** `src/store/dailyTarget.ts` (new + tests), `FocusScreen.tsx` (chip), `DebriefCard.tsx`, `WeeklyReview.tsx`, `GoalsScreen.tsx` (link affordance).
-- **Done when:** Full loop works on fixtures (set target → linked session credits it → debrief echoes → weekly calibration line appears with ≥2 weeks of data); entirely skippable with zero added friction; missed-target copy passes voice.md; grep for "behind|failed|missed!" over user-facing strings returns clean.
+- **Done when:** Full loop works on fixtures (set target → linked session credits it → debrief echoes
+  → weekly calibration line appears with ≥2 weeks of data); target entry, editing, skip, invalid input,
+  reload, and recovery are covered; controls and progress state work by keyboard, touch, and screen
+  reader with the virtual keyboard open and at narrow/wide sizes; representative empty, active,
+  complete, and error visual states pass; the feature is entirely skippable with zero added friction; missed-target
+  copy passes voice.md; grep for "behind|failed|missed!" over user-facing strings returns clean.
 - **Depends on:** 9.1, 8.12, 4.2, 2.3.
 
 ---
@@ -691,12 +860,22 @@ Rules of thumb:
 >
 > **Schema coordination note (binding for every 10.x step):** several open Phase 8/9 steps also bump `SCHEMA_VERSION`, so no 10.x step may hardcode a version number. The rule is always relative: read the then-current `SCHEMA_VERSION = N`, set it to `N + 1`, and append `MIGRATIONS[N]` (upgrading a v_N blob to v_N+1), annotated `// PLAN 10.x`. Field-optional additions still bump, with a pass-through migration and a comment saying why (v4→5 / v7→8 / v11→12 / v16→17 precedents). Every new slice ships a total `sanitizeX(raw: unknown)` normalizer wired into `withDefaults`, with a `.test.ts` beside it.
 >
-> **Open-step interactions (read before starting):** all day bucketing in this phase MUST go through 9.2's `dayKeyFor` — never another midnight-hardcoded helper (several ad-hoc ones existed; the consolidation half of 9.2 was extracted to `src/store/dayKey.ts` in July 2026, and 9.2 proper adds the setting + migration). 10.3–10.5 **extend** 9.6's daily target and 10.2 builds on 8.12's `OpenSession.goalId` carry — extensions, never forks; **Phase 10 promotes 8.12 from its "(Optional)" status to load-bearing.** Pace and calibration copy beyond plain descriptive arithmetic is blocked on **9.1**'s evidence addendum (Buehler, Bandura & Schunk, Locke & Latham). 8.3's day-rollover signal carries 10.5 and 10.8. **9.3**'s HistoryScreen is the only home for per-day habit history rows (10.11 extends it; nothing here builds a parallel history surface), and 9.3's archive shape gains a per-day completed-session-count requirement from 10.7's derived foundation. If any of those steps land in a different shape than planned, stop and reconcile rather than improvising.
+> **Product-quality baseline (binding for every 10.x UI step):** apply the relevant criteria in
+> `docs/product-quality.md` for semantics, keyboard/touch/screen-reader equivalence, responsive and
+> virtual-keyboard layouts, contrast and motion preferences, state coverage, error recovery, measured
+> performance, and component/integration/accessibility/visual regression tests. `docs/science.md`
+> remains binding only for the behavior-change mechanisms and scientific claims named in each step.
+>
+> **Open-step interactions (read before starting):** all day bucketing in this phase MUST go through 9.2's `dayKeyFor` — never another midnight-hardcoded helper (several ad-hoc ones existed; the consolidation half of 9.2 was extracted to `src/store/dayKey.ts` in July 2026, and 9.2 proper adds the setting + migration). 10.3–10.5 **extend** 9.6's daily target and 10.2 builds on 8.12's `OpenSession.goalId` carry — extensions, never forks; **Phase 10 promotes 8.12 from its "(Optional)" status to load-bearing.** Pace and calibration copy beyond plain descriptive arithmetic is blocked on **9.1**'s evidence addendum (Buehler, Bandura & Schunk, Locke & Latham). 8.3's day-rollover signal carries 10.5 and 10.8. **9.3**'s HistoryScreen is the only home for per-day habit history rows (10.11 extends it; nothing here builds a parallel history surface), and 9.3's archive shape gains a per-day completed-session-count requirement from 10.7's derived foundation. If one of those steps lands with a minor implementation difference that preserves the same goal and scope, update this unchecked step's assumptions, Files, and tests before continuing. Stop for user direction when the difference materially changes product behavior, privacy, persisted data, security, or the numbered step's scope.
 
 ### - [ ] 10.1 Goal units + one progress ledger
 
 - **Goal:** Make goal progress a record, not a counter — the auditable spine 10.2–10.6 credit, carry, and calibrate against. **(a) Units:** `Goal` gains optional `unit?: string` (trimmed, 1–16 chars; absent → copy renders "parts"); the add form gains one optional "counted in…" input, placeholder "parts" — no new required field. Every surface renders amounts as `"{n} of {total} {unit}"` with no singular/plural transformation, so the Friction Journal's naive `s`-stripping bug is structurally impossible (helper text asks for a word that reads well with any number). **(b) Ledger:** new React-free module `src/store/goalLedger.ts`: `GoalCredit = { id, goalId, delta, source: 'manual' | 'session' | 'carryover', sessionId?, dayKey, at }`. Field rules, exactly: `id` mirrors the `newSessionId` maker pattern in `sessions.ts`; `goalId` typed to match `Goal.id` exactly (check `goals.ts` — do not invent a parallel id scheme); `delta` a signed non-zero integer (negative allowed for corrections/undo), clamped so the derived total stays in range; `dayKey` written via `dayKeyFor(Date.now())` only, re-validated on load against `/^\d{4}-\d{2}-\d{2}$/` (invalid → row dropped); `source: 'carryover'` reserved for migration seeds and compaction baselines. **Derivation invariant (the point of the step):** `goal.done === clamp(Σ deltas for that goal, 0, goal.target)` — `done` stays persisted as a denormalized cache but is recomputed from the ledger by the sanitizer on every load (the Friction Journal's stored-never-trusted `completionPercentage` pattern). The `logGoal` reducer case in `useBloom.ts` is rewritten to append a `source:'manual'` row and re-derive; `removeGoal` drops the goal's rows (session records keep their `goalId` snapshot, so history stays legible — the FJ deletion lesson). **Cap without loss:** `GOAL_LEDGER_CAP = 1000`; past it, `compactGoalLedger` folds the oldest rows into one `source:'carryover'` baseline row per goal — but it never folds rows whose `dayKey` falls within the last 84 days (10.3's daily-pair retention window, which also covers 10.6's 28-day outlook window); if the cap is exceeded entirely by recent rows, the cap yields, not the window (keep the rows). Unit tests prove Σ per goal is unchanged **and** that per-day derived actuals and 10.6's `observedLanding` inputs are identical before and after compaction (never the session log's silent drop; 9.3 set that precedent). **Migration:** bump `SCHEMA_VERSION`; `MIGRATIONS[N]` seeds one carryover row per existing goal with `done > 0`, so the invariant holds from day one and no user's progress moves by even one part. `sanitizeGoalLedger(raw, goals)` drops malformed and orphaned rows and re-derives every `done`. If this exceeds one session, split (a) units and (b) ledger+migration into sub-steps per the rules of thumb.
-- **Science:** §Measurement — progress monitoring row (Harkin et al. 2016, meta-analysis: monitoring improves attainment, d = 0.40, more so when progress is *physically recorded*; and a record only counts as monitoring if it reflects actual behavior — that last clause is our design inference in Phase 9's framing, not a quoted finding: a `done` counter that can drift from its own history is false data, and an append-only ledger with clamped derivation makes the precondition structural). §Staying — flow row (Fong et al. 2015: clear, specific goals with immediate feedback; a named unit makes the goal concrete enough to check — design inference, not a quoted finding). The step claims no behavior change of its own; the rest is hard-constraint #2 engineering.
+- **Science:** n/a for the ledger, migration, sanitizer, and data-integrity architecture. Existing
+  progress-monitoring and flow evidence applies only to the user-facing goal-unit/progress presentation;
+  it does not justify the engineering design.
+- **Quality:** `docs/product-quality.md` — Error prevention, confirmation, undo, and recovery;
+  Privacy and security; Component, integration, accessibility, and visual regression testing.
 - **Files:** `src/store/goalLedger.ts` (new) + `goalLedger.test.ts` (new), `src/store/goals.ts` (unit field) + `goals.test.ts` (new), `src/store/useBloom.ts` (`PersistedShape`, `BloomState`, version bump + seeding migration, `logGoal`/`removeGoal` cases, `withDefaults` wiring), `src/screens/GoalsScreen.tsx` (unit input + "X of Y unit" rendering).
 - **Done when:** `npm test` covers: seed migration preserves every existing `done` exactly (v_N fixture blob migrates losslessly); manual +/− round-trips through the ledger; clamp at `[0, target]` holds under negative and oversized deltas, recording the *applied* delta, not the requested one; compaction preserves per-goal sums and the 84-day window; sanitizer drops invalid dayKeys and orphaned rows; a goal without a unit renders exactly as today. `npm run build` green.
 - **Depends on:** 9.2 (dayKeyFor), 1.1; coordinates with 8.2 (edit surface) and 8.20 (a goal reaching `target` sets `completedAt` there).
@@ -721,8 +900,10 @@ Rules of thumb:
 
 - **Goal:** Zero-navigation answer to "what should I do today," living where the user already is. **GoalsScreen** gains a "Today" section at the top (planner-gated like the rest of the screen): each target renders title, `actual/planned unit` text, a quiet progress bar (derived actual), and an edit affordance. The add flow is deliberately two interactions (fixing the Friction Journal's five-field modal): tap "plan today" on a goal card → one number input **prefilled with `goalPace()`'s suggested per-day amount** → confirm. The flow's date defaults to today but accepts any day up to `goal.due` (10.3's model already keys targets by day) — a future-day target simply appears in the Today section when its day arrives; there is deliberately **no "upcoming" list to tend**, so week-ahead planning exists without FJ's overdue-pile failure mode. No mode selector, no percentage, no range. **FocusScreen**, directly under the task row **while idle only** (the running screen stays clean; 9.6's quiet chip covers in-session display): one strip — `🌱 {goal title} · {done} of {target} {unit} · today {actual}/{planned}` — 0 taps to read, 1 tap arms crediting (10.2's affordance moves here), tap again disarms; tapping its label navigates to Goals. With multiple targets the strip shows the armed target if any, else the least-complete one, and a small chevron advances to the next — **no timed rotation; the strip never moves on its own.** The **debrief echo** lists each target the session's credit touched (one line each, max 3). The whole surface is skippable: no target set → FocusScreen renders identically to before this step; strip absent when `settings.planner` is off or no goal exists. Coordinate placement with 8.18's pre-start hierarchy so nothing new lands above the start button. All new strings `PLACEHOLDER_COPY`, already passing voice rules 2/3/6/10.
 - **Science:** §Staying — flow row (Fong et al. 2015: the strip is the immediate-feedback half of the day-scale target 9.6 defines); §Measurement — feedback row (Krukowski 2024: one chip, one section, no new screen and no dashboard).
+- **Quality:** `docs/product-quality.md` — Accessibility and semantics; Keyboard, touch, and screen-reader
+  support; Responsive layout; Visual hierarchy; Loading, empty, and failure states; regression testing.
 - **Files:** `src/screens/GoalsScreen.tsx`, `src/screens/FocusScreen.tsx` (strip), `src/components/DebriefCard.tsx` (echo).
-- **Done when:** On fixtures: plan a target in two interactions with the pace prefill; a future-day target renders on its day and never before; run a credited session; strip and Today section update from the derived actual without any stored counter; debrief echoes it; with no targets, FocusScreen renders identically to before; every strip interaction ≤1 tap and nothing animates unprompted; `npm run build` green, no console errors.
+- **Done when:** On fixtures: plan a target in two interactions with the pace prefill; a future-day target renders on its day and never before; run a credited session; strip and Today section update from the derived actual without any stored counter; debrief echoes it; with no targets, FocusScreen renders identically to before; every strip interaction ≤1 tap and nothing animates unprompted; progress semantics, focus order, keyboard and screen-reader operation, small-screen/virtual-keyboard layout, and representative component/visual states pass; `npm run build` green, no console errors.
 - **Depends on:** 10.2, 10.3; coordinates with 8.18.
 
 ### - [ ] 10.5 Rollover triage — carry, spread, or let it rest (never an overdue pile)
@@ -786,10 +967,96 @@ Rules of thumb:
 - **Goal:** Replace every `PLACEHOLDER_COPY` string introduced in 10.2–10.11 with final wording that passes the full docs/voice.md checklist. Specific hedging obligations, fixed by the evidence map: Harkin-backed recording lines may say "tends to help"; Felkey-backed strings (tiny versions, `tiny-start`) say "worth an experiment"-class language; Lally-backed strings speak in "months, and it varies" — the literal digits "21", "30 days", "66 days" never appear in UI copy (66 is a citation, not a promise); pace and outlook lines stay descriptive arithmetic plus invitation ("might land around…", "Shrink it, or move the date?"), matched to 9.1's grades; every data-fired string (rollover card, outlook line, gap offer, weekly lines) states its data basis inside the string; miss-adjacent copy uses restart framing ("Yesterday didn't happen. Today can."; "A gap is just weather."); the pet suggests and celebrates, never leverages its own feelings. Run the never-ship grep over **every user-facing string rendered by Phase-10-touched components** (not just newly added strings): `fail|broke|lazy|wasted|discipline|willpower|guilt|shame|excuse|optimal|proven|detox|you should|be honest|no excuses|we missed you|lost|lose|back to zero|break the chain|protect your streak|sad|sick|hungry|disappointed|gone|overdue|behind|21 day|dopamine` — stems (guilt, excuse, lose) deliberately catch variants; pet-state and common-word terms (sad/sick/hungry/disappointed/gone, lose, behind) flag their hits for manual review rather than blanket failure. Wire the grep into `npm test` as a copy-lint so regressions can't ship silently. This pass also reworks the **pre-existing** `dueLabel` chip string "overdue" (`src/store/goals.ts`) into voice-safe wording (e.g. "past its date") — the `GoalStatus` enum value may stay; the user-facing string may not — since GoalsScreen is a Phase-10 surface and the lint would rightly catch it. Any pairs worth keeping are appended (never rewritten) into voice.md's examples.
 - **Science:** docs/voice.md is binding for every user-visible string; evidence hedging matched row-by-row to the confidence grades in docs/science.md and the 9.1 addendum (§How to read this report); Deci 1999 and the Do-not-build rows as negative constraints on celebration and prompt copy — this step is the enforcement pass for the phase's premise.
 - **Files:** every Phase 10 surface file (`FoundationsCard.tsx`, picker sheet, `DebriefCard.tsx`, `GoalsScreen.tsx`, `FocusScreen.tsx`, `WeeklyReview.tsx`, `HistoryScreen.tsx`, copy constants in `foundations.ts`/`goalLedger.ts`/`dailyTarget.ts`), the copy-lint test file (new), `src/store/goals.ts` (`dueLabel` rework), `docs/voice.md` (append-only, if warranted).
-- **Done when:** `grep -rn "PLACEHOLDER_COPY" src/` shows no Phase 10 markers; the copy-lint test is green and wired into `npm test`; no user-facing "overdue" string remains on Phase-10 surfaces; a manual read-through against the 10-point checklist and the 12 allowed/banned pairs is recorded in the step's progress note; build green.
+- **Done when:** `grep -rn "PLACEHOLDER_COPY" src/` shows no Phase 10 markers; the copy-lint test is green and wired into `npm test`; no user-facing "overdue" string remains on Phase-10 surfaces; a manual read-through against the 10-point checklist and the 13 allowed/banned pairs is recorded in the step's progress note; build green.
 - **Depends on:** 10.2–10.11, 0.2 (last step of the phase).
 
-Open-step gates, stated plainly: **9.2**'s `dayKeyFor` is load-bearing for every step here (its consolidation half landed July 2026 as `src/store/dayKey.ts`; the setting + migration remain 9.2 proper); **9.6 + 8.12** gate 10.2/10.3 — Phase 10's planning steps are extensions of those two, not alternatives, and 8.12 is hereby promoted from optional to load-bearing; **9.1** blocks 10.6 outright (and keeps 10.5's copy descriptive until it lands); **8.3**'s rollover signal carries 10.5 and 10.8; **9.3/9.4** gate 10.11, and 9.3's archive shape gains a per-day completed-session-count requirement from 10.7's derived foundation. If any of those steps land in a different shape than planned, stop and reconcile rather than improvising.
+Open-step gates, stated plainly: **9.2**'s `dayKeyFor` is load-bearing for every step here (its consolidation half landed July 2026 as `src/store/dayKey.ts`; the setting + migration remain 9.2 proper); **9.6 + 8.12** gate 10.2/10.3 — Phase 10's planning steps are extensions of those two, not alternatives, and 8.12 is hereby promoted from optional to load-bearing; **9.1** blocks 10.6 outright (and keeps 10.5's copy descriptive until it lands); **8.3**'s rollover signal carries 10.5 and 10.8; **9.3/9.4** gate 10.11, and 9.3's archive shape gains a per-day completed-session-count requirement from 10.7's derived foundation. Reconcile minor same-goal differences by updating the affected unchecked step's assumptions, Files, and tests. Stop for user direction only when the difference materially changes product behavior, privacy, persisted data, security, or step scope.
+
+---
+
+## Phase 11 — Optional accounts & cross-device sync (local-first, opt-in)
+
+> Sync is an optional data-stewardship layer, never a gate around Bloom. A fresh install and every
+> existing user remain local-only by default. Signing in and enabling upload are two separate,
+> explicit choices. Until both happen, no user data leaves the device; after opt-in, only documented,
+> allowlisted auth/sync endpoints may receive traffic. The app shell and every core feature keep
+> working offline, export/import remains available without an account, and remote state is never the
+> only copy. Pausing sync, signing out, deleting the cloud copy, and deleting local data are distinct
+> actions. Sync makes no focus or behavior-change claim.
+>
+> Phase 11 is the first planned network capability, not blanket permission for later ones. Every future
+> network feature needs its own numbered step, feature-specific opt-in, endpoint allowlist, sent-data
+> inventory, local-only regression coverage, and pause/export/deletion semantics. Diagnostic reporting
+> requires a separate numbered step and explicit enablement; payloads must be minimized, redacted, and
+> disclosed before enabling, with no behavioral analytics by default.
+>
+> **First-release scope:** sync finalized records and durable user-created state, including the main
+> `bloom-state` slices, the separate Companion log, History archives, and Phase 10 ledgers/plans.
+> Device consent/account metadata, credentials, corrupt-payload diagnostics, live or paused
+> `openFocus`/`openFlow`, timer return snapshots, and other unresolved in-session UI stay device-local.
+> A future live-timer handoff must be an explicit ownership transfer; no device may silently take over
+> or finalize another device's timer.
+
+### - [ ] 11.1 Sync contract, privacy model, and architecture decision
+
+- **Goal:** Write `docs/sync.md` as the binding design before adding a request to runtime code. Specify the exact synchronized and device-local fields; account identity and provider choice; documented endpoint allowlist; transport and at-rest encryption; whether payloads are end-to-end encrypted and how a second device recovers keys; per-user authorization; device ids; versioned envelopes; server-issued cursors/revisions (never device-clock last-write-wins); tombstone retention; quotas; backups; account switching; device revocation; cloud deletion; operational logging with no focus-content payloads; and the first-release exclusion of live timer state. Include state diagrams for local-only → signed-in/no-upload → sync-enabled → paused/signed-out, plus a data-flow and threat model.
+- **Science:** n/a — privacy, security, architecture, and user data stewardship.
+- **Quality:** `docs/product-quality.md` — Privacy and security; Architecture changes; Error prevention,
+  confirmation, undo, and recovery.
+- **Files:** `docs/sync.md` (new), `README.md` (link from the roadmap note), privacy/deployment documentation if the chosen architecture needs it.
+- **Done when:** The document resolves provider/hosting, encryption/key recovery, retention/deletion, endpoint allowlist, schema compatibility, and conflict rules for every persisted slice; states exactly what the service can and cannot read; covers lost device/key, account A→B, long-offline device, old/new client, and remote outage cases; and receives a security/privacy review before implementation. No production network call lands in this step.
+- **Depends on:** 8.11, 9.4, and the persisted slices intended for the first synced release (currently through 10.11). If those shapes differ when this starts, update the contract before code.
+
+### - [ ] 11.2 Sync-safe envelope, mutation log, and deterministic merge engine
+
+- **Goal:** Build the network-free sync core around 9.4's validated export envelope. Give each installation a device-local id and each durable mutation a collision-safe id plus an authoritative revision/cursor; add tombstones and per-slice conflict rules so replays are idempotent and merges are deterministic. Append-only session/ledger data unions by stable id; revisions and repairs supersede explicitly; deletes beat stale offline edits for the documented retention window; scalar settings use field-level revisions; references never orphan; unknown newer-schema fields survive an older client's round-trip. Sync-enabled/account metadata stays in a separate device-local store and is never itself synced. Preserve every existing id during migration and never seed fake historical timestamps.
+- **Science:** n/a — deterministic merge and data-integrity engineering.
+- **Quality:** `docs/product-quality.md` — Privacy and security; Error prevention, confirmation, undo,
+  and recovery; Component and integration testing.
+- **Files:** new `src/sync/` pure protocol/merge modules + tests, persisted models and sanitizers, `src/store/useBloom.ts` (relative schema bump + forward migration), 7.1 migration fixtures, 9.4 export/import helpers.
+- **Done when:** Algebraic tests cover idempotence, commutativity, deterministic replay, duplicate delivery, concurrent create/edit/delete, delete-vs-long-offline-edit with no resurrection, stable-id collision, Companion's separate log, archives/compaction, corrupt input isolation, unknown-field preservation, and schema skew. A two-device fixture merges without losing any valid record, and the full core is still network-free.
+- **Depends on:** 11.1, 7.1, 9.4, and 10.11's stewardship shape.
+
+### - [ ] 11.3 Optional account service, encrypted sync API, and authorization
+
+- **Goal:** Implement the account and storage service selected in 11.1 behind a small adapter. Authentication creates access to an account but does **not** enable upload; the first upload requires separate client consent in 11.4. Enforce per-user/per-device authorization on every object, versioned encrypted envelopes, server-issued cursors, replay protection, rate/size limits, tombstone retention, device revocation, remote-export, and complete cloud/account deletion. Keep credentials out of `localStorage` (secure HttpOnly web sessions or platform-appropriate secure storage), never log decrypted focus content or secrets, and prevent one account from reading another's ciphertext or metadata.
+- **Science:** n/a — security, privacy, authorization, and service reliability.
+- **Quality:** `docs/product-quality.md` — Privacy and security; Loading, offline, conflict, and failure
+  states; Browser and device verification.
+- **Files:** backend/API package selected by `docs/sync.md`, client auth/sync adapter, local development emulator or fake server, contract and authorization tests, deployment/secrets documentation.
+- **Done when:** Contract tests prove cross-account isolation, revoked-device denial, expired-session recovery, replay rejection, payload/size validation, remote export, cloud-only deletion, and account deletion; server logs contain no focus-content payloads or encryption keys; local-only builds do not instantiate the adapter or make a request.
+- **Depends on:** 11.1, 11.2.
+
+### - [ ] 11.4 Account, consent, sync status, and device controls
+
+- **Goal:** Add a Settings section that begins with two equally valid states: “Local only” and optional “Sync across devices.” Sign-in never blocks onboarding or core use and never uploads by itself. Enabling sync shows a concise first-upload inventory (sessions, tasks, goals, settings, Companion log, archives), the privacy/encryption summary from 11.1, and a confirm step. Provide last-sync/status, manual sync, pause/resume, sign out (local copy kept), device list/revoke, encrypted recovery flow, cloud export, delete cloud copy, and delete account. Switching from account A to B first creates an offline backup, then requires an explicit merge/keep-separate decision; it may never silently upload A's local data into B. Errors and conflicts use calm, precise copy and never imply local-only is unsafe.
+- **Science:** n/a — consent UX, privacy controls, and recoverable account state.
+- **Quality:** `docs/product-quality.md` — Accessibility and semantics; Error prevention, confirmation,
+  undo, and recovery; Loading, offline, conflict, and failure states; Privacy and security.
+- **Files:** `SettingsSheet.tsx`, reusable 8.4 Sheet/Dialog primitives, new account/sync components, `docs/voice.md` if additional reviewed pairs are warranted.
+- **Done when:** With no account the app behaves and renders as before; sign-in alone sends no Bloom data; first upload cannot occur without the inventory consent; every destructive scope is distinct and confirmed; sign-out/pause preserve the full local copy; account switching cannot cross-contaminate datasets; loading, signed-in/no-upload, pending, paused, offline, conflict, expired-auth, failure, retry, cancellation, and recovery states are truthful and testable; keyboard, touch, screen-reader, responsive-layout, and copy-checklist passes succeed.
+- **Depends on:** 8.4, 11.1, 11.3.
+
+### - [ ] 11.5 Offline queue and bidirectional cross-device sync client
+
+- **Goal:** Wire durable local mutations into an encrypted outbox and implement pull → decrypt → validate/migrate → deterministic merge → push with server cursors, bounded retry/backoff, cancellation, and crash-safe acknowledgements. Sync at natural lifecycle points (explicit “sync now,” foreground, and a debounced durable mutation) only while enabled; core actions never wait on the network. On first enable, make a 9.4 local backup before merging remote data. All 8.2 clear/delete paths emit tombstones. A remote outage, airplane mode, background throttling, duplicate response, or app kill leaves the queue recoverable. The service worker must never cache auth/API responses. Finalized data appears on the user's other enabled devices; first-release live/paused timers remain owned by the originating device and are never uploaded.
+- **Science:** n/a — local-first transport and reliability engineering.
+- **Quality:** `docs/product-quality.md` — Loading, offline, conflict, and failure states; Perceived and
+  measured performance; Privacy and security; integration testing.
+- **Files:** `src/sync/` client/outbox modules + tests, store mutation seams, app foreground/connectivity hooks, service-worker exclusions from 8.15, sync status UI from 11.4.
+- **Done when:** Fake-server integration tests cover two devices editing online/offline, duplicate/reordered delivery, crash between upload and acknowledgement, retry after days offline, cursor reset/full resync, tombstone expiry without resurrection, schema mismatch, account revocation, and remote outage. Every local action remains immediate, queued changes survive reload, and eventual convergence preserves all valid finalized records.
+- **Depends on:** 11.2–11.4, 8.15.
+
+### - [ ] 11.6 Multi-device privacy, isolation, recovery, and release QA
+
+- **Goal:** Add `npm run test:sync` and a documented multi-device matrix covering desktop web, mobile web/iPadOS Safari, and Android (native iOS is not implied). Exercise first opt-in, second-device recovery, simultaneous offline edits, clock skew/timezone/day-boundary differences, schema upgrades in both orders, long-offline return, reinstall, token expiry, device revoke, account A→B, cloud export/deletion, sign-out, and local-only continuation. Re-run 7.1–7.4, the 7.2 network-blocked pass, and production build. Audit the enabled path so only the documented auth/sync allowlist is contacted, no user data appears in logs/URLs/analytics, API responses are absent from caches, and encrypted payload confidentiality matches `docs/sync.md`.
+- **Science:** n/a — release verification for user ownership, privacy, accessibility, reliability,
+  performance, and record integrity.
+- **Quality:** `docs/product-quality.md` — the full applicable release matrix, including accessibility,
+  browser/device, network/failure, performance, security, integration, and visual-regression checks.
+- **Files:** sync integration/E2E tests, `docs/qa.md`, `docs/sync.md`, CI, deployment/privacy documentation.
+- **Done when:** Two real devices converge after online and offline edits with no lost/duplicated/resurrected records; a local-only fresh install and a signed-out former sync user both complete the entire app flow in airplane mode; disabling sync stops application-data requests without deleting local data; revocation and deletion behave exactly as described; security/privacy review findings are closed; `npm run test:sync`, `npm test`, and `npm run build` are green.
+- **Depends on:** 11.5, 7.1–7.4, 8.11, 8.15.
 
 ---
 
@@ -806,12 +1073,13 @@ Phase 4: 4.1 ← (1.4, 2.4)  |  4.2 ← 2.1  |  4.3 ← 0.2  |  4.4 ← 2.4  |  
 Phase 5: 5.1 ← 1.3 → 5.2 ← 4.2 → 5.3     |  5.4 ← 0.2
 Phase 6: 6.1 ← (0.1, 2.2) → 6.2 → 6.3 ← 2.4 → 6.4 ← 0.2
 Phase 7: 7.4 harness after Phase 1; relevant Phase 8 fixes add regressions → 7.1–7.4 all pass → 7.5 release QA
-Phase 8: independent unless noted  |  8.10 → 8.15 → 7.2  |  8.17 ← (5.1–5.3, 8.4)  |  8.18 ← (3.2, 3.4, 4.1, 4.2, 4.6, 8.5)  |  8.20 ← (7.1, 8.3)  |  8.12 ← 1.2  |  8.16 anytime
+Phase 8: independent unless noted  |  8.10 → 8.15 → 7.2  |  8.17 ← (5.1–5.3, 8.4)  |  8.18 ← (3.2, 3.4, 4.1, 4.2, 4.6, 8.5)  |  8.20 ← (7.1, 8.3)  |  8.12 ← 1.2  |  8.16 anytime  |  8.21 coordinates with 8.4–8.10 and 8.16, then 7.5
 Phase 9: 9.1 ← 0.1  |  9.2 ← 1.4 → 9.3 ← 8.20 → 9.5 ← (1.5, 9.1)  |  9.4 ← 1.1  |  9.6 ← (9.1, 8.12, 4.2, 2.3)
 Phase 10: 10.1 ← (9.2, 1.1) → 10.2 ← (10.1, 8.12, 4.2, 9.2)  |  10.3 ← (9.6, 9.2, 10.1)  |  (10.2, 10.3) → 10.4 → 10.5 ← (8.3, 9.2)  |  10.6 ← (9.1 blocking, 10.1–10.3, 2.3, 8.2)
           10.7 ← (9.2, 5.4, 1.2) → 10.8 ← (8.3, 8.4, 5.1) → 10.9 ← (9.5, 5.4) → 10.10 ← (3.1, 3.2, 5.3)  |  10.11 ← (9.3, 9.4, 2.3, 10.1, 10.7, 7.1 fixtures)  |  10.12 last ← (10.2–10.11, 0.2)
+Phase 11: 11.1 ← (8.11, 9.4, synced release slices through 10.11) → 11.2 ← (7.1, 9.4, 10.11) → 11.3  |  11.4 ← (8.4, 11.1, 11.3)  |  11.5 ← (11.2–11.4, 8.15) → 11.6 ← (7.1–7.4, 8.11, 8.15)
 ```
 
 ## What this plan deliberately does NOT include (per §Do not build)
 
-Punitive streaks or pet-death mechanics · "25/5 (or 52/17, or 90-min cycles) proven by science" copy · dopamine-detox framing · ego-depletion messaging · multitasking training · always-on or unexplainable nudging · forced audio · anything implying ADHD diagnosis or treatment.
+Punitive streaks or pet-death mechanics · "25/5 (or 52/17, or 90-min cycles) proven by science" copy · dopamine-detox framing · ego-depletion messaging · multitasking training · always-on or unexplainable nudging · forced audio · anything implying ADHD diagnosis or treatment · mandatory accounts · sync required for core use · ads/tracking or default behavioral telemetry · remote fonts, CDN dependencies, or remote runtime assets.

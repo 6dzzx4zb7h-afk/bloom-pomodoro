@@ -6,10 +6,20 @@ while the timer runs, **naps** on breaks, **bounces/blinks** when idle, and thro
 
 **Live:** https://bloom-pomodoro.pages.dev
 
-**Evidence base:** every feature decision traces back to [docs/science.md](docs/science.md), the corrected "Science of Focus for Bloom" report.
+**Project standards:** behavior-change mechanisms and scientific claims use
+[docs/science.md](docs/science.md); voice and copy use [docs/voice.md](docs/voice.md); UX/UI,
+accessibility, privacy, security, reliability, performance, and engineering quality use
+[docs/product-quality.md](docs/product-quality.md). Non-behavioral work may correctly state
+`Science: n/a` instead of inventing a behavioral rationale.
 
-Built with **Vite + React + TypeScript** — the pixel-pal engine is Canvas 2D, and every
-animal is procedurally drawn from sprite data (no runtime asset files).
+**Roadmap:** optional account-based cross-device sync is the first planned network feature. Bloom
+will remain local-only by default; no account is required, the complete core stays offline-capable,
+and local-only sends no user data. Any later network feature needs its own plan step, explicit opt-in,
+endpoint/data inventory, local-only regression, and pause/export/deletion semantics.
+
+Built with **Vite + React + TypeScript** — the current pixel-pal engine is Canvas 2D, and every
+animal is procedurally drawn from sprite data. Runtime assets such as fonts, images, and audio may
+be bundled locally; remote runtime assets are prohibited.
 
 ## Run
 

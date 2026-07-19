@@ -29,9 +29,11 @@ interface DeletedTask {
 
 export function TasksScreen({
   bloom,
+  now,
   onOpenGuideArticle,
 }: {
   bloom: ReturnType<typeof useBloom>;
+  now: number;
   onOpenGuideArticle: (id: GuideArticleId) => void;
 }) {
   const { state, palSprite, activeTask, actions } = bloom;
@@ -65,8 +67,8 @@ export function TasksScreen({
   const progPct = total ? Math.round((doneCount / total) * 100) : 0;
   const allDone = total > 0 && doneCount === total;
 
-  const now = new Date();
-  const dateLabel = `${WEEKDAYS[now.getDay()]} · ${MONTHS[now.getMonth()]} ${now.getDate()}`;
+  const localDate = new Date(now);
+  const dateLabel = `${WEEKDAYS[localDate.getDay()]} · ${MONTHS[localDate.getMonth()]} ${localDate.getDate()}`;
 
   // Focus Patterns: only rendered while Companion Mode is on. The data stays
   // put when the mode is off — just hidden. The log is capped and local, so
@@ -77,8 +79,8 @@ export function TasksScreen({
   const [patternsWindow, setPatternsWindow] = useState<'today' | 'week'>('week');
   const insights = useMemo(
     () =>
-      companionOn ? computeInsights(localEvents, Date.now(), patternsWindow === 'today' ? 1 : 7) : null,
-    [companionOn, localEvents, patternsWindow],
+      companionOn ? computeInsights(localEvents, now, patternsWindow === 'today' ? 1 : 7) : null,
+    [companionOn, localEvents, now, patternsWindow],
   );
   const phaseWord = { early: 'early on', mid: 'mid-session', late: 'in the late stretch' } as const;
 
@@ -92,12 +94,12 @@ export function TasksScreen({
   const recipe = useMemo(
     () =>
       companionOn
-        ? computeAttentionPlan(localEvents, focusLenMins, Date.now(), 28, {
+        ? computeAttentionPlan(localEvents, focusLenMins, now, 28, {
             chronotype: state.settings.chronotype,
             completionByStartHour,
           })
         : [],
-    [companionOn, completionByStartHour, focusLenMins, localEvents, state.settings.chronotype],
+    [companionOn, completionByStartHour, focusLenMins, localEvents, now, state.settings.chronotype],
   );
   const currentCadence = useMemo(
     () => ({
@@ -116,10 +118,10 @@ export function TasksScreen({
     ),
     [currentCadence, localEvents, state.personalCadence, state.sessionRecords, state.settings.chronotype],
   );
-  const cadenceNeedsRefresh = shouldRecomputePersonalCadence(state.personalCadence);
+  const cadenceNeedsRefresh = shouldRecomputePersonalCadence(state.personalCadence, now);
   useEffect(() => {
-    if (companionOn && cadenceNeedsRefresh) actions.cachePersonalCadence(cadence, Date.now());
-  }, [actions, cadence, cadenceNeedsRefresh, companionOn]);
+    if (companionOn && cadenceNeedsRefresh) actions.cachePersonalCadence(cadence, now);
+  }, [actions, cadence, cadenceNeedsRefresh, companionOn, now]);
   const workSessionRunning =
     state.running &&
     (state.mode === 'focus' || state.mode === 'tiny' || state.mode === 'flow');

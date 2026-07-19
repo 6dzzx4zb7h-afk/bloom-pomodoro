@@ -29,6 +29,7 @@ import type { GuideArticleId } from '../content/guide';
 
 export function WeeklyReview({
   records,
+  now,
   palSprite,
   onDismiss,
   onApplyCadence,
@@ -42,6 +43,8 @@ export function WeeklyReview({
 }: {
   /** The full session log — the engine windows it to the last 7 days. */
   records: SessionRecord[];
+  /** Shared app clock, refreshed at the local day boundary and on foreground. */
+  now: number;
   palSprite: AnimalKind;
   onDismiss: () => void;
   onApplyCadence: (preset: CadencePair) => void;
@@ -54,16 +57,16 @@ export function WeeklyReview({
   onOpenGuideArticle: (id: GuideArticleId) => void;
 }) {
   const events = useMemo(() => loadEvents(), []);
-  const review = useMemo(() => computeWeeklyReview(records, events), [records, events]);
+  const review = useMemo(() => computeWeeklyReview(records, events, now), [records, events, now]);
   const guideSuggestion = useMemo(
     () => guideSuggestionFor({
       kind: 'weekly',
-      momentKey: `weekly:${weekKey()}`,
+      momentKey: `weekly:${weekKey(now)}`,
       records,
       events,
       workSessionRunning: false,
-    }, guideRead, Date.now()),
-    [events, guideRead, records],
+    }, guideRead, now),
+    [events, guideRead, now, records],
   );
   const cadence = useMemo(
     () => personalCadenceForSurface(
@@ -75,10 +78,10 @@ export function WeeklyReview({
     ),
     [chronotype, currentCadence, events, personalCadence, records],
   );
-  const cadenceNeedsRefresh = shouldRecomputePersonalCadence(personalCadence);
+  const cadenceNeedsRefresh = shouldRecomputePersonalCadence(personalCadence, now);
   useEffect(() => {
-    if (cadenceNeedsRefresh) onCacheCadence(cadence, Date.now());
-  }, [cadence, cadenceNeedsRefresh, onCacheCadence]);
+    if (cadenceNeedsRefresh) onCacheCadence(cadence, now);
+  }, [cadence, cadenceNeedsRefresh, now, onCacheCadence]);
   useEffect(() => {
     if (guideSuggestion) {
       onGuideSuggested(guideSuggestion.articleId, guideSuggestion.momentKey);

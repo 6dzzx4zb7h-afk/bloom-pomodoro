@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { dayKeyFor } from './dayKey';
+import { dayKeyFor, nextDayBoundaryAt } from './dayKey';
 
 /** Local-time instant, so the tests hold in any timezone the suite runs in. */
 function at(y: number, m: number, d: number, h = 0, min = 0): number {
@@ -39,6 +39,36 @@ describe('dayKeyFor', () => {
           d.getDate(),
         ).padStart(2, '0')}`,
       );
+    }
+  });
+});
+
+describe('nextDayBoundaryAt', () => {
+  it('returns the next midnight at the default boundary', () => {
+    const next = new Date(nextDayBoundaryAt(at(2026, 7, 4, 23, 59)));
+    expect([
+      next.getFullYear(),
+      next.getMonth() + 1,
+      next.getDate(),
+      next.getHours(),
+      next.getMinutes(),
+    ]).toEqual([2026, 7, 5, 0, 0]);
+  });
+
+  it('uses a configured boundary on the same or next local date', () => {
+    expect(nextDayBoundaryAt(at(2026, 7, 4, 3, 0), 4)).toBe(at(2026, 7, 4, 4, 0));
+    expect(nextDayBoundaryAt(at(2026, 7, 4, 4, 0), 4)).toBe(at(2026, 7, 5, 4, 0));
+  });
+
+  it('follows local calendar setters across common DST-edge dates', () => {
+    for (const [month, day] of [[3, 8], [11, 1]] as const) {
+      const start = at(2026, month, day, 12, 0);
+      const next = new Date(nextDayBoundaryAt(start));
+      const expected = new Date(start);
+      expected.setHours(0, 0, 0, 0);
+      expected.setDate(expected.getDate() + 1);
+      expect(next.getTime()).toBe(expected.getTime());
+      expect(dayKeyFor(next.getTime())).not.toBe(dayKeyFor(start));
     }
   });
 });

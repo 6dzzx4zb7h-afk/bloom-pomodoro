@@ -33,11 +33,13 @@ export function parseDue(due: string): Date {
   return new Date(y, (m || 1) - 1, d || 1);
 }
 
-/** Whole days from `now` until the end of the due day; 1 = due today, <= 0 = past. */
-export function daysLeft(due: string, now = Date.now()): number {
+/** Whole calendar days including the due day; 1 = due today, <= 0 = past. */
+export function daysLeft(due: string, now = Date.now(), dayStartHour = 0): number {
+  const current = parseDue(dayKeyFor(now, dayStartHour));
   const end = parseDue(due);
-  end.setHours(23, 59, 59, 999);
-  return Math.ceil((end.getTime() - now) / 86400000);
+  const currentUtc = Date.UTC(current.getFullYear(), current.getMonth(), current.getDate());
+  const endUtc = Date.UTC(end.getFullYear(), end.getMonth(), end.getDate());
+  return Math.round((endUtc - currentUtc) / 86400000) + 1;
 }
 
 export type GoalStatus = 'done' | 'overdue' | 'active';
@@ -58,9 +60,9 @@ export interface GoalPace {
  * out of reach (either absurd in absolute terms, or far beyond the pace the
  * user has actually shown) — a number nobody can hit is noise, not help.
  */
-export function goalPace(goal: Goal, now = Date.now()): GoalPace {
+export function goalPace(goal: Goal, now = Date.now(), dayStartHour = 0): GoalPace {
   const remaining = Math.max(0, goal.target - goal.done);
-  const days = daysLeft(goal.due, now);
+  const days = daysLeft(goal.due, now, dayStartHour);
 
   if (remaining === 0) {
     return { status: 'done', daysLeft: days, remaining, perDay: 0, suggestion: null };
@@ -93,9 +95,9 @@ export function goalPace(goal: Goal, now = Date.now()): GoalPace {
 }
 
 /** Chip copy for a goal card: "done ♡" / "overdue" / "due today" / "12 days". */
-export function dueLabel(goal: Goal, now = Date.now()): string {
+export function dueLabel(goal: Goal, now = Date.now(), dayStartHour = 0): string {
   if (goal.done >= goal.target) return 'done ♡';
-  const days = daysLeft(goal.due, now);
+  const days = daysLeft(goal.due, now, dayStartHour);
   if (days <= 0) return 'overdue';
   if (days === 1) return 'due today';
   if (days === 2) return 'due tomorrow';
