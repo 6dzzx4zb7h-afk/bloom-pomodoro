@@ -25,12 +25,14 @@ interface SettingsSheetProps {
   settings: Settings;
   records: SessionRecord[];
   personalCadence: PersonalCadenceMemory;
+  /** Store-owned day signal; cadence computation captures its own instant. */
+  now: number;
   /** Whether a session is currently running (previews only fire when idle). */
   running: boolean;
   /** Includes paused work records whose history still belongs to the timer. */
   hasOpenSession: boolean;
   onPatch: (patch: Partial<Settings>) => void;
-  onCacheCadence: (recommendation: PersonalCadenceRecommendation, at: number) => void;
+  onCacheCadence: (recommendation: PersonalCadenceRecommendation) => void;
   onApplyCadence: (pair: CadencePair) => void;
   ritual: RitualSettings;
   onPatchRitual: (patch: Partial<Pick<RitualSettings, 'enabled' | 'suggestionSeen'>>) => void;
@@ -112,6 +114,7 @@ export function SettingsSheet({
   settings,
   records,
   personalCadence,
+  now,
   ritual,
   running,
   hasOpenSession,
@@ -142,19 +145,27 @@ export function SettingsSheet({
     }),
     [settings.durations.focus, settings.durations.short],
   );
-  const learnedCadence = useMemo(
-    () => personalCadenceForSurface(
-      personalCadence,
-      records,
-      cadenceEvents,
-      settings.chronotype,
-      currentCadence,
-    ),
-    [cadenceEvents, currentCadence, personalCadence, records, settings.chronotype],
+  const cadenceDecision = useMemo(
+    () => {
+      // Staleness and recommendation share this exact computation instant.
+      const computedAt = Date.now();
+      return {
+        cadence: personalCadenceForSurface(
+          personalCadence,
+          records,
+          cadenceEvents,
+          settings.chronotype,
+          currentCadence,
+          computedAt,
+        ),
+        needsRefresh: shouldRecomputePersonalCadence(personalCadence, computedAt),
+      };
+    },
+    [cadenceEvents, currentCadence, now, personalCadence, records, settings.chronotype],
   );
-  const cadenceNeedsRefresh = shouldRecomputePersonalCadence(personalCadence);
+  const { cadence: learnedCadence, needsRefresh: cadenceNeedsRefresh } = cadenceDecision;
   useEffect(() => {
-    if (!clearedNote && cadenceNeedsRefresh) onCacheCadence(learnedCadence, Date.now());
+    if (!clearedNote && cadenceNeedsRefresh) onCacheCadence(learnedCadence);
   }, [cadenceNeedsRefresh, clearedNote, learnedCadence, onCacheCadence]);
   useEffect(() => setNameDraft(settings.name), [settings.name]);
   useEffect(

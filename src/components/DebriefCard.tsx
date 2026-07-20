@@ -35,6 +35,7 @@ export function DebriefCard({
   onTargetOutcome,
   onTinyRestart,
   guideRead,
+  now,
   onGuideSuggested,
   onOpenGuideArticle,
   onDismiss,
@@ -46,6 +47,8 @@ export function DebriefCard({
   onTargetOutcome: (outcome: TargetOutcome) => void;
   onTinyRestart: (nextStep: string) => void;
   guideRead: GuideReadState;
+  /** Store-owned day signal; instant-based checks take a fresh clock below. */
+  now: number;
   onGuideSuggested: (id: GuideArticleId, momentKey: string) => void;
   onOpenGuideArticle: (id: GuideArticleId) => void;
   onDismiss: () => void;
@@ -54,15 +57,19 @@ export function DebriefCard({
   const drifts = useMemo(() => driftsForRecord(record, events), [record, events]);
   const why = useMemo(() => whyFor(record, records, events), [record, records, events]);
   const guideSuggestion = useMemo(
-    () => guideSuggestionFor({
-      kind: 'debrief',
-      momentKey: `debrief:${record.id}`,
-      record,
-      records,
-      events,
-      workSessionRunning: false,
-    }, guideRead, Date.now()),
-    [events, guideRead, record, records],
+    () => {
+      // Suggestion windows and caps use the instant this memo is computed.
+      const computedAt = Date.now();
+      return guideSuggestionFor({
+        kind: 'debrief',
+        momentKey: `debrief:${record.id}`,
+        record,
+        records,
+        events,
+        workSessionRunning: false,
+      }, guideRead, computedAt);
+    },
+    [events, guideRead, now, record, records],
   );
   useEffect(() => {
     if (guideSuggestion) {

@@ -43,12 +43,12 @@ export function WeeklyReview({
 }: {
   /** The full session log — the engine windows it to the last 7 days. */
   records: SessionRecord[];
-  /** Shared app clock, refreshed at the local day boundary and on foreground. */
+  /** Day-refresh signal. Instant-based analysis takes its own fresh clock. */
   now: number;
   palSprite: AnimalKind;
   onDismiss: () => void;
   onApplyCadence: (preset: CadencePair) => void;
-  onCacheCadence: (recommendation: PersonalCadenceRecommendation, at: number) => void;
+  onCacheCadence: (recommendation: PersonalCadenceRecommendation) => void;
   currentCadence: CadencePair;
   personalCadence: PersonalCadenceMemory;
   chronotype: Chronotype;
@@ -57,7 +57,12 @@ export function WeeklyReview({
   onOpenGuideArticle: (id: GuideArticleId) => void;
 }) {
   const events = useMemo(() => loadEvents(), []);
-  const review = useMemo(() => computeWeeklyReview(records, events, now), [records, events, now]);
+  const review = useMemo(
+    // The rolling review window needs the fresh computation instant; `now`
+    // is the store-owned day signal that invalidates it at rollover.
+    () => computeWeeklyReview(records, events, Date.now()),
+    [records, events, now],
+  );
   const guideSuggestion = useMemo(
     () => guideSuggestionFor({
       kind: 'weekly',
@@ -68,20 +73,28 @@ export function WeeklyReview({
     }, guideRead, now),
     [events, guideRead, now, records],
   );
-  const cadence = useMemo(
-    () => personalCadenceForSurface(
-      personalCadence,
-      records,
-      events,
-      chronotype,
-      currentCadence,
-    ),
-    [chronotype, currentCadence, events, personalCadence, records],
+  const cadenceDecision = useMemo(
+    () => {
+      // Staleness and recommendation share this exact computation instant.
+      const computedAt = Date.now();
+      return {
+        cadence: personalCadenceForSurface(
+          personalCadence,
+          records,
+          events,
+          chronotype,
+          currentCadence,
+          computedAt,
+        ),
+        needsRefresh: shouldRecomputePersonalCadence(personalCadence, computedAt),
+      };
+    },
+    [chronotype, currentCadence, events, now, personalCadence, records],
   );
-  const cadenceNeedsRefresh = shouldRecomputePersonalCadence(personalCadence, now);
+  const { cadence, needsRefresh: cadenceNeedsRefresh } = cadenceDecision;
   useEffect(() => {
-    if (cadenceNeedsRefresh) onCacheCadence(cadence, now);
-  }, [cadence, cadenceNeedsRefresh, now, onCacheCadence]);
+    if (cadenceNeedsRefresh) onCacheCadence(cadence);
+  }, [cadence, cadenceNeedsRefresh, onCacheCadence]);
   useEffect(() => {
     if (guideSuggestion) {
       onGuideSuggested(guideSuggestion.articleId, guideSuggestion.momentKey);

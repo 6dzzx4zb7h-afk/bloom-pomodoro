@@ -627,15 +627,17 @@ Rules of thumb:
 
 ### - [ ] 8.16 Add a linter, align dependencies/toolchain, and wire both into CI
 
-- **Goal:** The repo has **no ESLint/Prettier config at all**, and until July 2026 CI never ran the test suite (fixed during the audit: `.github/workflows/deploy.yml` now runs `npm test` before build/deploy). With many people and models committing, there is no automated correctness/style gate beyond `tsc`. Add an ESLint flat config (typescript-eslint recommended + react-hooks rules), fix or explicitly justify every finding, add `npm run lint`, and a CI lint step before tests. Also remove the current Vitest transform warnings caused by incompatible/duplicated Vite/plugin resolution: align supported Vite/Vitest/plugin-react versions or give Vitest a standalone config that does not load browser-only React transforms for pure tests. Pin the compatible set and document intentional major-version differences; do not suppress warnings. Align the Actions Node/npm toolchain with dependency engine requirements, regenerate the lockfile with that CI toolchain, and require a pristine CI-version `npm ci` check for every future dependency change. This closes the July 2026 regression where npm 11 accepted the committed lockfile but the Node 20/npm 10 runner rejected it as missing `esbuild@0.28.1` platform packages; the same resolution also introduced Wrangler packages requiring Node 22.
+- **Goal:** The repo has **no ESLint/Prettier config at all**, and until July 2026 CI never ran the test suite (fixed during the audit: `.github/workflows/deploy.yml` now runs `npm test` before build/deploy). With many people and models committing, there is no automated correctness/style gate beyond `tsc`. Add an ESLint flat config (typescript-eslint recommended + react-hooks rules), fix or explicitly justify every finding, add `npm run lint`, and a CI lint step before tests. Also remove the current Vitest transform warnings caused by incompatible/duplicated Vite/plugin resolution: align supported Vite/Vitest/plugin-react versions or give Vitest a standalone config that does not load browser-only React transforms for pure tests. Pin the compatible set and document intentional major-version differences; do not suppress warnings. Align the Actions Node/npm toolchain with dependency engine requirements, regenerate the lockfile with that CI toolchain, and require a pristine CI-version `npm ci` check for every future dependency change. This closes the July 2026 regression where npm 11 accepted the committed lockfile but the Node 20/npm 10 runner rejected it as missing `esbuild@0.28.1` platform packages; the same resolution also introduced Wrangler packages requiring Node 22. The July 2026 hotfix that unblocked deploys pinned `npm@11.17.0` twice — a hardcoded `npm install --global` step in the workflow and `package.json`'s `packageManager` field, which is inert because corepack is never enabled; keep exactly one npm-version source of truth (corepack reading `packageManager`, or the workflow deriving its version from `package.json`) so the two cannot drift.
 - **Science:** n/a — engineering hygiene, found by the July 2026 full audit.
 - **Files:** `eslint.config.js` (new), `vitest.config.ts` if needed, `package.json`/lockfile, `.github/workflows/deploy.yml`.
-- **Done when:** A fresh checkout completes `npm ci`, `npm run lint`, `npm test`, and `npm run build` with the exact Node/npm toolchain used by Actions, and the pushed workflow is green through deployment; CI fails before deploy on lint/test/build failure; every resolved package supports the runner's Node version; dependency-tree output shows one intentional compatible Vite transform path; the lint config is the standard recommended sets, not a hand-tuned rule zoo. `AGENTS.md` and `CLAUDE.md` keep the same clean CI-version lockfile check as an evergreen rule for later dependency changes.
+- **Done when:** A fresh checkout completes `npm ci`, `npm run lint`, `npm test`, and `npm run build` with the exact Node/npm toolchain used by Actions, and the pushed workflow is green through deployment; CI fails before deploy on lint/test/build failure; every resolved package supports the runner's Node version; dependency-tree output shows one intentional compatible Vite transform path; the lint config is the standard recommended sets, not a hand-tuned rule zoo. The workflow carries no npm-version literal duplicated from `package.json` — one pin, read by both CI and local tooling. `AGENTS.md` and `CLAUDE.md` keep the same clean CI-version lockfile check as an evergreen rule for later dependency changes.
 - **Depends on:** nothing.
 - **Progress (July 2026):** `vitest.config.ts` now keeps pure Node tests off the browser React
   transform, removing the prior Vite/esbuild warnings. The latest dependency refresh exposed a
   lockfile-parser/toolchain mismatch in Actions (`npm ci` fails before tests); Node/npm alignment and
-  a regenerated lockfile now belong to this step. ESLint, formatting policy, version alignment,
+  a regenerated lockfile now belong to this step. A July 19 hotfix moved the runner to Node 22 with a
+  pinned npm 11.17.0 and recorded `engines`/`packageManager` in the manifest; consolidating that
+  duplicate pin (Goal above) remains. ESLint, formatting policy, version alignment,
   dependency pinning, the clean-install gate, and the CI lint gate remain.
 
 ### - [ ] 8.17 Coordinate interruption, return, parking, and debrief surfaces
@@ -766,6 +768,99 @@ Rules of thumb:
 - **Depends on:** coordinate with 8.4–8.10 and 8.16 so the primitives, visual states, and CI toolchain
   are stable enough to test.
 
+### - [x] 8.22 One clock per decision — stop treating the day-refresh timestamp as the current instant
+
+- **Goal:** 8.3's shared local-day signal refreshes only at the day boundary and on foreground, but
+  three consumers treat it as the current instant (July 2026 post-8.3 code review). `WeeklyReview`
+  passes it into `computeWeeklyReview`, whose `endedAt <= now` upper bound — dead while the
+  parameter defaulted to `Date.now()` — now silently drops any session finished after the last
+  refresh: an app kept visible all day can show a review missing that day's sessions or fall back
+  to "still learning" despite enough data. `TasksScreen` and `WeeklyReview` stamp
+  `cachePersonalCadence(cadence, now)`, so the persisted `computedAt` backdates the cadence cache
+  by hours while `SettingsSheet` still stamps a live `Date.now()` — one field written from two
+  clocks. And the screens' `shouldRecomputePersonalCadence(memory, now)` staleness check runs on
+  the frozen clock while `personalCadenceForSurface` defaults to a live `Date.now()` internally, so
+  a screen can display a freshly recomputed recommendation it decided not to cache. Fix by clock
+  role: windowing analyses take a fresh instant at computation time (memoized on the day signal so
+  they still re-run at the boundary), store actions stamp their own `Date.now()` instead of
+  accepting a UI-supplied clock, and every staleness check shares the clock of the computation it
+  guards.
+- **Science:** n/a — clock-consistency correctness.
+- **Quality:** `docs/product-quality.md` — Reliability; the session log is the spine (the review
+  must see every recorded session in its window, and `computedAt` must be truthful).
+- **Files:** `src/components/WeeklyReview.tsx`, `src/screens/TasksScreen.tsx`,
+  `src/components/SettingsSheet.tsx`, `src/store/useBloom.ts` (`cachePersonalCadence`),
+  `src/insights/cadence.ts` call sites, tests beside each.
+- **Done when:** A regression test proves a session completed after the last day-refresh still
+  appears in a weekly review computed in the same render cycle; `computedAt` equals the actual
+  computation time at every write site (one code path stamps it); the staleness check and
+  `personalCadenceForSurface` share one clock value; suite and build stay green.
+- **Depends on:** 8.3 (landed); must land before 8.23.
+- **Closed (July 2026):** Weekly and task-window analyses now take a fresh instant when their
+  day-keyed memo runs. Every cadence surface shares one captured instant between its cache-staleness
+  decision and recommendation, while the store is the only code path that stamps `computedAt`.
+  Component and hook regressions cover the same-render post-refresh session and write-time cache
+  timestamp; the full suite and production build are green.
+
+### - [x] 8.23 Day rollover belongs to the store — one clock owner, re-render only at the boundary
+
+- **Goal:** The app now runs three parallel clock/foreground mechanisms: `useBloom`'s 250 ms tick +
+  `visibilitychange` catch-up, `useCompanion`'s interval + listeners, and 8.3's `useLocalDayRefresh`
+  with `visibilitychange` + `focus` listeners whose unconditional `setNow(Date.now())` re-renders
+  `App` and the mounted screen on every window focus — twice on foreground, since both listeners
+  fire — re-running the O(records + events) insight scans when nothing date-derived changed. The
+  `now` prop is hand-threaded into exactly four components while `DebriefCard`, `SettingsSheet`,
+  and one `guideSuggestionFor` call inside the already-wired `FocusScreen` still freeze a raw
+  `Date.now()`; and `FocusScreen` re-derives the comeback rule inline (`streakAlive` + `dayKeyFor`
+  at render, duplicating the `loadState` sweep) while the persisted streak/comeBack fields stay
+  stale until the next boot. Move day-rollover detection into the store's existing tick/visibility
+  path: a rollover reducer action runs the same sweep `loadState` performs and refreshes an exposed
+  `bloom.today` day key (plus `bloom.now` where an instant is genuinely needed), screens read those
+  instead of a prop, state updates happen only when the day key actually changes, and the boot path
+  and the left-open path become one code path. Retire `useLocalDayRefresh` and the `now` prop
+  threading. No persisted-state shape changes — the sweep writes existing fields.
+- **Science:** n/a — architecture altitude and render efficiency (July 2026 post-8.3 code review).
+- **Quality:** `docs/product-quality.md` — Performance; Reliability. This is a deliberate
+  current-architecture change: it consolidates clocks instead of adding a fourth mechanism.
+- **Files:** `src/store/useBloom.ts` (rollover action, `today` exposure),
+  `src/store/useLocalDayRefresh.ts` (retire), `src/App.tsx`, `src/screens/FocusScreen.tsx` (drop
+  the inline `showComeBack` derivation), `src/screens/TasksScreen.tsx`, `src/screens/GoalsScreen.tsx`,
+  `src/components/WeeklyReview.tsx`, `src/components/DebriefCard.tsx`,
+  `src/components/SettingsSheet.tsx`, lifecycle tests.
+- **Done when:** Crossing the boundary (or foregrounding across it) updates every date-derived
+  label and runs the streak sweep exactly once, with the chip and the persisted state agreeing and
+  no view-layer copy of the comeback formula left; alt-tabbing without a day change triggers no
+  state update and no `now`-keyed memo recompute (asserted in a hook/component test); date-derived
+  UI reads `bloom.today`/`bloom.now`, and each remaining `Date.now()` in screens/components is
+  individually justified; 8.3's boundary, foreground, configured-hour, and DST regressions still
+  pass.
+- **Depends on:** 8.22 must land first — narrowing re-renders to day changes makes any remaining
+  frozen-instant misuse strictly worse. Coordinate with 9.2 (the boundary hour will live in
+  settings) and 8.17 (surface coordination touches the same screens).
+- **Closed (July 2026):** `useBloom` now owns the local-day boundary timer and foreground catch-up,
+  exposes runtime-only `today`/`now` signals, and applies the same gentle-streak sweep on boot and
+  live rollover. Same-day foreground checks return the identical state object; screens no longer
+  receive an app-threaded clock or re-derive comeback state. Lifecycle coverage proves boundary,
+  foreground, configured-hour, persisted comeback, date-label, and no-op re-render behavior; the
+  day-key suite retains its DST coverage. The full suite, production build, and browser preview are
+  green with no relevant console output.
+
+### - [ ] 8.24 Goals day-math consolidation
+
+- **Goal:** `daysLeft` re-implements whole-day diffing with a `dayKeyFor` → `parseDue` → `Date.UTC`
+  round-trip beside the noon-anchored `daysBetween` that `dayKey.ts`'s own header designates for
+  key-to-key arithmetic (it lives in `src/store/streak.ts`), and `GoalsScreen`'s date-input `min`
+  wraps the shared clock in `todayStr(new Date(now))` — a number→Date→number detour around
+  `dayKeyFor` (July 2026 post-8.3 code review). Reduce `daysLeft` to
+  `daysBetween(dayKeyFor(now, dayStartHour), due) + 1` and pass the day key to `min` directly;
+  behavior is unchanged.
+- **Science:** n/a — reuse and simplification.
+- **Quality:** `docs/product-quality.md` — engineering quality: one implementation per concept.
+- **Files:** `src/store/goals.ts`, `src/screens/GoalsScreen.tsx`, `src/store/goals.test.ts`.
+- **Done when:** One day-diff implementation remains for key arithmetic; the existing goals/dayKey
+  boundary and DST tests pass unchanged; no user-visible change.
+- **Depends on:** nothing; coordinate with 9.2 so the boundary hour keeps a single resolution point.
+
 ---
 
 ## Phase 9 — Own your record (measurement integrity & data stewardship, July 2026)
@@ -799,7 +894,12 @@ Rules of thumb:
   timestamp→day call sites (`dayStr` in useBloom, `localDayKey` in insights/triggers, `todayStr`
   in goals, the weekly-review `weekKey` rendering) route through it at the default boundary —
   zero behavior change, no schema change. Remaining: the settings question, the `dayStartHour`
-  persistence + migration, and re-deriving streak/summaries through the chosen boundary.
+  persistence + migration, and re-deriving streak/summaries through the chosen boundary. Caution
+  for that wiring half (July 2026 post-8.3 code review): resolve the hour once where the day signal
+  lives (8.23's `bloom.today`) and hand leaves already-resolved day keys — the hour currently
+  threads through leaf signatures (`daysLeft`/`goalPace`/`dueLabel`/`nextDayBoundaryAt`) that all
+  still receive the default, while `todayStr` takes no hour at all, so per-call-site wiring would
+  let the Goals date-input `min` split from its due labels.
 
 ### - [ ] 9.3 History ledger screen
 

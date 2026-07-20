@@ -29,14 +29,12 @@ interface DeletedTask {
 
 export function TasksScreen({
   bloom,
-  now,
   onOpenGuideArticle,
 }: {
   bloom: ReturnType<typeof useBloom>;
-  now: number;
   onOpenGuideArticle: (id: GuideArticleId) => void;
 }) {
-  const { state, palSprite, activeTask, actions } = bloom;
+  const { state, now, palSprite, activeTask, actions } = bloom;
   const [draft, setDraft] = useState('');
   const [goal, setGoal] = useState(1);
   const [linkGoalId, setLinkGoalId] = useState('');
@@ -78,8 +76,11 @@ export function TasksScreen({
   const localEvents = loadEvents();
   const [patternsWindow, setPatternsWindow] = useState<'today' | 'week'>('week');
   const insights = useMemo(
-    () =>
-      companionOn ? computeInsights(localEvents, now, patternsWindow === 'today' ? 1 : 7) : null,
+    () => companionOn
+      // Rolling windows need the fresh computation instant; the store-owned
+      // day signal only controls when an otherwise-stable memo is invalidated.
+      ? computeInsights(localEvents, Date.now(), patternsWindow === 'today' ? 1 : 7)
+      : null,
     [companionOn, localEvents, now, patternsWindow],
   );
   const phaseWord = { early: 'early on', mid: 'mid-session', late: 'in the late stretch' } as const;
@@ -94,7 +95,8 @@ export function TasksScreen({
   const recipe = useMemo(
     () =>
       companionOn
-        ? computeAttentionPlan(localEvents, focusLenMins, now, 28, {
+        // Same clock role as insights above: fresh window, day-keyed refresh.
+        ? computeAttentionPlan(localEvents, focusLenMins, Date.now(), 28, {
             chronotype: state.settings.chronotype,
             completionByStartHour,
           })
@@ -108,20 +110,28 @@ export function TasksScreen({
     }),
     [state.settings.durations.focus, state.settings.durations.short],
   );
-  const cadence = useMemo(
-    () => personalCadenceForSurface(
-      state.personalCadence,
-      state.sessionRecords,
-      localEvents,
-      state.settings.chronotype,
-      currentCadence,
-    ),
-    [currentCadence, localEvents, state.personalCadence, state.sessionRecords, state.settings.chronotype],
+  const cadenceDecision = useMemo(
+    () => {
+      // Staleness and recommendation share this exact computation instant.
+      const computedAt = Date.now();
+      return {
+        cadence: personalCadenceForSurface(
+          state.personalCadence,
+          state.sessionRecords,
+          localEvents,
+          state.settings.chronotype,
+          currentCadence,
+          computedAt,
+        ),
+        needsRefresh: shouldRecomputePersonalCadence(state.personalCadence, computedAt),
+      };
+    },
+    [currentCadence, localEvents, now, state.personalCadence, state.sessionRecords, state.settings.chronotype],
   );
-  const cadenceNeedsRefresh = shouldRecomputePersonalCadence(state.personalCadence, now);
+  const { cadence, needsRefresh: cadenceNeedsRefresh } = cadenceDecision;
   useEffect(() => {
-    if (companionOn && cadenceNeedsRefresh) actions.cachePersonalCadence(cadence, now);
-  }, [actions, cadence, cadenceNeedsRefresh, companionOn, now]);
+    if (companionOn && cadenceNeedsRefresh) actions.cachePersonalCadence(cadence);
+  }, [actions, cadence, cadenceNeedsRefresh, companionOn]);
   const workSessionRunning =
     state.running &&
     (state.mode === 'focus' || state.mode === 'tiny' || state.mode === 'flow');

@@ -23,8 +23,8 @@ function shortDate(due: string): string {
  * the real question: "what pace gets me there?". Suggestions stay quiet when
  * a deadline is missed or a pace is out of reach; no guilt, no fantasy math.
  */
-export function GoalsScreen({ bloom, now }: { bloom: ReturnType<typeof useBloom>; now: number }) {
-  const { state, palSprite, actions } = bloom;
+export function GoalsScreen({ bloom }: { bloom: ReturnType<typeof useBloom> }) {
+  const { state, now, palSprite, actions } = bloom;
   const [title, setTitle] = useState('');
   const [due, setDue] = useState('');
   const [target, setTarget] = useState('10');

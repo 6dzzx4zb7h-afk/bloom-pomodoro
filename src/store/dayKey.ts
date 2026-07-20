@@ -23,8 +23,9 @@ export function dayKeyFor(ts: number, dayStartHour = 0): string {
  * Epoch timestamp of the next local study-day boundary.
  *
  * Calendar setters are intentional: adding 24 hours would fire an hour early
- * or late when the local clock crosses daylight-saving time. PLAN 8.3 uses
- * this for the live UI refresh; PLAN 9.2 can pass its persisted boundary.
+ * or late when the local clock crosses daylight-saving time. PLAN 8.23 uses
+ * this for the store-owned live UI refresh; PLAN 9.2 can pass its persisted
+ * boundary.
  */
 export function nextDayBoundaryAt(now: number, dayStartHour = 0): number {
   const next = new Date(now);

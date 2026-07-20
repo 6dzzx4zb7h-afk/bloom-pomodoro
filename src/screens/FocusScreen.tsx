@@ -25,8 +25,6 @@ import type { Companion } from '../store/useCompanion';
 import { GuideSuggestion } from '../components/GuideSuggestion';
 import { guideSuggestionFor } from '../insights/surfacing';
 import { loadEvents } from '../store/companion';
-import { dayKeyFor } from '../store/dayKey';
-import { streakAlive } from '../store/streak';
 import type { GuideArticleId } from '../content/guide';
 
 const RING_R = 92;
@@ -42,15 +40,13 @@ const MODE_LABEL: Record<TimerMode, string> = {
 export function FocusScreen({
   bloom,
   companion,
-  now,
   onOpenGuideArticle,
 }: {
   bloom: ReturnType<typeof useBloom>;
   companion: Companion;
-  now: number;
   onOpenGuideArticle: (id: GuideArticleId) => void;
 }) {
-  const { state, mood, statusLabel, palSprite, activeTask, actions, mmss, clock } = bloom;
+  const { state, now, mood, statusLabel, palSprite, activeTask, actions, mmss, clock } = bloom;
   const [showSettings, setShowSettings] = useState(false);
   const [tinyMinutes, setTinyMinutes] = useState<TinyStartMinutes>(TINY_START_OPTIONS[0]);
   const [ritualOpen, setRitualOpen] = useState(false);
@@ -180,6 +176,7 @@ export function FocusScreen({
   useEffect(() => {
     if (!woopEligible || woopOpen) return;
     setWoopOpen(true);
+    // Offer history records the actual presentation instant, not a day signal.
     actions.markWoopOffered(Date.now());
   }, [actions, woopEligible, woopOpen]);
 
@@ -298,16 +295,21 @@ export function FocusScreen({
   const guideEvents = useMemo(() => loadEvents(), [records]);
   const breakGuideSuggestion = useMemo(
     () => breakGuideEligible && lastRecord
-      ? guideSuggestionFor({
-          kind: 'break',
-          momentKey: `break:${lastRecord.id}`,
-          record: lastRecord,
-          records,
-          events: guideEvents,
-          workSessionRunning: false,
-        }, state.guideRead, Date.now())
+      ? (() => {
+          // Window/cap checks need the fresh computation instant; `now` is
+          // the store-owned day signal that invalidates this memo at rollover.
+          const computedAt = Date.now();
+          return guideSuggestionFor({
+            kind: 'break',
+            momentKey: `break:${lastRecord.id}`,
+            record: lastRecord,
+            records,
+            events: guideEvents,
+            workSessionRunning: false,
+          }, state.guideRead, computedAt);
+        })()
       : null,
-    [breakGuideEligible, guideEvents, lastRecord, records, state.guideRead],
+    [breakGuideEligible, guideEvents, lastRecord, now, records, state.guideRead],
   );
   useEffect(() => {
     if (breakGuideSuggestion) {
@@ -317,16 +319,6 @@ export function FocusScreen({
       );
     }
   }, [actions, breakGuideSuggestion]);
-
-  const streakIsAlive = streakAlive(
-    {
-      streak: state.streak,
-      lastFocusDay: state.lastFocusDay,
-      restDayUsedOn: state.restDayUsedOn,
-    },
-    dayKeyFor(now),
-  );
-  const showComeBack = state.comeBack || (state.streak > 0 && !streakIsAlive);
 
   return (
     <div className="screen focus-bg">
@@ -338,7 +330,7 @@ export function FocusScreen({
         <div className="greeting-side">
           {/* Gentle streak (PLAN 5.4): a longer pause greets the return —
               never a zero, never a loss animation. */}
-          {showComeBack ? (
+          {state.comeBack ? (
             <div
               className="streak-chip comeback"
               title="Hi again! Any finished session starts the count growing — consistency is a months game."
@@ -652,6 +644,7 @@ export function FocusScreen({
             actions.toggle(undefined, nextStep);
           }}
           guideRead={state.guideRead}
+          now={now}
           onGuideSuggested={actions.markGuideArticleSuggested}
           onOpenGuideArticle={onOpenGuideArticle}
           onDismiss={() => setDebrief(null)}
@@ -698,6 +691,7 @@ export function FocusScreen({
           settings={state.settings}
           records={records}
           personalCadence={state.personalCadence}
+          now={now}
           ritual={state.ritual}
           running={state.running}
           hasOpenSession={Boolean(state.openFocus || state.openFlow)}

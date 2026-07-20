@@ -1,11 +1,17 @@
 /** @vitest-environment jsdom */
 
+import { useMemo } from 'react';
 import { act, cleanup, fireEvent, render, renderHook, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { FocusScreen } from '../screens/FocusScreen';
 import { GoalsScreen } from '../screens/GoalsScreen';
 import { TasksScreen } from '../screens/TasksScreen';
+import {
+  DEFAULT_CADENCE,
+  EMPTY_PERSONAL_CADENCE,
+  personalCadenceForSurface,
+} from '../insights/cadence';
 import { DEFAULT_COMPANION } from './companion';
 import { DEFAULT_RITUAL } from './ritual';
 import { finalizeSession, newOpenSession, type OpenSession } from './sessions';
@@ -110,7 +116,7 @@ function FocusHarness() {
   };
   return (
     <>
-      <FocusScreen bloom={bloom} companion={companion} now={Date.now()} onOpenGuideArticle={vi.fn()} />
+      <FocusScreen bloom={bloom} companion={companion} onOpenGuideArticle={vi.fn()} />
       <output data-testid="bloom-state">{JSON.stringify(probe)}</output>
     </>
   );
@@ -120,7 +126,7 @@ function TasksHarness() {
   const bloom = useBloom();
   return (
     <>
-      <TasksScreen bloom={bloom} now={Date.now()} onOpenGuideArticle={vi.fn()} />
+      <TasksScreen bloom={bloom} onOpenGuideArticle={vi.fn()} />
       <output data-testid="destructive-state">
         {JSON.stringify({ tasks: bloom.state.tasks, activeTaskId: bloom.state.activeTaskId })}
       </output>
@@ -132,7 +138,7 @@ function GoalsHarness() {
   const bloom = useBloom();
   return (
     <>
-      <GoalsScreen bloom={bloom} now={Date.now()} />
+      <GoalsScreen bloom={bloom} />
       <output data-testid="destructive-state">
         {JSON.stringify({ tasks: bloom.state.tasks, goals: bloom.state.goals })}
       </output>
@@ -421,5 +427,135 @@ describe('safe destructive controls', () => {
       tasks: [task],
       goals: [goal],
     });
+  });
+});
+
+describe('store-owned local day rollover', () => {
+  beforeEach(() => {
+    vi.stubGlobal('localStorage', new MemoryStorage());
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.clearAllTimers();
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    delete (document as unknown as Record<string, unknown>).visibilityState;
+  });
+
+  it('updates date-derived screens and sweeps comeback state once at the boundary', () => {
+    const before = new Date(2026, 6, 19, 23, 59, 59, 900);
+    vi.setSystemTime(before);
+    seedState({
+      streak: 4,
+      lastFocusDay: '2026-07-17',
+      restDayUsedOn: null,
+      comeBack: false,
+    });
+
+    render(<FocusHarness />);
+    expect(screen.queryByText('welcome back 🌱')).toBeNull();
+
+    act(() => vi.advanceTimersByTime(101));
+
+    expect(screen.getByText('welcome back 🌱')).toBeTruthy();
+    const persisted = JSON.parse(localStorage.getItem('bloom-state') ?? '{}') as BloomState;
+    expect(persisted.comeBack).toBe(true);
+
+    cleanup();
+    render(<TasksHarness />);
+    expect(screen.getByText(/Monday · July 20/)).toBeTruthy();
+    cleanup();
+    render(<GoalsHarness />);
+    expect(screen.getByLabelText('Due date').getAttribute('min')).toBe('2026-07-20');
+  });
+
+  it('catches up on visible foreground across a day and ignores hidden changes', () => {
+    vi.setSystemTime(new Date(2026, 6, 19, 9, 0, 0));
+    const hook = renderHook(() => useBloom());
+    expect(hook.result.current.today).toBe('2026-07-19');
+
+    vi.setSystemTime(new Date(2026, 6, 20, 9, 0, 0));
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' });
+    act(() => document.dispatchEvent(new Event('visibilitychange')));
+    expect(hook.result.current.today).toBe('2026-07-19');
+
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
+    act(() => document.dispatchEvent(new Event('visibilitychange')));
+    expect(hook.result.current.today).toBe('2026-07-20');
+    expect(hook.result.current.now).toBe(Date.now());
+  });
+
+  it('keeps same-day foreground checks referentially stable for now-keyed work', () => {
+    vi.setSystemTime(new Date(2026, 6, 19, 9, 0, 0));
+    let computations = 0;
+    const hook = renderHook(() => {
+      const bloom = useBloom();
+      const keyed = useMemo(() => {
+        computations += 1;
+        return bloom.now;
+      }, [bloom.now]);
+      return { bloom, keyed };
+    });
+    const initialState = hook.result.current.bloom.state;
+
+    vi.setSystemTime(new Date(2026, 6, 19, 15, 0, 0));
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
+    act(() => document.dispatchEvent(new Event('visibilitychange')));
+
+    expect(hook.result.current.bloom.state).toBe(initialState);
+    expect(hook.result.current.keyed).toBe(initialState.now);
+    expect(computations).toBe(1);
+  });
+
+  it('honors a configured study-day boundary while the store owns scheduling', () => {
+    const before = new Date(2026, 6, 20, 3, 59, 59, 900);
+    vi.setSystemTime(before);
+    const hook = renderHook(() => useBloom(4));
+    expect(hook.result.current.today).toBe('2026-07-19');
+
+    act(() => vi.advanceTimersByTime(101));
+
+    expect(hook.result.current.today).toBe('2026-07-20');
+    expect(new Date(hook.result.current.now).getHours()).toBe(4);
+  });
+});
+
+describe('cadence cache clock ownership', () => {
+  beforeEach(() => {
+    vi.stubGlobal('localStorage', new MemoryStorage());
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-16T09:00:00'));
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.clearAllTimers();
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  it('stamps computedAt inside the store action at write time', () => {
+    seedState({ personalCadence: EMPTY_PERSONAL_CADENCE });
+    const hook = renderHook(() => useBloom());
+    const writtenAt = new Date('2026-07-16T15:42:00').getTime();
+    vi.setSystemTime(writtenAt);
+    const recommendation = personalCadenceForSurface(
+      EMPTY_PERSONAL_CADENCE,
+      [],
+      [],
+      'notSure',
+      DEFAULT_CADENCE,
+      writtenAt,
+    );
+
+    act(() => hook.result.current.actions.cachePersonalCadence(recommendation));
+
+    expect(hook.result.current.state.personalCadence).toMatchObject({
+      computedAt: writtenAt,
+      recommendation,
+    });
+    hook.unmount();
   });
 });

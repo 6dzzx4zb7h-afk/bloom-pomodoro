@@ -27,7 +27,7 @@ import {
   type Chronotype,
   type CompanionSettings,
 } from './companion';
-import { dayKeyFor } from './dayKey';
+import { dayKeyFor, nextDayBoundaryAt } from './dayKey';
 import { GOAL_TARGET_MAX, type Goal } from './goals';
 import {
   EMPTY_GUIDE_READ_STATE,
@@ -131,6 +131,10 @@ export interface Settings {
 }
 
 export interface BloomState {
+  /** Runtime-only local study-day key. Never written to the persisted blob. */
+  today: string;
+  /** Runtime-only instant captured when `today` last changed. */
+  now: number;
   mode: TimerMode;
   running: boolean;
   /** Wall-clock epoch ms the current run ends at; null when paused/stopped. */
@@ -208,7 +212,10 @@ const DEFAULT_TASKS: Task[] = [
   { id: 3, t: 'Sketch in journal', done: false, pomos: 0, goal: 2 },
 ];
 
+const DEFAULT_NOW = Date.now();
 export const DEFAULT_STATE: BloomState = {
+  today: dayKeyFor(DEFAULT_NOW),
+  now: DEFAULT_NOW,
   mode: 'focus',
   running: false,
   endsAt: null,
@@ -423,10 +430,6 @@ const MIGRATIONS: Array<(blob: Record<string, unknown>) => Record<string, unknow
   }),
 ];
 
-function dayStr(d = new Date()): string {
-  return dayKeyFor(d.getTime());
-}
-
 function withDefaults(blob: Record<string, unknown>): PersistedShape {
   const b = blob ?? {};
   const bSettings = (b.settings as Partial<Settings> | undefined) ?? {};
@@ -549,17 +552,10 @@ export function readPersisted(): PersistedShape | null {
 /** A flow run restored past this is treated as forgotten, not still going. */
 const FLOW_RESTORE_CAP_S = 4 * 3600;
 
-export function loadState(): BloomState {
+export function loadState(dayStartHour = 0): BloomState {
+  const now = Date.now();
   const p = readPersisted();
-  if (!p) return DEFAULT_STATE;
-  // Gentle streak (PLAN 5.4): the count keeps growing across a single missed
-  // day when the weekly free rest day can cover it. A longer pause sets the
-  // count aside and flips the welcome-back state instead — nothing is "lost",
-  // the next finished session simply starts a fresh count.
-  const alive = streakAlive(
-    { streak: p.streak, lastFocusDay: p.lastFocusDay, restDayUsedOn: p.restDayUsedOn },
-    dayStr(),
-  );
+  if (!p) return initializeDay(DEFAULT_STATE, now, dayStartHour);
   // A return question that was already on screen survives a reload exactly
   // as-is. Every other stale focus countdown keeps the existing safety rule:
   // finalize it as interrupted and offer a one-tap re-entry cue.
@@ -571,6 +567,8 @@ export function loadState(): BloomState {
     : p.parking;
   const base: BloomState = {
     ...DEFAULT_STATE,
+    today: dayKeyFor(now, dayStartHour),
+    now,
     settings: p.settings,
     remaining: p.settings.durations.focus,
     sessions: p.sessions,
@@ -579,7 +577,7 @@ export function loadState(): BloomState {
     streak: p.streak,
     lastFocusDay: p.lastFocusDay,
     restDayUsedOn: p.restDayUsedOn,
-    comeBack: alive ? p.comeBack : p.comeBack || p.streak > 0,
+    comeBack: p.comeBack,
     tasks: p.tasks,
     activeTaskId: p.activeTaskId,
     palXp: p.palXp,
@@ -602,38 +600,64 @@ export function loadState(): BloomState {
     // zero — completion waits for the return question's answer).
     const live =
       p.openFocus.running && p.openFocus.endsAt != null
-        ? Math.max(0, Math.ceil((p.openFocus.endsAt - Date.now()) / 1000))
+        ? Math.max(0, Math.ceil((p.openFocus.endsAt - now) / 1000))
         : p.openFocus.returnSnapshot.remainingSec;
-    return {
+    return initializeDay({
       ...base,
       mode: p.openFocus.mode,
       running: p.openFocus.running,
       endsAt: p.openFocus.endsAt,
       remaining: live,
-    };
+    }, now, dayStartHour);
   }
   // A flow run that was live when the app closed keeps counting (that's what
   // a stopwatch does) — unless it's been so long it was clearly abandoned, in
   // which case it comes back paused, banked at the cap.
   if (p.settings.flow && p.flow.running && p.flow.startedAt != null) {
-    const elapsed = p.flow.acc + (Date.now() - p.flow.startedAt) / 1000;
+    const elapsed = p.flow.acc + (now - p.flow.startedAt) / 1000;
     if (elapsed < FLOW_RESTORE_CAP_S) {
-      return {
+      return initializeDay({
         ...base,
         mode: 'flow',
         running: true,
         flowStart: p.flow.startedAt,
         remaining: Math.floor(elapsed),
-      };
+      }, now, dayStartHour);
     }
-    return {
+    return initializeDay({
       ...base,
       mode: 'flow',
       flowAcc: FLOW_RESTORE_CAP_S,
       remaining: FLOW_RESTORE_CAP_S,
-    };
+    }, now, dayStartHour);
   }
-  return base;
+  return initializeDay(base, now, dayStartHour);
+}
+
+/**
+ * Apply the gentle-streak day sweep used by both boot and live rollover.
+ * `today`/`now` are runtime clock fields and deliberately stay out of
+ * PersistedShape, so PLAN 8.23 does not change the storage schema.
+ */
+function initializeDay(s: BloomState, now: number, dayStartHour = 0): BloomState {
+  const today = dayKeyFor(now, dayStartHour);
+  const alive = streakAlive(
+    { streak: s.streak, lastFocusDay: s.lastFocusDay, restDayUsedOn: s.restDayUsedOn },
+    today,
+  );
+  return {
+    ...s,
+    today,
+    now,
+    comeBack: alive ? s.comeBack : s.comeBack || s.streak > 0,
+  };
+}
+
+/** Same-day clock checks are a strict no-op so consumers do not re-render. */
+function rollOverDay(s: BloomState, now: number, dayStartHour = 0): BloomState {
+  return dayKeyFor(now, dayStartHour) === s.today
+    ? s
+    : initializeDay(s, now, dayStartHour);
 }
 
 function persist(s: BloomState) {
@@ -673,7 +697,7 @@ function persist(s: BloomState) {
 function bumpStreak(s: BloomState): Pick<BloomState, 'streak' | 'lastFocusDay' | 'restDayUsedOn' | 'comeBack'> {
   const bumped = bumpStreakGentle(
     { streak: s.streak, lastFocusDay: s.lastFocusDay, restDayUsedOn: s.restDayUsedOn },
-    dayStr(),
+    s.today,
   );
   // Any finished work session settles the welcome-back state: the user is
   // simply here again, and the count is growing.
@@ -781,7 +805,8 @@ export function completionNotice(
 }
 
 export type Action =
-  | { type: 'tick' }
+  | { type: 'tick'; at?: number; dayStartHour?: number }
+  | { type: 'rollOverDay'; at: number; dayStartHour?: number }
   | { type: 'toggle'; ifThenPlanId?: string; targetText?: string }
   | { type: 'reset' }
   | { type: 'pick'; mode: TimerMode; tinyMinutes?: TinyStartMinutes }
@@ -838,28 +863,32 @@ export function reducer(s: BloomState, a: Action): BloomState {
   const dur = s.settings.durations;
   switch (a.type) {
     case 'tick': {
-      if (!s.running) return s;
+      const now = a.at ?? Date.now();
+      const current = rollOverDay(s, now, a.dayStartHour);
+      if (!current.running) return current;
       // Flow counts up: `remaining` holds elapsed seconds, and there is no
       // completion — the session ends when the user says so.
-      if (s.mode === 'flow') {
-        const elapsed = Math.floor(flowElapsed(s));
-        return elapsed === s.remaining ? s : { ...s, remaining: elapsed };
+      if (current.mode === 'flow') {
+        const elapsed = Math.floor(flowElapsed(current, now));
+        return elapsed === current.remaining ? current : { ...current, remaining: elapsed };
       }
       // While a return question is pending the countdown keeps moving in real
       // time, but completion waits for the user's answer — "I drifted" or
       // "pause it back" rewinds the away time back onto the clock (PLAN 5.2).
-      if (s.openFocus?.returnSnapshot) {
-        if (s.endsAt == null) return s;
-        const remaining = Math.max(0, Math.ceil((s.endsAt - Date.now()) / 1000));
-        return remaining === s.remaining ? s : { ...s, remaining };
+      if (current.openFocus?.returnSnapshot) {
+        if (current.endsAt == null) return current;
+        const remaining = Math.max(0, Math.ceil((current.endsAt - now) / 1000));
+        return remaining === current.remaining ? current : { ...current, remaining };
       }
-      if (s.endsAt == null) return s;
+      if (current.endsAt == null) return current;
       // ceil, not round: the session only completes once the full time elapsed.
-      const remaining = Math.max(0, Math.ceil((s.endsAt - Date.now()) / 1000));
-      if (remaining <= 0) return reducer(s, { type: 'complete' });
-      if (remaining === s.remaining) return s;
-      return { ...s, remaining };
+      const remaining = Math.max(0, Math.ceil((current.endsAt - now) / 1000));
+      if (remaining <= 0) return reducer(current, { type: 'complete' });
+      if (remaining === current.remaining) return current;
+      return { ...current, remaining };
     }
+    case 'rollOverDay':
+      return rollOverDay(s, a.at, a.dayStartHour);
     case 'toggle': {
       if (s.mode === 'flow') {
         if (s.running) {
@@ -1687,8 +1716,8 @@ export function reducer(s: BloomState, a: Action): BloomState {
   }
 }
 
-export function useBloom() {
-  const [state, dispatch] = useReducer(reducer, undefined, loadState);
+export function useBloom(dayStartHour = 0) {
+  const [state, dispatch] = useReducer(reducer, undefined, () => loadState(dayStartHour));
 
   // Persist durable fields whenever they change. Flow start/pause lands here
   // too (running/mode/flowStart), so a live stopwatch survives a reload; the
@@ -1697,23 +1726,41 @@ export function useBloom() {
     persist(state);
   }, [state.sessions, state.streak, state.lastFocusDay, state.restDayUsedOn, state.comeBack, state.tasks, state.activeTaskId, state.palXp, state.goals, state.flowStart, state.flowAcc, state.running, state.mode, state.sessionRecords, state.openFocus, state.openFlow, state.lastWeeklyReviewWeek, state.ifThenPlans, state.ritual, state.lastWoopOfferAt, state.preSlump, state.personalCadence, state.parking, state.guideRead, state.settings]);
 
-  // Wall-clock tick: recompute remaining ~4x/sec. Reads Date.now(), so it
-  // stays accurate even when the tab is throttled in the background.
+  // Wall-clock tick: recompute remaining ~4x/sec and let the same reducer
+  // decision own a day rollover while a timer is active.
   useEffect(() => {
     if (!state.running) return;
-    const iv = setInterval(() => dispatch({ type: 'tick' }), 250);
+    const iv = setInterval(
+      () => dispatch({ type: 'tick', at: Date.now(), dayStartHour }),
+      250,
+    );
     return () => clearInterval(iv);
-  }, [state.running]);
+  }, [dayStartHour, state.running]);
+
+  // Idle apps still wake at the local boundary. A running app normally rolls
+  // over on its 250 ms tick first; the reducer makes the scheduled duplicate
+  // a strict no-op and this effect then schedules the following boundary.
+  useEffect(() => {
+    const current = Date.now();
+    const delay = Math.max(1, nextDayBoundaryAt(current, dayStartHour) - current + 1);
+    const timeout = window.setTimeout(
+      () => dispatch({ type: 'rollOverDay', at: Date.now(), dayStartHour }),
+      delay,
+    );
+    return () => window.clearTimeout(timeout);
+  }, [dayStartHour, state.today]);
 
   // Background tabs throttle intervals: catch up the moment the tab is
   // visible again so a session that ended while hidden completes immediately.
   useEffect(() => {
     const onVis = () => {
-      if (document.visibilityState === 'visible') dispatch({ type: 'tick' });
+      if (document.visibilityState === 'visible') {
+        dispatch({ type: 'tick', at: Date.now(), dayStartHour });
+      }
     };
     document.addEventListener('visibilitychange', onVis);
     return () => document.removeEventListener('visibilitychange', onVis);
-  }, []);
+  }, [dayStartHour]);
 
   // When a session completes: chime, hold the celebrate state, then advance.
   // A finished first tiny rung stays put until the user freely chooses the
@@ -1850,8 +1897,8 @@ export function useBloom() {
       recordPreSlump: (sessionId: string, at: number) =>
         dispatch({ type: 'recordPreSlump', sessionId, at }),
       silencePreSlumpForDay: (at: number) => dispatch({ type: 'silencePreSlump', at }),
-      cachePersonalCadence: (recommendation: PersonalCadenceRecommendation, at: number) =>
-        dispatch({ type: 'cachePersonalCadence', recommendation, at }),
+      cachePersonalCadence: (recommendation: PersonalCadenceRecommendation) =>
+        dispatch({ type: 'cachePersonalCadence', recommendation, at: Date.now() }),
       applyCadence: (pair: CadencePair) => dispatch({ type: 'applyCadence', pair }),
       setTargetOutcome: (sessionId: string, targetOutcome: TargetOutcome) =>
         dispatch({ type: 'setTargetOutcome', sessionId, targetOutcome }),
@@ -1915,5 +1962,16 @@ export function useBloom() {
     }
   }, [state.remaining, state.running, state.mode, state.justDone, mmss, clock]);
 
-  return { state, mood, statusLabel, palSprite, activeTask, actions, mmss, clock };
+  return {
+    state,
+    today: state.today,
+    now: state.now,
+    mood,
+    statusLabel,
+    palSprite,
+    activeTask,
+    actions,
+    mmss,
+    clock,
+  };
 }
