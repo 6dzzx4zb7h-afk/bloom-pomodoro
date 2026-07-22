@@ -9,6 +9,7 @@
  */
 
 import { dayKeyFor } from './dayKey';
+import { daysBetween } from './streak';
 
 export interface Goal {
   id: number;
@@ -35,11 +36,7 @@ export function parseDue(due: string): Date {
 
 /** Whole calendar days including the due day; 1 = due today, <= 0 = past. */
 export function daysLeft(due: string, now = Date.now(), dayStartHour = 0): number {
-  const current = parseDue(dayKeyFor(now, dayStartHour));
-  const end = parseDue(due);
-  const currentUtc = Date.UTC(current.getFullYear(), current.getMonth(), current.getDate());
-  const endUtc = Date.UTC(end.getFullYear(), end.getMonth(), end.getDate());
-  return Math.round((endUtc - currentUtc) / 86400000) + 1;
+  return daysBetween(dayKeyFor(now, dayStartHour), due) + 1;
 }
 
 export type GoalStatus = 'done' | 'overdue' | 'active';
@@ -102,9 +99,4 @@ export function dueLabel(goal: Goal, now = Date.now(), dayStartHour = 0): string
   if (days === 1) return 'due today';
   if (days === 2) return 'due tomorrow';
   return `${days} days`;
-}
-
-/** Today as YYYY-MM-DD (local) — the min for the date picker. */
-export function todayStr(now = new Date()): string {
-  return dayKeyFor(now.getTime());
 }

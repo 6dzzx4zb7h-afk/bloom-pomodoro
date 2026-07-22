@@ -845,7 +845,7 @@ Rules of thumb:
   day-key suite retains its DST coverage. The full suite, production build, and browser preview are
   green with no relevant console output.
 
-### - [ ] 8.24 Goals day-math consolidation
+### - [x] 8.24 Goals day-math consolidation
 
 - **Goal:** `daysLeft` re-implements whole-day diffing with a `dayKeyFor` → `parseDue` → `Date.UTC`
   round-trip beside the noon-anchored `daysBetween` that `dayKey.ts`'s own header designates for
@@ -873,7 +873,7 @@ Rules of thumb:
 > the clamped, labeled repair in 9.5 survives). Optional cloud sync is isolated in Phase 11; 9.4 remains
 > the account-free portability and recovery baseline.
 
-### - [ ] 9.1 Evidence addendum for measurement-integrity features
+### - [x] 9.1 Evidence addendum for measurement-integrity features
 
 - **Goal:** Append a short, honestly-graded section to `docs/science.md` (new anchor `#measurement-integrity`) covering the evidence 9.5/9.6 rest on: **proximal subgoals** (Bandura & Schunk 1981, *J. Personality and Social Psychology* 41(3): proximal goals raised self-efficacy and intrinsic interest in self-directed learning; Locke & Latham 2002, *American Psychologist*: specific goals outperform vague ones); **planning fallacy** (Buehler, Griffin & Ross 1994, *JPSP* 67(3): people underestimate completion times; feedback from past actuals improves calibration); **recall bias in retrospective self-report** (grounds for why 9.5's repairs are labeled estimates). Grade each claim's evidence type per the report's convention, and follow the verification note's rule: open the primary paper before quoting a number.
 - **Science:** The report's own methodology (§How to read this report — graded claims, honest hedging). No new behavior-change mechanism or user-facing scientific claim may cite behavioral evidence that is not in the repo's behavioral source of truth. Non-behavioral quality work uses `docs/product-quality.md`.

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { PixelPal } from '../components/PixelPal';
 import type { useBloom } from '../store/useBloom';
-import { GOAL_TARGET_MAX, dueLabel, goalPace, parseDue, todayStr, type Goal } from '../store/goals';
+import { GOAL_TARGET_MAX, dueLabel, goalPace, parseDue, type Goal } from '../store/goals';
 
 const MONTHS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -24,7 +24,7 @@ function shortDate(due: string): string {
  * a deadline is missed or a pace is out of reach; no guilt, no fantasy math.
  */
 export function GoalsScreen({ bloom }: { bloom: ReturnType<typeof useBloom> }) {
-  const { state, now, palSprite, actions } = bloom;
+  const { state, now, today, palSprite, actions } = bloom;
   const [title, setTitle] = useState('');
   const [due, setDue] = useState('');
   const [target, setTarget] = useState('10');
@@ -292,7 +292,7 @@ export function GoalsScreen({ bloom }: { bloom: ReturnType<typeof useBloom> }) {
             className="goal-date"
             type="date"
             value={due}
-            min={todayStr(new Date(now))}
+            min={today}
             onChange={(e) => setDue(e.target.value)}
             aria-label="Due date"
             required

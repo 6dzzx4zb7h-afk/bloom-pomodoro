@@ -1,6 +1,6 @@
 <!-- docs/science.md — source of truth for Bloom's behavioral evidence and scientific claims.
      PLAN.md steps cite the anchors: #starting #staying #recovering #measurement
-     #feature-ranking #article-briefs #do-not-build
+     #measurement-integrity #feature-ranking #article-briefs #do-not-build
      Derived from "Science of Focus for Bloom" (corrected version, July 2026). -->
 
 # Science of Focus for Bloom
@@ -100,6 +100,27 @@ For **recovering**, Bloom can add unusual value. Most focus apps stop at timer l
 | Social support matters for adherence, but **supportive accountability** is stronger when it feels benevolent, trustworthy, and process-oriented rather than controlling. | Theory/review + health-support evidence | No single pooled effect in the cited theory paper; social support reviews generally find positive adherence links. | Mohr et al., 2011, supportive accountability model; Kwok et al., 2025 scoping review; social-support adherence review. [[36]](https://www.researchgate.net/publication/50363494_Supportive_Accountability_A_Model_for_Providing_Human_Support_to_Enhance_Adherence_to_eHealth_Interventions) | The pet’s check-ins should sound like a helpful coach, not a boss. Emphasize process expectations you chose yourself. |
 
 The most defensible measurement principle for Bloom is simple: **track a small number of behaviors well, reflect them back clearly, and avoid making the metrics feel moralized**. Tracking helps. Feedback helps when it is understandable. Motivation tends to suffer when the app becomes punitive or over-controlling. [[37]](https://eprints.whiterose.ac.uk/id/eprint/87431/1/bul%20harkin%20raw%20final.pdf)
+
+<a id="measurement-integrity"></a>
+
+## Measurement-integrity addendum
+
+These findings support the goal breakdown, planning-calibration, and record-repair features in
+PLAN 9.5 and 9.6. They do not establish that a focus app can predict an individual's future work
+precisely, or that a retrospective correction becomes equivalent to a contemporaneous record.
+
+| Claim | Evidence grade | What the evidence supports | Boundary for Bloom |
+| --- | --- | --- | --- |
+| **Proximal subgoals can make a distant learning goal more workable.** | Controlled educational experiment; small and domain-limited | In a study of 40 children with low arithmetic skill and interest, attainable near-term subgoals produced faster self-directed learning, greater arithmetic mastery, higher perceived self-efficacy, and greater free-choice interest than distal-goal or no-goal conditions. Bandura, A., & Schunk, D. H. (1981). “Cultivating competence, self-efficacy, and intrinsic interest through proximal self-motivation.” *Journal of Personality and Social Psychology, 41*(3), 586–598. [https://doi.org/10.1037/0022-3514.41.3.586](https://doi.org/10.1037/0022-3514.41.3.586) | Use concrete parts as optional progress markers. The sample and arithmetic task are too narrow to claim that any particular breakdown will motivate every user or every kind of work. |
+| **Specific goals generally outperform vague exhortations when the task and goal type are well matched.** | Theory/review synthesizing 35 years of experiments and meta-analytic results | The review reports that specific, difficult goals generally led to higher performance than “do your best” goals, while also documenting moderators: ability, commitment, feedback, task complexity, and whether a learning rather than performance goal is appropriate. Locke, E. A., & Latham, G. P. (2002). “Building a practically useful theory of goal setting and task motivation: A 35-year odyssey.” *American Psychologist, 57*(9), 705–717. [https://doi.org/10.1037/0003-066X.57.9.705](https://doi.org/10.1037/0003-066X.57.9.705) | Help users name a specific, adjustable target; do not turn specificity into pressure or imply that a difficult outcome goal is always appropriate for complex learning. |
+| **People often underestimate their own completion times, and relevant past actuals can improve calibration when they are explicitly connected to the current task.** | Five behavioral studies; largely student samples | Participants focused on future scenarios and underused past completion experience. In Study 4, simply recalling similar tasks did not remove optimistic bias; the bias was eliminated only in the condition that required participants to connect those experiences to the current assignment. The authors caution that recollections are not always comparable enough to improve a forecast. Buehler, R., Griffin, D., & Ross, M. (1994). “Exploring the ‘planning fallacy’: Why people underestimate their task completion times.” *Journal of Personality and Social Psychology, 67*(3), 366–381. [https://doi.org/10.1037/0022-3514.67.3.366](https://doi.org/10.1037/0022-3514.67.3.366) | Compare a plan with relevant prior actuals and present the result as calibration context, not a promise or automatic forecast. Similarity and user judgment must remain visible. |
+| **Retrospective self-report is useful but vulnerable to recall error.** | Prospective repeated-measures field study; clinical and symptom-domain limited | Eighty-three rheumatology patients recorded momentary pain and fatigue repeatedly for a month, then supplied retrospective ratings over periods from 1 to 28 days. Recalled ratings were generally higher than aggregated momentary ratings, and recall became harder beyond the past several days. Broderick, J. E., Schwartz, J. E., Vikingstad, G., Pribbernow, M., Grossman, S., & Stone, A. A. (2008). “The accuracy of pain and fatigue items across different reporting periods.” *Pain, 139*(1), 146–157. [https://doi.org/10.1016/j.pain.2008.03.024](https://doi.org/10.1016/j.pain.2008.03.024) | Let users repair a wrong record, but label remembered timing or drift details as estimates, keep bounds visible, and prefer contemporaneous records for derived insights. Symptom recall does not quantify work-duration recall directly. |
+
+**Verification note (23 July 2026).** The primary papers were opened before this addendum was
+written. The claims above were checked against the Bandura and Schunk experiment, the full Locke
+and Latham review, Buehler et al.'s Study 4 and general discussion, and Broderick et al.'s methods
+and results. No effect size is quoted here where the opened paper did not establish one that maps
+cleanly to Bloom's intended feature.
 
 <a id="feature-ranking"></a>
 
