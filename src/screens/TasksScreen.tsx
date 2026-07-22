@@ -40,6 +40,7 @@ export function TasksScreen({
   const [linkGoalId, setLinkGoalId] = useState('');
   const [addedNotice, setAddedNotice] = useState(0);
   const [deletedTask, setDeletedTask] = useState<DeletedTask | null>(null);
+  const [draftTouched, setDraftTouched] = useState(false);
 
   // Optional task→goal link (a first slice of PLAN 8.12): only offered while
   // the planner is on and a goal still has parts to go. Purely a label — the
@@ -153,11 +154,15 @@ export function TasksScreen({
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
-    if (!draft.trim()) return;
+    if (!draft.trim()) {
+      setDraftTouched(true);
+      return;
+    }
     // Keep the goal link selected so a batch of tasks files in quickly.
     actions.addTask(draft, goal, linkGoalId ? Number(linkGoalId) : undefined);
     setDraft('');
     setGoal(1);
+    setDraftTouched(false);
     setAddedNotice((notice) => notice + 1);
   }
 
@@ -173,9 +178,9 @@ export function TasksScreen({
   }
 
   return (
-    <div className="screen tasks-bg">
+    <main className="screen tasks-bg" id="tasks-screen" aria-labelledby="tasks-heading">
       <div className="head">
-        <div className="head-title">Tasks</div>
+        <h1 className="head-title" id="tasks-heading">Tasks</h1>
         <div className="head-sub">ongoing list · {dateLabel}</div>
       </div>
 
@@ -227,6 +232,7 @@ export function TasksScreen({
                 onClick={() => actions.setActiveTask(task.id)}
                 disabled={task.done}
                 aria-pressed={isActive}
+                aria-label={`${isActive ? 'Selected task' : 'Select task'}: ${task.t}`}
                 title={task.done ? undefined : 'focus on this task'}
               >
                 <div className={`task-text${task.done ? ' done' : ''}`}>
@@ -251,7 +257,7 @@ export function TasksScreen({
           <div className="patterns-card">
             <div className="patterns-head">
               <div>
-                <div className="patterns-title">focus patterns</div>
+                <h2 className="patterns-title">focus patterns</h2>
                 <div className="patterns-sub">
                   {patternsWindow === 'today' ? 'last 24 hours' : 'last 7 days'} · lives only on this device
                 </div>
@@ -304,7 +310,7 @@ export function TasksScreen({
   
         {companionOn && (
           <div className="patterns-card recipe-card">
-            <div className="patterns-title">{state.settings.name}'s attention recipe</div>
+            <h2 className="patterns-title">{state.settings.name}'s attention recipe</h2>
             <div className="patterns-sub">made from your own last weeks — no two recipes alike</div>
             <div className="recipe-item cadence-recipe" data-evidence={cadence.evidenceKey}>
               <span className="recipe-emoji" aria-hidden="true">⏱️</span>
@@ -322,13 +328,20 @@ export function TasksScreen({
                     </button>
                   )}
                 </span>
-                <span className="cadence-ladder" aria-label="Personal cadence ladder">
+                <span className="cadence-ladder" role="list" aria-label="Personal cadence ladder">
                   {(['shorter', 'current', 'longer'] as const).map((slot) => {
                     const rung = cadence.rungs[slot];
+                    const direction = slot === 'shorter'
+                      ? 'Shorter option'
+                      : slot === 'longer'
+                        ? 'Longer option'
+                        : 'Current cadence';
                     return (
                       <span
                         key={slot}
-                        aria-label={`${slot}: ${rung.focusMin} minutes focus, ${rung.breakMin} minutes break`}
+                        role="listitem"
+                        aria-current={slot === 'current' ? 'true' : undefined}
+                        aria-label={`${direction}: ${rung.focusMin} minutes focus, ${rung.breakMin} minutes break`}
                       >
                         {rung.focusMin}/{rung.breakMin}
                       </span>
@@ -339,6 +352,9 @@ export function TasksScreen({
                   className="cadence-apply"
                   onClick={() => applyCadence(cadence.preset)}
                   disabled={cadenceIsSet(cadence.preset)}
+                  aria-label={cadenceIsSet(cadence.preset)
+                    ? `Recommended cadence is already set: ${cadence.preset.focusMin} minutes focus, ${cadence.preset.breakMin} minutes break`
+                    : `Apply recommended cadence: ${cadence.preset.focusMin} minutes focus, ${cadence.preset.breakMin} minutes break`}
                 >
                   {cadenceIsSet(cadence.preset)
                     ? `${cadence.preset.focusMin}/${cadence.preset.breakMin} is set ♡`
@@ -350,6 +366,7 @@ export function TasksScreen({
                     onClick={() => applyCadence(
                       state.personalCadence.history[state.personalCadence.history.length - 1],
                     )}
+                    aria-label={`Revert to previous cadence: ${state.personalCadence.history[state.personalCadence.history.length - 1].focusMin} minutes focus, ${state.personalCadence.history[state.personalCadence.history.length - 1].breakMin} minutes break`}
                   >
                     back to {state.personalCadence.history[state.personalCadence.history.length - 1].focusMin}/
                     {state.personalCadence.history[state.personalCadence.history.length - 1].breakMin}
@@ -398,6 +415,7 @@ export function TasksScreen({
       )}
 
       <div className="add-row">
+        <h2 className="add-form-title">Add a task</h2>
         <form className="add-form" onSubmit={submit}>
           <button
             type="submit"
@@ -407,14 +425,20 @@ export function TasksScreen({
           >
             +
           </button>
+          <label className="compact-field-label" htmlFor="new-task-name">task name</label>
           <input
+            id="new-task-name"
             className="add-input"
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
+            onBlur={() => setDraftTouched(true)}
             placeholder="add something sweet"
             maxLength={60}
-            aria-label="New task"
+            aria-label="Task name"
+            aria-invalid={draftTouched && !draft.trim()}
+            aria-describedby="new-task-error"
           />
+          <span className="compact-field-label" aria-hidden="true">focus sessions</span>
           <button
             type="button"
             className="goal-btn"
@@ -426,26 +450,30 @@ export function TasksScreen({
             <span className="goal-cherry" />
           </button>
           {openGoals.length > 0 && (
-            <select
-              className="goal-link"
-              value={linkGoalId}
-              onChange={(e) => setLinkGoalId(e.target.value)}
-              title="count this task toward a goal (optional)"
-              aria-label="Count this task toward a goal (optional)"
-            >
-              <option value="">no goal</option>
-              {openGoals.map((g) => (
-                <option key={g.id} value={g.id}>
-                  {g.title}
-                </option>
-              ))}
-            </select>
+            <label className="compact-form-field">
+              <span>goal (optional)</span>
+              <select
+                className="goal-link"
+                value={linkGoalId}
+                onChange={(e) => setLinkGoalId(e.target.value)}
+              >
+                <option value="">no goal</option>
+                {openGoals.map((g) => (
+                  <option key={g.id} value={g.id}>
+                    {g.title}
+                  </option>
+                ))}
+              </select>
+            </label>
           )}
         </form>
+        <div className="form-error" id="new-task-error" role="alert">
+          {draftTouched && !draft.trim() ? 'Add a task name to continue.' : ''}
+        </div>
         <div className="task-add-note" role="status" aria-live="polite">
           {addedNotice ? 'added to your list ♡' : ''}
         </div>
       </div>
-    </div>
+    </main>
   );
 }

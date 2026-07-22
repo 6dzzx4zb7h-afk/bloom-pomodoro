@@ -3,6 +3,7 @@ import type { AnimalKind } from '../engine/pixelpals';
 import type { SessionRecord, TimerSnapshot } from '../store/sessions';
 import { SESSION_TARGET_MAX } from '../store/useBloom';
 import { PixelPal } from './PixelPal';
+import { Dialog } from './Dialog';
 
 interface ResumeCueProps {
   palSprite: AnimalKind;
@@ -43,8 +44,8 @@ export function ResumeCue({
     action?.();
   }
 
-  return (
-    <div className="companion-pop resume-cue" role="dialog" aria-label="Return to your session">
+  const content = (
+    <>
       <PixelPal sprite={palSprite} mode="idle" scale={3} size={64} className="pop-pal" />
       <div className="pop-body">
         <div className="pop-text">welcome back — here’s the thread 🌱</div>
@@ -103,6 +104,25 @@ export function ResumeCue({
           </>
         )}
       </div>
+    </>
+  );
+
+  if (isReturnQuestion) {
+    return (
+      <Dialog
+        title="Return to your session"
+        description="The timer is waiting for an honest update about the time away."
+        closeOnEscape={false}
+        className="resume-cue resume-dialog"
+      >
+        <div className="resume-dialog-content">{content}</div>
+      </Dialog>
+    );
+  }
+
+  return (
+    <div className="companion-pop resume-cue" role="region" aria-label="Resume interrupted session">
+      {content}
     </div>
   );
 }

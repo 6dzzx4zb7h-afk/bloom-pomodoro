@@ -1,3 +1,22 @@
+/* PLAN 8.10: bundled variable fonts keep typography available with the
+   network blocked and remove Google Fonts from Bloom's runtime path. */
+@font-face {
+  font-family: 'Fredoka';
+  font-style: normal;
+  font-weight: 400 700;
+  font-stretch: 100%;
+  font-display: swap;
+  src: url('/fonts/fredoka-latin.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Nunito';
+  font-style: normal;
+  font-weight: 500 800;
+  font-display: swap;
+  src: url('/fonts/nunito-latin.woff2') format('woff2');
+}
+
 :root {
   /* text */
   --plum: #6e5577;
@@ -101,6 +120,18 @@ button {
   outline-offset: 3px;
 }
 
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 /* ---------- app shell (responsive) ---------- */
 /* The bezel wrapper is a no-op in layout; the phone element is the app surface
    and always fills the whole viewport — phones, tablets, and laptops alike. */
@@ -152,6 +183,7 @@ button {
   flex: none;
 }
 .greeting {
+  margin: 0;
   font: 600 20px var(--font-display);
   color: var(--plum);
 }
@@ -467,12 +499,16 @@ button {
 }
 
 /* ---------- settings sheet ---------- */
+.dialog-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 60;
+}
 .sheet-backdrop {
   position: absolute;
   inset: 0;
   background: rgba(110, 85, 119, 0.28);
   backdrop-filter: blur(2px);
-  z-index: 60;
   display: flex;
   align-items: flex-end;
 }
@@ -505,16 +541,146 @@ button {
   }
 }
 .sheet-grip {
+  display: block;
   width: 40px;
   height: 5px;
   border-radius: 3px;
   background: #e6d8f0;
   margin: 0 auto 10px;
 }
+.sheet-sticky-head {
+  position: sticky;
+  top: -10px;
+  z-index: 2;
+  display: grid;
+  grid-template-columns: 38px 1fr 38px;
+  grid-template-rows: 7px auto;
+  align-items: center;
+  margin: -10px -8px 4px;
+  padding: 10px 8px 7px;
+  background: inherit;
+  border-bottom: 1px solid rgba(199, 159, 230, 0.18);
+}
+.sheet-sticky-head .sheet-grip {
+  grid-column: 2;
+  grid-row: 1;
+  margin: 0 auto;
+}
 .sheet-title {
+  grid-column: 2;
+  grid-row: 2;
   font: 600 18px var(--font-display);
   color: var(--plum);
-  margin-bottom: 10px;
+  margin: 0;
+  text-align: center;
+}
+.sheet-close,
+.dialog-close {
+  width: 36px;
+  height: 36px;
+  border: 0;
+  border-radius: 12px;
+  background: #f4eafb;
+  color: var(--plum);
+  font: 600 24px/1 var(--font-display);
+  cursor: pointer;
+}
+.sheet-close {
+  grid-column: 3;
+  grid-row: 1 / 3;
+}
+
+.settings-section {
+  border-bottom: 1px solid rgba(199, 159, 230, 0.2);
+}
+.settings-section > summary {
+  position: relative;
+  padding: 12px 28px 12px 2px;
+  color: var(--plum);
+  font: 700 14px var(--font-display);
+  cursor: pointer;
+  list-style: none;
+}
+.settings-section > summary::-webkit-details-marker {
+  display: none;
+}
+.settings-section > summary::after {
+  content: '⌄';
+  position: absolute;
+  right: 4px;
+  top: 10px;
+  color: var(--soft2);
+  font-size: 18px;
+  transform: rotate(-90deg);
+  transition: transform 0.15s ease;
+}
+.settings-section[open] > summary::after {
+  transform: rotate(0);
+}
+.settings-section-body {
+  padding: 0 2px 8px;
+}
+
+.dialog-backdrop {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(70, 47, 79, 0.38);
+  backdrop-filter: blur(3px);
+}
+.dialog {
+  width: min(390px, 100%);
+  max-height: calc(100dvh - 40px);
+  overflow: auto;
+  border-radius: 22px;
+  padding: 18px;
+  background: #fffbfe;
+  color: var(--plum);
+  box-shadow: 0 20px 45px -18px rgba(70, 47, 79, 0.65);
+}
+.dialog-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.dialog-title {
+  margin: 0;
+  font: 700 19px/1.3 var(--font-display);
+}
+.dialog-description {
+  margin-top: 8px;
+  color: var(--soft);
+  font: 600 13px/1.5 var(--font-body);
+}
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 18px;
+}
+.dialog-actions button {
+  min-height: 40px;
+  border: 0;
+  border-radius: 12px;
+  padding: 9px 13px;
+  font: 700 12px var(--font-display);
+  cursor: pointer;
+}
+.dialog-primary {
+  background: linear-gradient(150deg, #ffb0d4, #c79fe6);
+  color: #fff;
+}
+.dialog-danger {
+  background: #fff0f5;
+  color: #9b446b;
+}
+.dialog-keep {
+  background: #f4eafb;
+  color: var(--plum);
 }
 .set-row {
   display: flex;
@@ -801,7 +967,6 @@ button {
   border-radius: 12px;
   padding: 7px 11px;
   background: #fff;
-  outline: none;
   font: 600 13px var(--font-display);
   color: var(--plum);
   text-align: right;
@@ -840,9 +1005,9 @@ button {
   margin-bottom: 26px;
 }
 .onboard-title {
+  margin: 0 0 8px;
   font: 600 26px var(--font-display);
   color: var(--plum);
-  margin-bottom: 8px;
 }
 .onboard-sub {
   font: 600 13.5px var(--font-body);
@@ -857,13 +1022,17 @@ button {
   flex-direction: column;
   gap: 12px;
 }
+.onboard-label {
+  margin-bottom: -7px;
+  color: var(--soft2);
+  font: 700 12px var(--font-display);
+}
 .onboard-input {
   width: 100%;
   border: 2px solid #e6d8f0;
   border-radius: 16px;
   padding: 14px 16px;
   background: #fff;
-  outline: none;
   font: 600 16px var(--font-display);
   color: var(--plum);
   text-align: center;
@@ -905,6 +1074,7 @@ button {
   flex: none;
 }
 .head-title {
+  margin: 0;
   font: 600 22px var(--font-display);
   color: var(--plum);
 }
@@ -1119,6 +1289,54 @@ button {
   align-items: center;
   gap: 10px;
 }
+.add-form-title {
+  margin: 0 0 5px 4px;
+  color: var(--plum);
+  font: 700 12px var(--font-display);
+}
+.compact-field-label,
+.compact-form-field > span,
+.form-field > span:first-child {
+  color: var(--soft2);
+  font: 700 9px var(--font-display);
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+.compact-field-label {
+  flex: none;
+}
+.compact-form-field,
+.form-field {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+}
+.compact-form-field {
+  flex: none;
+}
+.form-field {
+  min-width: 0;
+}
+.goal-name-field {
+  flex: 1 1 140px;
+}
+.goal-name-field .add-input {
+  width: 100%;
+}
+.form-error,
+.field-error {
+  min-height: 14px;
+  color: #7a3554;
+  font: 700 10px var(--font-body);
+  line-height: 1.3;
+}
+.form-error {
+  padding: 3px 4px 0;
+}
+.field-error:empty {
+  display: none;
+}
 .add-plus {
   width: 24px;
   height: 24px;
@@ -1152,7 +1370,6 @@ button {
   min-width: 0;
   border: none;
   background: transparent;
-  outline: none;
   font: 600 14px var(--font-display);
   color: var(--plum);
 }
@@ -1239,7 +1456,8 @@ button {
   background: rgba(255, 255, 255, 0.88);
   box-shadow: var(--shadow-card);
 }
-.guide-intro strong {
+.guide-intro h2 {
+  margin: 0;
   color: var(--plum);
   font: 700 15px var(--font-display);
 }
@@ -1499,9 +1717,9 @@ button {
   color: #c7b6df;
 }
 .coll-name {
+  margin: 7px 0 0;
   font: 700 14px var(--font-display);
   color: var(--plum);
-  margin-top: 7px;
 }
 .coll-name.locked {
   font-size: 13px;
@@ -2032,7 +2250,6 @@ button {
   border-radius: 11px;
   padding: 6px 10px;
   background: #fff;
-  outline: none;
   font: 600 12px var(--font-body);
   color: var(--plum);
 }
@@ -2047,6 +2264,15 @@ button {
    It is compact enough to keep the timer visible behind it. */
 .resume-cue {
   z-index: 60;
+}
+.resume-dialog {
+  width: min(390px, calc(100% - 20px));
+}
+.resume-dialog-content {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  margin-top: 12px;
 }
 .resume-context {
   display: flex;
@@ -2085,7 +2311,6 @@ button {
   background: #fbf7fe;
   color: var(--plum);
   font: 600 12px var(--font-body);
-  outline: none;
 }
 .resume-next-input:focus {
   border-color: var(--pink-2);
@@ -2194,7 +2419,6 @@ button {
   flex: 1;
   min-width: 0;
   border: none;
-  outline: none;
   background: transparent;
   color: var(--plum);
   font: 600 12px var(--font-body);
@@ -2282,7 +2506,6 @@ button {
   border-radius: 14px;
   padding: 9px 13px;
   background: rgba(255, 255, 255, 0.55);
-  outline: none;
   font: 600 12.5px var(--font-body);
   color: var(--plum);
   text-align: center;
@@ -2562,6 +2785,7 @@ button {
   gap: 8px;
 }
 .patterns-title {
+  margin: 0;
   font: 700 13.5px var(--font-display);
   color: var(--plum);
 }
@@ -2644,7 +2868,6 @@ button {
   border-radius: 10px;
   padding: 6px 9px;
   background: rgba(255, 255, 255, 0.78);
-  outline: none;
   color: var(--plum);
   font: 600 11.5px var(--font-body);
 }
@@ -2810,6 +3033,7 @@ button {
   gap: 8px;
 }
 .goal-title {
+  margin: 0;
   font: 600 15px var(--font-body);
   color: var(--plum);
   white-space: nowrap;
@@ -2896,7 +3120,6 @@ button {
   border-radius: 10px;
   padding: 6px 8px;
   background: #fff;
-  outline: none;
   font: 600 12px var(--font-display);
   color: var(--plum);
   transition: border-color 0.15s;
@@ -3049,9 +3272,20 @@ body.night {
 .night .sheet-backdrop {
   background: rgba(8, 5, 20, 0.55);
 }
-.night .sheet {
+.night .sheet,
+.night .dialog {
   background: #262047;
   box-shadow: 0 -12px 30px -12px rgba(0, 0, 0, 0.6);
+}
+.night .sheet-close,
+.night .dialog-close,
+.night .dialog-keep {
+  background: #383060;
+  color: #efe7ff;
+}
+.night .dialog-danger {
+  background: #4b2940;
+  color: #ffc0d9;
 }
 .night .sheet-grip {
   background: #3f3570;

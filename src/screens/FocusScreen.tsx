@@ -321,10 +321,16 @@ export function FocusScreen({
   }, [actions, breakGuideSuggestion]);
 
   return (
-    <div className="screen focus-bg">
+    <main className="screen focus-bg" id="focus-screen" aria-labelledby="focus-heading">
       <div className="greeting-row">
         <div>
-          <div className="greeting">Hi, {state.settings.name}</div>
+          <h1
+            className="greeting"
+            id="focus-heading"
+            aria-label={`Focus. Hi, ${state.settings.name}`}
+          >
+            Hi, {state.settings.name}
+          </h1>
           <div className="status-label">{statusLabel}</div>
         </div>
         <div className="greeting-side">
@@ -708,6 +714,6 @@ export function FocusScreen({
           }}
         />
       )}
-    </div>
+    </main>
   );
 }

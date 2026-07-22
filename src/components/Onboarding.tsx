@@ -17,29 +17,30 @@ export function Onboarding({ bloom }: { bloom: ReturnType<typeof useBloom> }) {
   }
 
   return (
-    <div className="screen onboard-bg">
+    <main className="screen onboard-bg" id="onboarding-screen" aria-labelledby="onboarding-heading">
       <div className="onboard">
         <div className="onboard-pal">
           <PixelPal sprite="bunny" mode="celebrate" scale={5} size={118} />
         </div>
-        <div className="onboard-title">welcome to Bloom</div>
+        <h1 className="onboard-title" id="onboarding-heading">welcome to Bloom</h1>
         <div className="onboard-sub">a cozy little place to focus, one pomodoro at a time. what should we call you?</div>
 
         <form className="onboard-form" onSubmit={submit}>
+          <label className="onboard-label" htmlFor="onboarding-name">Your name</label>
           <input
+            id="onboarding-name"
             autoFocus
             className="onboard-input"
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="your name"
             maxLength={20}
-            aria-label="Your name"
           />
           <button className="onboard-go" type="submit" disabled={!name.trim()}>
             let's bloom&nbsp;&rarr;
           </button>
         </form>
       </div>
-    </div>
+    </main>
   );
 }

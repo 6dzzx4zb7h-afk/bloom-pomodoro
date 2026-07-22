@@ -412,14 +412,15 @@ describe('safe destructive controls', () => {
     };
     const task = { id: 2, t: 'Chapter four', done: false, pomos: 1, goal: 2, goalId: 4 };
     seedState({ tasks: [task], goals: [goal], activeTaskId: 2 });
-    const confirm = vi.spyOn(window, 'confirm').mockReturnValueOnce(false).mockReturnValueOnce(true);
     render(<GoalsHarness />);
 
     fireEvent.click(screen.getByRole('button', { name: 'Delete Read eight chapters' }));
-    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('dialog', { name: 'Remove “Read eight chapters”?' })).not.toBeNull();
     expect(destructiveState<{ goals: unknown[] }>().goals).toEqual([goal]);
+    fireEvent.click(screen.getByRole('button', { name: 'keep it' }));
 
     fireEvent.click(screen.getByRole('button', { name: 'Delete Read eight chapters' }));
+    fireEvent.click(screen.getByRole('button', { name: 'remove goal' }));
     expect(destructiveState<{ goals: unknown[] }>().goals).toEqual([]);
 
     fireEvent.click(screen.getByRole('button', { name: 'undo' }));

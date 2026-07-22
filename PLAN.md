@@ -484,35 +484,49 @@ Rules of thumb:
   foreground, configured-hour, and DST-edge regressions, the full suite, build, and browser checks
   are green.
 
-### - [ ] 8.4 Accessible dialog primitive + Settings restructure
+### - [x] 8.4 Accessible dialog primitive + Settings restructure
 
 - **Goal:** Settings and destructive/decision overlays use incomplete dialog semantics: no reliable `aria-modal`, inert background, initial focus, trap, Escape handling, or focus restoration, and Settings' only close control is at the bottom of a long sheet. Build reusable Sheet/Dialog primitives (persistent top close for sheets), then use them only for interactions that truly block the app: settings, destructive confirmations, and the honest-return decision while timer truth is unresolved. Routine Companion check-ins and tips must remain accessible **non-modal** status/region surfaces that do not steal focus or trap the user. Group Settings into collapsible sections (identity · timer · sound · theme · planner · companion · data).
 - **Science:** n/a — accessible interaction semantics and error prevention.
 - **Quality:** `docs/product-quality.md` — Accessibility and semantics; Keyboard, touch, and screen readers; APG dialog pattern.
 - **Files:** new `src/components/Sheet.tsx` / `Dialog.tsx`, `src/components/SettingsSheet.tsx`, `CompanionPrompt` and return/resume surfaces.
 - **Done when:** True dialogs make the background inert, announce name/description, place and trap focus, close on Escape where safe, and restore the invoker; a close control stays visible; routine check-ins remain reachable but non-modal and never hijack typing. Component tests cover naming, initial focus, Tab/Shift+Tab containment, inert background, Escape policy, restoration, and non-modal Companion behavior; manual keyboard and screen-reader passes succeed.
+- **Closed (July 2026):** Shared Dialog and Sheet primitives now portal beside and inert the app,
+  announce their title/description, place and trap focus, honor safe Escape/backdrop policy, and
+  restore the invoker across nested confirmations. Settings has a sticky top close and seven
+  collapsible groups. Settings, goal/history confirmations, and the unresolved return decision use
+  the primitives; routine Companion, ritual, parking, WOOP, and interrupted-session cards remain
+  non-modal regions. Component regressions plus a keyboard/accessibility-tree browser pass cover
+  focus containment/restoration, nested inert state, naming, Escape policy, and non-modal prompts.
 
-### - [ ] 8.5 Semantic structure and named controls
+### - [x] 8.5 Semantic structure and named controls
 
 - **Goal:** Screens are generic divs — no `main`, no headings; custom task checkboxes expose `role="checkbox"` with no accessible name; the task-select title area is a clickable div with no role/keyboard support; inputs rely on placeholders. Add landmarks and h1/h2 per screen, give checkboxes names containing the task title, make task-select a real button with selected state, add visible labels + inline validation to task/goal forms. Cadence ladder/rung chips also need programmatic names that announce their focus/break pair, current selection, recommendation direction, and apply/revert action instead of exposing decorative numbers alone.
 - **Science:** n/a — semantics, form usability, and assistive-technology support.
 - **Quality:** `docs/product-quality.md` — Accessibility and semantics; Keyboard, touch, and screen readers.
 - **Files:** all screens, `TasksScreen.tsx`, `GoalsScreen.tsx`, `TabBar.tsx`.
 - **Done when:** Screen-reader pass announces screen titles, task names on checkboxes, selection state, and cadence rung purpose/pair; programmatic purpose/state never relies on color or position; no unlabeled form fields or ambiguous numeric controls; automated accessibility checks cover representative screen/form states and are supplemented by a manual screen-reader pass.
-- **Progress (July 2026):** Task completion controls now include the task name, task selection is a
-  real pressed-state button, and cadence rungs announce direction plus focus/break minutes. Landmarks,
-  headings, visible labels, and the full screen-reader pass remain.
+- **Closed (July 2026):** Every primary screen now exposes one named `main`, a visible level-one
+  heading, and level-two section/card headings where needed. Primary navigation announces the
+  current page and controlled screen. Task completion and selection include the task name and
+  state; cadence rungs, recommendations, and revert actions announce direction, focus/break pair,
+  and purpose. Task/goal/onboarding forms have visible labels, field associations, invalid state,
+  and inline recovery copy. Representative component tests and a live browser accessibility-tree
+  pass cover primary screens, forms, task state, cadence state, and navigation state.
 
-### - [ ] 8.6 Focus-visible system
+### - [x] 8.6 Focus-visible system
 
 - **Goal:** styles.css removes outlines in six places and most controls define only hover/active states, so keyboard focus is invisible. Add a high-contrast `:focus-visible` token applied to every interactive element; remove all `outline: none` without a replacement.
 - **Science:** n/a — keyboard accessibility.
 - **Quality:** `docs/product-quality.md` — Keyboard, touch, and screen readers; WCAG focus visible and focus not obscured.
 - **Files:** `src/styles.css`.
 - **Done when:** A full keyboard traversal reaches every control in logical order and shows a visible, contrast-safe, unobscured focus indicator; focus remains visible around sticky navigation and overlays; grep for `outline: none` returns only lines paired with a focus-visible replacement.
-- **Progress (July 2026):** A theme-aware global `:focus-visible` ring now overrides the legacy
-  outline removals for native controls and custom checkbox/switch/tabindex controls. The step stays
-  open until the full keyboard traversal confirms every control is reachable and visibly framed.
+- **Closed (July 2026):** One theme-aware 3 px `:focus-visible` ring covers native controls plus
+  custom checkbox/switch/tabindex controls, and every local `outline: none` suppression is removed.
+  The live browser pass inventories enabled controls in DOM/tab order, confirms task controls and
+  sticky Settings actions receive the ring, measures the focused overlay control inside the
+  viewport, verifies the night-theme ring color, and confirms Escape restores the Settings
+  invoker. A rendered keyboard-focus screenshot and clean console supplement the static checks.
 
 ### - [ ] 8.7 Reduced motion + animation scheduler
 
@@ -556,7 +570,7 @@ Rules of thumb:
 - **Files:** `src/styles.css`, affected screens.
 - **Done when:** Measured text and non-text contrast pass at the worst-case sky frame in both themes and across focus/pressed/selected/error states; meaning never relies on color alone; no essential text is below the documented practical minimum; 200% zoom and text-spacing overrides do not clip it; with Increase Contrast/forced colors enabled, surfaces, borders, focus, and state text remain legible. Stable visual-regression fixtures cover both themes and preference modes.
 
-### - [ ] 8.10 Self-host the fonts (offline constraint violation — fix now, don't wait for 7.2)
+### - [x] 8.10 Self-host the fonts (offline constraint violation — fix now, don't wait for 7.2)
 
 - **Goal:** `index.html` loads Fredoka and Nunito from Google Fonts, violating hard constraint #1 (local-first, no remote runtime fonts) today. Bundle the woff2 files in the repo, `@font-face` them locally, remove the preconnect/link tags.
 - **Science:** n/a — offline/privacy engineering, not a behavior-change mechanism.
@@ -565,6 +579,11 @@ Rules of thumb:
 - **Files:** `index.html`, `src/styles.css` or a fonts CSS module, `public/fonts/`.
 - **Done when:** Production build renders correct typography with DevTools network fully blocked; no `fonts.googleapis` anywhere (grep).
 - **Depends on:** nothing; makes 7.2 pass on this point.
+- **Closed (July 2026):** Fredoka and Nunito variable Latin WOFF2 files and their Open Font License notices
+  are bundled under `public/fonts/`, defined with local `@font-face` rules, and preloaded from the
+  app origin. Google Fonts stylesheet/preconnect tags are gone. The live browser reports both font
+  families ready and inventories exactly two same-origin font resources; the production build,
+  external-font grep, full suite, and visual typography check are green.
 
 ### - [ ] 8.11 Persisted-data validation + storage-error surfacing
 

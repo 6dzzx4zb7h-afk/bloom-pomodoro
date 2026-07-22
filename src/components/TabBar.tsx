@@ -117,14 +117,15 @@ export function TabBar({
   showGoals: boolean;
 }) {
   return (
-    <nav className="navbar">
+    <nav className="navbar" aria-label="Primary">
       {TABS.filter((t) => t.name !== 'goals' || showGoals).map((tab) => (
         <button
           key={tab.name}
           className={`nav-btn${active === tab.name ? ' active' : ''}`}
           onClick={() => onChange(tab.name)}
           aria-label={tab.label}
-          aria-current={active === tab.name}
+          aria-current={active === tab.name ? 'page' : undefined}
+          aria-controls={`${tab.name}-screen`}
         >
           <span className="nav-icon">{tab.icon}</span>
           <span>{tab.label}</span>

@@ -57,7 +57,7 @@ export function WoopCard({
   const currentAnswer = step === 'Plan' ? '' : answers[step];
 
   return (
-    <div className="companion-pop woop-card" role="dialog" aria-label="Optional WOOP reset">
+    <div className="companion-pop woop-card" role="region" aria-label="Optional WOOP reset">
       <PixelPal sprite={palSprite} mode="idle" scale={3} size={64} className="pop-pal" />
       <div className="pop-body">
         <div className="pop-text">three recent starts ended early. that happened ♡</div>

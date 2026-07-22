@@ -122,7 +122,7 @@ export function ParkingLot({
       )}
 
       {showReturned && !snoozed && returned.length > 0 && (
-        <div className="companion-pop parking-return" role="dialog" aria-label="Parked thoughts">
+        <div className="companion-pop parking-return" role="region" aria-label="Parked thoughts">
           <PixelPal sprite={palSprite} mode="idle" scale={3} size={64} className="pop-pal" />
           <div className="pop-body">
             {/* PLACEHOLDER_COPY — final recovery wording lands in the designated copy pass. */}

@@ -131,7 +131,7 @@ export function GuideScreen({
   return (
     <section ref={scrollRef} className="guide-screen" aria-label="Field Guide">
       <div className="guide-intro">
-        <strong>Small notes for focus</strong>
+        <h2>Small notes for focus</h2>
         <span>Twelve quiet reads, bundled for offline moments.</span>
         <span>Bloom offers at most three a week. Each note rests for 30 days.</span>
       </div>

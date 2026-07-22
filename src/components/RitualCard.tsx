@@ -31,7 +31,7 @@ export function RitualCard({
   }
 
   return (
-    <div className="ritual-card" role="dialog" aria-label="Environment reset">
+    <div className="ritual-card" role="region" aria-label="Environment reset">
       <div className="ritual-head">
         <PixelPal sprite={sprite} mode="idle" scale={3} size={54} className="ritual-pal" />
         <div>

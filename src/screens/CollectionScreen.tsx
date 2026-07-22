@@ -29,11 +29,11 @@ export function CollectionScreen({
   const totalLevels = FRIENDS.reduce((sum, f) => sum + levelProgress(palXp[f.name] ?? 0).level, 0);
 
   return (
-    <div className="screen coll-bg">
+    <main className="screen coll-bg" id="collection-screen" aria-labelledby="collection-heading">
       <div className="head">
-        <div className="head-title">
+        <h1 className="head-title" id="collection-heading">
           {section === 'friends' ? 'My little friends' : 'Field Guide'}
-        </div>
+        </h1>
         <div className={`head-sub${section === 'guide' ? ' guide-head-sub' : ''}`}>
           {section === 'friends'
             ? `all ${FRIENDS.length} unlocked · tap one to bring them along · they level up as you focus`
@@ -92,7 +92,7 @@ export function CollectionScreen({
                   >
                     <PixelPal sprite={f.sprite} mode="idle" scale={3} size={64} />
                   </div>
-                  <div className="coll-name">{f.name}</div>
+                  <h2 className="coll-name">{f.name}</h2>
                   <div className="coll-meta">{f.blurb}</div>
                   <div className="lvl-bar" aria-hidden="true">
                     <span className="lvl-bar-fill" style={{ width: `${Math.round(prog.pct * 100)}%` }} />
@@ -122,6 +122,6 @@ export function CollectionScreen({
           </div>
         </>
       )}
-    </div>
+    </main>
   );
 }

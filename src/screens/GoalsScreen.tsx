@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { PixelPal } from '../components/PixelPal';
+import { Dialog } from '../components/Dialog';
 import type { useBloom } from '../store/useBloom';
 import { GOAL_TARGET_MAX, dueLabel, goalPace, parseDue, type Goal } from '../store/goals';
 
@@ -10,6 +11,10 @@ interface DeletedGoal {
   index: number;
   linkedTaskIds: number[];
 }
+
+type GoalConfirmation =
+  | { kind: 'shrink'; goal: Goal; target: number }
+  | { kind: 'remove'; goal: Goal };
 
 function shortDate(due: string): string {
   const d = parseDue(due);
@@ -33,6 +38,8 @@ export function GoalsScreen({ bloom }: { bloom: ReturnType<typeof useBloom> }) {
   const [editDue, setEditDue] = useState('');
   const [editTarget, setEditTarget] = useState('1');
   const [deletedGoal, setDeletedGoal] = useState<DeletedGoal | null>(null);
+  const [confirmation, setConfirmation] = useState<GoalConfirmation | null>(null);
+  const [addTouched, setAddTouched] = useState({ title: false, due: false });
 
   useEffect(() => {
     if (!deletedGoal) return;
@@ -52,33 +59,35 @@ export function GoalsScreen({ bloom }: { bloom: ReturnType<typeof useBloom> }) {
       1,
       Math.min(GOAL_TARGET_MAX, parseInt(editTarget, 10) || goal.target),
     );
-    if (
-      nextTarget < goal.done &&
-      !window.confirm(
-        `you've logged ${goal.done} parts already — setting ${nextTarget} parts marks this goal done. keep the change?`,
-      )
-    ) {
+    if (nextTarget < goal.done) {
+      setConfirmation({ kind: 'shrink', goal, target: nextTarget });
       return;
     }
+    commitEdit(goal, nextTarget);
+  }
+
+  function commitEdit(goal: Goal, nextTarget: number) {
     actions.updateGoal(goal.id, { title: editTitle, due: editDue, target: nextTarget });
     setEditId(null);
+    setConfirmation(null);
   }
 
   function removeGoal(goal: Goal) {
-    if (
-      goal.done > 0 &&
-      !window.confirm(
-        `“${goal.title}” has ${goal.done} of ${goal.target} parts logged. Remove it? You can undo for a moment.`,
-      )
-    ) {
+    if (goal.done > 0) {
+      setConfirmation({ kind: 'remove', goal });
       return;
     }
+    commitRemoveGoal(goal);
+  }
+
+  function commitRemoveGoal(goal: Goal) {
     setDeletedGoal({
       goal: { ...goal },
       index: state.goals.findIndex((item) => item.id === goal.id),
       linkedTaskIds: state.tasks.filter((task) => task.goalId === goal.id).map((task) => task.id),
     });
     actions.removeGoal(goal.id);
+    setConfirmation(null);
   }
 
   function undoGoalDelete() {
@@ -105,16 +114,21 @@ export function GoalsScreen({ bloom }: { bloom: ReturnType<typeof useBloom> }) {
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
+    if (!title.trim() || !due) {
+      setAddTouched({ title: true, due: true });
+      return;
+    }
     const t = Math.max(1, Math.min(GOAL_TARGET_MAX, parseInt(target, 10) || 1));
     actions.addGoal(title, due, t);
     // Keep date + size so a whole batch of entries goes in quickly.
     setTitle('');
+    setAddTouched({ title: false, due: false });
   }
 
   return (
-    <div className="screen tasks-bg">
+    <main className="screen tasks-bg" id="goals-screen" aria-labelledby="goals-heading">
       <div className="head">
-        <div className="head-title">Goals &amp; deadlines</div>
+        <h1 className="head-title" id="goals-heading">Goals &amp; deadlines</h1>
         <div className="head-sub">everything you're working toward · progress over pressure</div>
       </div>
 
@@ -155,31 +169,36 @@ export function GoalsScreen({ bloom }: { bloom: ReturnType<typeof useBloom> }) {
                     saveEdit(goal);
                   }}
                 >
-                  <input
-                    className="add-input"
-                    value={editTitle}
-                    onChange={(e) => setEditTitle(e.target.value)}
-                    maxLength={60}
-                    aria-label={`Rename ${goal.title}`}
-                  />
-                  <input
-                    className="goal-date"
-                    type="date"
-                    value={editDue}
-                    onChange={(e) => setEditDue(e.target.value)}
-                    aria-label="Due date"
-                    required
-                  />
-                  <input
-                    className="goal-parts"
-                    type="number"
-                    value={editTarget}
-                    min={1}
-                    max={GOAL_TARGET_MAX}
-                    onChange={(e) => setEditTarget(e.target.value)}
-                    aria-label="How many parts"
-                    title="how many parts? (lectures, chapters…)"
-                  />
+                  <label className="form-field goal-name-field">
+                    <span>Goal name</span>
+                    <input
+                      className="add-input"
+                      value={editTitle}
+                      onChange={(e) => setEditTitle(e.target.value)}
+                      maxLength={60}
+                    />
+                  </label>
+                  <label className="form-field">
+                    <span>Due date</span>
+                    <input
+                      className="goal-date"
+                      type="date"
+                      value={editDue}
+                      onChange={(e) => setEditDue(e.target.value)}
+                      required
+                    />
+                  </label>
+                  <label className="form-field">
+                    <span>Parts</span>
+                    <input
+                      className="goal-parts"
+                      type="number"
+                      value={editTarget}
+                      min={1}
+                      max={GOAL_TARGET_MAX}
+                      onChange={(e) => setEditTarget(e.target.value)}
+                    />
+                  </label>
                   <button
                     type="submit"
                     className="goal-go"
@@ -202,7 +221,7 @@ export function GoalsScreen({ bloom }: { bloom: ReturnType<typeof useBloom> }) {
             <div className="goal-card" key={goal.id}>
               <div className="goal-top">
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div className="goal-title">{goal.title}</div>
+                  <h2 className="goal-title">{goal.title}</h2>
                   <div className="goal-when">due {shortDate(goal.due)}</div>
                 </div>
                 <span className={`goal-chip ${pace.status}`}>{dueLabel(goal, now)}</span>
@@ -278,41 +297,99 @@ export function GoalsScreen({ bloom }: { bloom: ReturnType<typeof useBloom> }) {
       )}
 
       <div className="add-row">
-        <form className="add-form goal-add" onSubmit={submit}>
+        <h2 className="add-form-title">Add a goal</h2>
+        <form className="add-form goal-add" onSubmit={submit} noValidate>
           <span className="add-plus">+</span>
-          <input
-            className="add-input"
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            placeholder="exam, project, 12 books…"
-            maxLength={60}
-            aria-label="Goal name"
-          />
-          <input
-            className="goal-date"
-            type="date"
-            value={due}
-            min={today}
-            onChange={(e) => setDue(e.target.value)}
-            aria-label="Due date"
-            required
-          />
-          <input
-            className="goal-parts"
-            type="number"
-            value={target}
-            min={1}
-            max={GOAL_TARGET_MAX}
-            onChange={(e) => setTarget(e.target.value)}
-            aria-label="How many parts"
-            title="how many parts? (lectures, chapters…)"
-          />
+          <label className="form-field goal-name-field">
+            <span>Goal name</span>
+            <input
+              className="add-input"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              onBlur={() => setAddTouched((current) => ({ ...current, title: true }))}
+              placeholder="exam, project, 12 books…"
+              maxLength={60}
+              aria-invalid={addTouched.title && !title.trim()}
+              aria-describedby="goal-name-error"
+            />
+            <span className="field-error" id="goal-name-error" role="alert">
+              {addTouched.title && !title.trim() ? 'Add a goal name.' : ''}
+            </span>
+          </label>
+          <label className="form-field">
+            <span>Due date</span>
+            <input
+              className="goal-date"
+              type="date"
+              value={due}
+              min={today}
+              onChange={(e) => setDue(e.target.value)}
+              onBlur={() => setAddTouched((current) => ({ ...current, due: true }))}
+              aria-invalid={addTouched.due && !due}
+              aria-describedby="goal-date-error"
+              required
+            />
+            <span className="field-error" id="goal-date-error" role="alert">
+              {addTouched.due && !due ? 'Choose a due date.' : ''}
+            </span>
+          </label>
+          <label className="form-field">
+            <span>Parts</span>
+            <input
+              className="goal-parts"
+              type="number"
+              value={target}
+              min={1}
+              max={GOAL_TARGET_MAX}
+              onChange={(e) => setTarget(e.target.value)}
+            />
+          </label>
           <button type="submit" className="goal-go" disabled={!title.trim() || !due}>
             add
           </button>
         </form>
         <div className="goal-hint">name · deadline · how many parts it splits into</div>
       </div>
-    </div>
+      {confirmation?.kind === 'shrink' && (
+        <Dialog
+          title="Keep this smaller goal?"
+          description={`You’ve logged ${confirmation.goal.done} parts already. Setting ${confirmation.target} parts will mark “${confirmation.goal.title}” done.`}
+          onRequestClose={() => setConfirmation(null)}
+        >
+          <div className="dialog-actions">
+            <button
+              type="button"
+              className="dialog-primary"
+              onClick={() => commitEdit(confirmation.goal, confirmation.target)}
+            >
+              keep the change
+            </button>
+            <button type="button" className="dialog-keep" onClick={() => setConfirmation(null)}>
+              keep editing
+            </button>
+          </div>
+        </Dialog>
+      )}
+      {confirmation?.kind === 'remove' && (
+        <Dialog
+          title={`Remove “${confirmation.goal.title}”?`}
+          description={`${confirmation.goal.done} of ${confirmation.goal.target} parts are logged. You can undo for a moment after removing it.`}
+          onRequestClose={() => setConfirmation(null)}
+        >
+          <div className="dialog-actions">
+            <button
+              type="button"
+              className="dialog-danger"
+              onClick={() => commitRemoveGoal(confirmation.goal)}
+            >
+              remove goal
+            </button>
+            <button type="button" className="dialog-keep" onClick={() => setConfirmation(null)}>
+              keep it
+            </button>
+          </div>
+        </Dialog>
+      )}
+    </main>
   );
 }

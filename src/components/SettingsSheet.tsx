@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { DurationMode, Settings } from '../store/useBloom';
 import { audioEngine, BG_SOUNDS, requestNotifyPermission, type BgSound } from '../engine/audio';
 import {
@@ -20,6 +20,8 @@ import {
   type PersonalCadenceRecommendation,
 } from '../insights/cadence';
 import type { SessionRecord } from '../store/sessions';
+import { Dialog } from './Dialog';
+import { Sheet } from './Sheet';
 
 interface SettingsSheetProps {
   settings: Settings;
@@ -62,6 +64,23 @@ const CHRONOTYPE_CHOICES: { value: Chronotype; label: string }[] = [
   { value: 'betterLater', label: 'better later' },
   { value: 'notSure', label: 'not sure' },
 ];
+
+function SettingSection({
+  title,
+  defaultOpen = false,
+  children,
+}: {
+  title: string;
+  defaultOpen?: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <details className="settings-section" open={defaultOpen}>
+      <summary>{title}</summary>
+      <div className="settings-section-body">{children}</div>
+    </details>
+  );
+}
 
 function RitualItemEditor({
   id,
@@ -138,6 +157,7 @@ export function SettingsSheet({
   const [cadenceEvents, setCadenceEvents] = useState(() => loadEvents());
   const [clearedNote, setClearedNote] = useState(false);
   const [showClearScope, setShowClearScope] = useState(false);
+  const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
   const currentCadence = useMemo(
     () => ({
       focusMin: Math.round(settings.durations.focus / 60),
@@ -233,29 +253,26 @@ export function SettingsSheet({
     if (!running) audioEngine.previewAmbience(kind);
   }
 
-  function confirmClearFocusData() {
-    const sessionLabel = `${records.length} session record${records.length === 1 ? '' : 's'}`;
-    const momentLabel = `${eventCount} Companion moment${eventCount === 1 ? '' : 's'}`;
-    if (
-      !window.confirm(
-        `Clear ${sessionLabel} and ${momentLabel}? Your bloom total, streak, friend XP, task cherries, and goal progress stay.`,
-      )
-    ) {
-      return;
-    }
+  function clearFocusData() {
     onClearFocusData();
     setCadenceEvents([]);
     setEventCount(0);
     setShowClearScope(false);
+    setClearConfirmOpen(false);
     setClearedNote(true);
   }
 
-  return (
-    <div className="sheet-backdrop" onClick={onClose}>
-      <div className="sheet" onClick={(e) => e.stopPropagation()} role="dialog" aria-label="Settings">
-        <div className="sheet-grip" />
-        <div className="sheet-title">Settings</div>
+  function closeSettings() {
+    // Kill any lingering preview; a running session's ambience is owned by
+    // the store and will be re-asserted, so only stop when idle.
+    if (!running) audioEngine.stopAmbience();
+    onClose();
+  }
 
+  return (
+    <>
+      <Sheet title="Settings" onRequestClose={closeSettings}>
+        <SettingSection title="Identity" defaultOpen>
         <div className="set-row">
           <span className="set-label">Your name</span>
           <input
@@ -296,7 +313,9 @@ export function SettingsSheet({
             ))}
           </div>
         </div>
+        </SettingSection>
 
+        <SettingSection title="Timer" defaultOpen>
         <div className="set-block cadence-presets">
           <span className="set-label">
             Your cadence ladder
@@ -403,76 +422,6 @@ export function SettingsSheet({
         })}
 
         <div className="set-row">
-          <span className="set-label">
-            Ring when done
-            <span className="set-sub">a gentle chime at session end</span>
-          </span>
-          <button
-            className={`switch${settings.sound ? ' on' : ''}`}
-            onClick={toggleRing}
-            role="switch"
-            aria-checked={settings.sound}
-            aria-label="Ring when done"
-          >
-            <span className="knob" />
-          </button>
-        </div>
-
-        {notifyDenied && (
-          <div className="set-note">
-            Notifications are blocked, so the ring will only sound while the app is open. Enable
-            notifications in your browser/app settings to be alerted in the background.
-          </div>
-        )}
-
-        <div className="set-block">
-          <span className="set-label">
-            Background sound
-            <span className="set-sub">optional · starts only after you choose or begin a session</span>
-          </span>
-          <div className="bg-grid">
-            {BG_SOUNDS.map((s) => (
-              <button
-                key={s.key}
-                className={`bg-opt${settings.bgSound === s.key ? ' on' : ''}`}
-                onClick={() => pickBg(s.key)}
-                aria-pressed={settings.bgSound === s.key}
-              >
-                <span className="bg-opt-label">{s.label}</span>
-                <span className="bg-opt-hint">{s.hint}</span>
-              </button>
-            ))}
-          </div>
-          <div className="set-note sound-focus-note">
-            <strong>Sound &amp; focus</strong>
-            <span>
-              Sound works differently by task and person. Bloom’s sounds have no lyrics; lyrics in
-              your own music can make reading and writing harder.
-            </span>
-            {/* Step 6.3 activates this as a deep-link to the bundled Field Guide article. */}
-            <button className="sound-guide-link" type="button" disabled>
-              music &amp; focus guide · coming with the Field Guide
-            </button>
-          </div>
-        </div>
-
-        <div className="set-row">
-          <span className="set-label">
-            Night sky
-            <span className="set-sub">cozy dark mode with stars &amp; meteors</span>
-          </span>
-          <button
-            className={`switch${settings.night ? ' on' : ''}`}
-            onClick={() => onPatch({ night: !settings.night })}
-            role="switch"
-            aria-checked={settings.night}
-            aria-label="Night sky theme"
-          >
-            <span className="knob" />
-          </button>
-        </div>
-
-        <div className="set-row">
           <span className="set-label">Auto-start next</span>
           <button
             className={`switch${settings.autoStart ? ' on' : ''}`}
@@ -546,7 +495,83 @@ export function SettingsSheet({
             <span className="knob" />
           </button>
         </div>
+        </SettingSection>
 
+        <SettingSection title="Sound">
+        <div className="set-row">
+          <span className="set-label">
+            Ring when done
+            <span className="set-sub">a gentle chime at session end</span>
+          </span>
+          <button
+            className={`switch${settings.sound ? ' on' : ''}`}
+            onClick={toggleRing}
+            role="switch"
+            aria-checked={settings.sound}
+            aria-label="Ring when done"
+          >
+            <span className="knob" />
+          </button>
+        </div>
+
+        {notifyDenied && (
+          <div className="set-note">
+            Notifications are blocked, so the ring will only sound while the app is open. Enable
+            notifications in your browser/app settings to be alerted in the background.
+          </div>
+        )}
+
+        <div className="set-block">
+          <span className="set-label">
+            Background sound
+            <span className="set-sub">optional · starts only after you choose or begin a session</span>
+          </span>
+          <div className="bg-grid">
+            {BG_SOUNDS.map((s) => (
+              <button
+                key={s.key}
+                className={`bg-opt${settings.bgSound === s.key ? ' on' : ''}`}
+                onClick={() => pickBg(s.key)}
+                aria-pressed={settings.bgSound === s.key}
+              >
+                <span className="bg-opt-label">{s.label}</span>
+                <span className="bg-opt-hint">{s.hint}</span>
+              </button>
+            ))}
+          </div>
+          <div className="set-note sound-focus-note">
+            <strong>Sound &amp; focus</strong>
+            <span>
+              Sound works differently by task and person. Bloom’s sounds have no lyrics; lyrics in
+              your own music can make reading and writing harder.
+            </span>
+            {/* Step 6.3 activates this as a deep-link to the bundled Field Guide article. */}
+            <button className="sound-guide-link" type="button" disabled>
+              music &amp; focus guide · coming with the Field Guide
+            </button>
+          </div>
+        </div>
+        </SettingSection>
+
+        <SettingSection title="Theme">
+        <div className="set-row">
+          <span className="set-label">
+            Night sky
+            <span className="set-sub">cozy dark mode with stars &amp; meteors</span>
+          </span>
+          <button
+            className={`switch${settings.night ? ' on' : ''}`}
+            onClick={() => onPatch({ night: !settings.night })}
+            role="switch"
+            aria-checked={settings.night}
+            aria-label="Night sky theme"
+          >
+            <span className="knob" />
+          </button>
+        </div>
+        </SettingSection>
+
+        <SettingSection title="Planner">
         <div className="set-row">
           <span className="set-label">
             Goals &amp; deadlines
@@ -565,7 +590,9 @@ export function SettingsSheet({
             <span className="knob" />
           </button>
         </div>
+        </SettingSection>
 
+        <SettingSection title="Companion">
         <div className="set-row">
           <span className="set-label">
             <span className="companion-label">
@@ -747,7 +774,9 @@ export function SettingsSheet({
             </div>
           </div>
         )}
+        </SettingSection>
 
+        <SettingSection title="Data">
         {onShowWeekly && (
           <div className="set-row">
             <span className="set-label">
@@ -809,7 +838,7 @@ export function SettingsSheet({
               Field Guide reads.
             </p>
             <div className="focus-clear-actions">
-              <button className="mini-btn" type="button" onClick={confirmClearFocusData}>
+              <button className="mini-btn" type="button" onClick={() => setClearConfirmOpen(true)}>
                 clear reflection history
               </button>
               <button className="mini-btn focus-clear-keep" type="button" onClick={() => setShowClearScope(false)}>
@@ -818,19 +847,31 @@ export function SettingsSheet({
             </div>
           </div>
         )}
+        </SettingSection>
 
         <button
           className="sheet-done"
-          onClick={() => {
-            // Kill any lingering preview; a running session's ambience is owned
-            // by the store and will be re-asserted, so only stop when idle.
-            if (!running) audioEngine.stopAmbience();
-            onClose();
-          }}
+          onClick={closeSettings}
         >
           done
         </button>
-      </div>
-    </div>
+      </Sheet>
+      {clearConfirmOpen && (
+        <Dialog
+          title="Clear reflection history?"
+          description={`${records.length} session record${records.length === 1 ? '' : 's'} and ${eventCount} Companion moment${eventCount === 1 ? '' : 's'} will be removed from this device. Your bloom total, streak, friend XP, task cherries, and goal progress stay.`}
+          onRequestClose={() => setClearConfirmOpen(false)}
+        >
+          <div className="dialog-actions">
+            <button type="button" className="dialog-danger" onClick={clearFocusData}>
+              clear reflection history
+            </button>
+            <button type="button" className="dialog-keep" onClick={() => setClearConfirmOpen(false)}>
+              keep it
+            </button>
+          </div>
+        </Dialog>
+      )}
+    </>
   );
 }
