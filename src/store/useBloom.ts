@@ -5,7 +5,6 @@ import { audioEngine, notify, type BgSound } from '../engine/audio';
 import {
   EMPTY_PRE_SLUMP_CAPS,
   PRE_SLUMP_DAILY_CAP,
-  localDayKey,
   type PreSlumpCaps,
 } from '../insights/triggers';
 import {
@@ -27,7 +26,7 @@ import {
   type Chronotype,
   type CompanionSettings,
 } from './companion';
-import { dayKeyFor, nextDayBoundaryAt } from './dayKey';
+import { dayKeyFor, nextDayBoundaryAt, normalizeDayStartHour } from './dayKey';
 import { GOAL_TARGET_MAX, type Goal } from './goals';
 import {
   EMPTY_GUIDE_READ_STATE,
@@ -63,7 +62,7 @@ import {
   type TargetOutcome,
 } from './sessions';
 import { DEFAULT_RITUAL, sanitizeRitual, updateRitualItem, type RitualSettings } from './ritual';
-import { bumpStreakGentle, streakAlive } from './streak';
+import { bumpStreakGentle, streakAlive, type StreakData } from './streak';
 import {
   addParkedThought,
   removeParkedThought,
@@ -128,6 +127,8 @@ export interface Settings {
   chronotype: Chronotype;
   /** Optional data-timed breath/stretch cue (PLAN 4.5); off unless chosen. */
   preSlumpCheck: boolean;
+  /** Local hour (0–23) when a new study day begins (PLAN 9.2). */
+  dayStartHour: number;
 }
 
 export interface BloomState {
@@ -204,13 +205,11 @@ export const DEFAULT_SETTINGS: Settings = {
   planner: false,
   chronotype: 'notSure',
   preSlumpCheck: false,
+  dayStartHour: 0,
 };
 
-const DEFAULT_TASKS: Task[] = [
-  { id: 1, t: 'Finish history essay', done: false, pomos: 0, goal: 4 },
-  { id: 2, t: 'Water the plants', done: false, pomos: 0, goal: 1 },
-  { id: 3, t: 'Sketch in journal', done: false, pomos: 0, goal: 2 },
-];
+/** New users begin with an honest empty list; examples are never stored as their work (PLAN 8.13). */
+const DEFAULT_TASKS: Task[] = [];
 
 const DEFAULT_NOW = Date.now();
 export const DEFAULT_STATE: BloomState = {
@@ -227,7 +226,7 @@ export const DEFAULT_STATE: BloomState = {
   comeBack: false,
   justDone: false,
   tasks: DEFAULT_TASKS,
-  activeTaskId: 1,
+  activeTaskId: null,
   palXp: {},
   goals: [],
   flowStart: null,
@@ -257,12 +256,13 @@ export const DEFAULT_STATE: BloomState = {
  * whenever the shape changes structurally.
  * ------------------------------------------------------------------ */
 
-const STORAGE_KEY = 'bloom-state';
+export const BLOOM_STORAGE_KEY = 'bloom-state';
+const STORAGE_KEY = BLOOM_STORAGE_KEY;
 /** Older keys we still read from once, newest first. */
 const LEGACY_KEYS = ['bloom-state-v2', 'bloom-state-v1'];
-const SCHEMA_VERSION = 22;
+export const SCHEMA_VERSION = 23;
 
-interface PersistedShape {
+export interface PersistedShape {
   version: number;
   sessions: number;
   streak: number;
@@ -428,6 +428,17 @@ const MIGRATIONS: Array<(blob: Record<string, unknown>) => Record<string, unknow
       suggestions: [],
     },
   }),
+  // v22 -> v23: user-controlled study-day boundary (PLAN 9.2). Existing
+  // calendar semantics remain midnight; raw session timestamps stay intact.
+  (blob) => ({
+    ...blob,
+    settings: {
+      ...(blob.settings && typeof blob.settings === 'object'
+        ? (blob.settings as Record<string, unknown>)
+        : {}),
+      dayStartHour: 0,
+    },
+  }),
 ];
 
 function withDefaults(blob: Record<string, unknown>): PersistedShape {
@@ -451,6 +462,7 @@ function withDefaults(blob: Record<string, unknown>): PersistedShape {
       typeof bSettings.preSlumpCheck === 'boolean'
         ? bSettings.preSlumpCheck
         : DEFAULT_SETTINGS.preSlumpCheck,
+    dayStartHour: normalizeDayStartHour(bSettings.dayStartHour),
     durations: {
       ...DEFAULT_SETTINGS.durations,
       ...legacyDurations,
@@ -525,7 +537,7 @@ function keepOpenSession(raw: unknown, slot: 'focus' | 'flow'): OpenSession | nu
   return open && fitsSlot ? open : null;
 }
 
-function migrate(blob: Record<string, unknown>): PersistedShape {
+export function migratePersistedBlob(blob: Record<string, unknown>): PersistedShape {
   let cur = blob && typeof blob === 'object' ? { ...blob } : {};
   let v = typeof cur.version === 'number' ? cur.version : 0;
   for (; v < SCHEMA_VERSION; v++) {
@@ -541,7 +553,7 @@ export function readPersisted(): PersistedShape | null {
   for (const key of [STORAGE_KEY, ...LEGACY_KEYS]) {
     try {
       const raw = localStorage.getItem(key);
-      if (raw) return migrate(JSON.parse(raw));
+      if (raw) return migratePersistedBlob(JSON.parse(raw));
     } catch {
       /* try the next compatible key */
     }
@@ -552,10 +564,10 @@ export function readPersisted(): PersistedShape | null {
 /** A flow run restored past this is treated as forgotten, not still going. */
 const FLOW_RESTORE_CAP_S = 4 * 3600;
 
-export function loadState(dayStartHour = 0): BloomState {
+export function loadState(): BloomState {
   const now = Date.now();
   const p = readPersisted();
-  if (!p) return initializeDay(DEFAULT_STATE, now, dayStartHour);
+  if (!p) return initializeDay(DEFAULT_STATE, now);
   // A return question that was already on screen survives a reload exactly
   // as-is. Every other stale focus countdown keeps the existing safety rule:
   // finalize it as interrupted and offer a one-tap re-entry cue.
@@ -567,7 +579,7 @@ export function loadState(dayStartHour = 0): BloomState {
     : p.parking;
   const base: BloomState = {
     ...DEFAULT_STATE,
-    today: dayKeyFor(now, dayStartHour),
+    today: dayKeyFor(now, p.settings.dayStartHour),
     now,
     settings: p.settings,
     remaining: p.settings.durations.focus,
@@ -608,7 +620,7 @@ export function loadState(dayStartHour = 0): BloomState {
       running: p.openFocus.running,
       endsAt: p.openFocus.endsAt,
       remaining: live,
-    }, now, dayStartHour);
+    }, now);
   }
   // A flow run that was live when the app closed keeps counting (that's what
   // a stopwatch does) — unless it's been so long it was clearly abandoned, in
@@ -622,16 +634,16 @@ export function loadState(dayStartHour = 0): BloomState {
         running: true,
         flowStart: p.flow.startedAt,
         remaining: Math.floor(elapsed),
-      }, now, dayStartHour);
+      }, now);
     }
     return initializeDay({
       ...base,
       mode: 'flow',
       flowAcc: FLOW_RESTORE_CAP_S,
       remaining: FLOW_RESTORE_CAP_S,
-    }, now, dayStartHour);
+    }, now);
   }
-  return initializeDay(base, now, dayStartHour);
+  return initializeDay(base, now);
 }
 
 /**
@@ -639,8 +651,8 @@ export function loadState(dayStartHour = 0): BloomState {
  * `today`/`now` are runtime clock fields and deliberately stay out of
  * PersistedShape, so PLAN 8.23 does not change the storage schema.
  */
-function initializeDay(s: BloomState, now: number, dayStartHour = 0): BloomState {
-  const today = dayKeyFor(now, dayStartHour);
+function initializeDay(s: BloomState, now: number): BloomState {
+  const today = dayKeyFor(now, s.settings.dayStartHour);
   const alive = streakAlive(
     { streak: s.streak, lastFocusDay: s.lastFocusDay, restDayUsedOn: s.restDayUsedOn },
     today,
@@ -654,14 +666,14 @@ function initializeDay(s: BloomState, now: number, dayStartHour = 0): BloomState
 }
 
 /** Same-day clock checks are a strict no-op so consumers do not re-render. */
-function rollOverDay(s: BloomState, now: number, dayStartHour = 0): BloomState {
-  return dayKeyFor(now, dayStartHour) === s.today
+function rollOverDay(s: BloomState, now: number): BloomState {
+  return dayKeyFor(now, s.settings.dayStartHour) === s.today
     ? s
-    : initializeDay(s, now, dayStartHour);
+    : initializeDay(s, now);
 }
 
-function persist(s: BloomState) {
-  const data: PersistedShape = {
+export function persistedShapeFromState(s: BloomState): PersistedShape {
+  return {
     version: SCHEMA_VERSION,
     sessions: s.sessions,
     streak: s.streak,
@@ -686,6 +698,10 @@ function persist(s: BloomState) {
     guideRead: s.guideRead,
     settings: s.settings,
   };
+}
+
+function persist(s: BloomState) {
+  const data = persistedShapeFromState(s);
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
   } catch {
@@ -693,15 +709,76 @@ function persist(s: BloomState) {
   }
 }
 
-/** Count a finished work session into the gentle streak (PLAN 5.4). */
-function bumpStreak(s: BloomState): Pick<BloomState, 'streak' | 'lastFocusDay' | 'restDayUsedOn' | 'comeBack'> {
+/** Count a finished work session into the configured study day (PLAN 5.4/9.2). */
+function bumpStreak(
+  s: BloomState,
+  at = Date.now(),
+): Pick<BloomState, 'streak' | 'lastFocusDay' | 'restDayUsedOn' | 'comeBack'> {
   const bumped = bumpStreakGentle(
     { streak: s.streak, lastFocusDay: s.lastFocusDay, restDayUsedOn: s.restDayUsedOn },
-    s.today,
+    dayKeyFor(at, s.settings.dayStartHour),
   );
   // Any finished work session settles the welcome-back state: the user is
   // simply here again, and the count is growing.
   return { ...bumped, comeBack: false };
+}
+
+function streakFromRawRecords(
+  records: SessionRecord[],
+  dayStartHour: number,
+): StreakData | null {
+  const days = [...new Set(
+    records
+      .filter((record) => record.outcome === 'completed')
+      .map((record) => dayKeyFor(record.endedAt, dayStartHour)),
+  )].sort();
+  if (days.length === 0) return null;
+  return days.reduce<StreakData>(
+    (current, day) => bumpStreakGentle(current, day),
+    { streak: 0, lastFocusDay: null, restDayUsedOn: null },
+  );
+}
+
+/**
+ * Re-group the observable streak tail without inventing missing history.
+ *
+ * The session ring is the raw source available today. When its newest
+ * completion agrees with the persisted summary, the difference between the
+ * stored streak and the observable tail is an older prefix; preserve that
+ * prefix while re-deriving the tail under the new boundary. If they do not
+ * agree, the log cannot safely explain the summary, so leave it untouched.
+ */
+export function rederiveStreakForBoundary(
+  state: Pick<
+    BloomState,
+    'streak' | 'lastFocusDay' | 'restDayUsedOn' | 'sessionRecords' | 'settings'
+  >,
+  nextDayStartHour: number,
+): StreakData {
+  const current: StreakData = {
+    streak: state.streak,
+    lastFocusDay: state.lastFocusDay,
+    restDayUsedOn: state.restDayUsedOn,
+  };
+  const priorTail = streakFromRawRecords(
+    state.sessionRecords,
+    state.settings.dayStartHour,
+  );
+  const nextTail = streakFromRawRecords(state.sessionRecords, nextDayStartHour);
+  if (
+    !priorTail ||
+    !nextTail ||
+    priorTail.lastFocusDay !== state.lastFocusDay
+  ) {
+    return current;
+  }
+  const olderPrefix = Math.max(0, state.streak - priorTail.streak);
+  return {
+    streak: olderPrefix + nextTail.streak,
+    lastFocusDay: nextTail.lastFocusDay,
+    restDayUsedOn:
+      nextTail.restDayUsedOn ?? (olderPrefix > 0 ? state.restDayUsedOn : null),
+  };
 }
 
 /** The task pomodoros are credited to: the chosen one if still open, else first undone. */
@@ -805,8 +882,9 @@ export function completionNotice(
 }
 
 export type Action =
-  | { type: 'tick'; at?: number; dayStartHour?: number }
-  | { type: 'rollOverDay'; at: number; dayStartHour?: number }
+  | { type: 'replaceState'; state: BloomState }
+  | { type: 'tick'; at?: number }
+  | { type: 'rollOverDay'; at: number }
   | { type: 'toggle'; ifThenPlanId?: string; targetText?: string }
   | { type: 'reset' }
   | { type: 'pick'; mode: TimerMode; tinyMinutes?: TinyStartMinutes }
@@ -857,14 +935,16 @@ export type Action =
   | { type: 'setNextAction'; sessionId: string; text: string }
   | { type: 'resumeInterrupted'; sessionId: string }
   | { type: 'dismissResumeCue'; sessionId: string }
-  | { type: 'patchSettings'; patch: Partial<Settings> };
+  | { type: 'patchSettings'; patch: Partial<Settings>; at?: number };
 
 export function reducer(s: BloomState, a: Action): BloomState {
   const dur = s.settings.durations;
   switch (a.type) {
+    case 'replaceState':
+      return a.state;
     case 'tick': {
       const now = a.at ?? Date.now();
-      const current = rollOverDay(s, now, a.dayStartHour);
+      const current = rollOverDay(s, now);
       if (!current.running) return current;
       // Flow counts up: `remaining` holds elapsed seconds, and there is no
       // completion — the session ends when the user says so.
@@ -888,7 +968,7 @@ export function reducer(s: BloomState, a: Action): BloomState {
       return { ...current, remaining };
     }
     case 'rollOverDay':
-      return rollOverDay(s, a.at, a.dayStartHour);
+      return rollOverDay(s, a.at);
     case 'toggle': {
       if (s.mode === 'flow') {
         if (s.running) {
@@ -1390,7 +1470,7 @@ export function reducer(s: BloomState, a: Action): BloomState {
       return { ...s, lastWoopOfferAt: a.at };
     case 'recordPreSlump': {
       if (s.preSlump.lastSessionId === a.sessionId) return s;
-      const day = localDayKey(a.at);
+      const day = dayKeyFor(a.at, s.settings.dayStartHour);
       const sameDay = s.preSlump.day === day;
       const count = sameDay ? s.preSlump.count : 0;
       if ((sameDay && s.preSlump.silenced) || count >= PRE_SLUMP_DAILY_CAP) return s;
@@ -1405,7 +1485,7 @@ export function reducer(s: BloomState, a: Action): BloomState {
       };
     }
     case 'silencePreSlump': {
-      const day = localDayKey(a.at);
+      const day = dayKeyFor(a.at, s.settings.dayStartHour);
       const sameDay = s.preSlump.day === day;
       return {
         ...s,
@@ -1662,24 +1742,40 @@ export function reducer(s: BloomState, a: Action): BloomState {
       return { ...s, goals };
     }
     case 'patchSettings': {
+      const nextDayStartHour =
+        a.patch.dayStartHour === undefined
+          ? s.settings.dayStartHour
+          : normalizeDayStartHour(a.patch.dayStartHour);
       const settings: Settings = {
         ...s.settings,
         ...a.patch,
+        dayStartHour: nextDayStartHour,
         durations: { ...s.settings.durations, ...(a.patch.durations || {}) },
         companion: { ...s.settings.companion, ...(a.patch.companion || {}) },
       };
+      const dayBoundaryChanged = nextDayStartHour !== s.settings.dayStartHour;
+      const current = dayBoundaryChanged
+        ? initializeDay(
+            {
+              ...s,
+              settings,
+              ...rederiveStreakForBoundary(s, nextDayStartHour),
+            },
+            a.at ?? Date.now(),
+          )
+        : { ...s, settings };
       // Switching the flow timer off while standing in it: land back on a
       // fresh focus timer instead of a tab that no longer exists. The zeroed
       // stopwatch's session record is finalized as abandoned.
-      if (a.patch.flow === false && s.mode === 'flow') {
-        const sessionRecords = s.openFlow
+      if (a.patch.flow === false && current.mode === 'flow') {
+        const sessionRecords = current.openFlow
           ? appendSessionRecord(
-              s.sessionRecords,
-              finalizeSession(s.openFlow, 'abandoned', flowElapsed(s) / 60),
+              current.sessionRecords,
+              finalizeSession(current.openFlow, 'abandoned', flowElapsed(current) / 60),
             )
-          : s.sessionRecords;
+          : current.sessionRecords;
         return {
-          ...s,
+          ...current,
           settings,
           mode: 'focus',
           running: false,
@@ -1690,7 +1786,7 @@ export function reducer(s: BloomState, a: Action): BloomState {
           flowAcc: 0,
           sessionRecords,
           openFlow: null,
-          parking: revealParkedThoughts(s.parking, s.openFlow?.id),
+          parking: revealParkedThoughts(current.parking, current.openFlow?.id),
         };
       }
       // Only an actual duration edit may replace a fresh idle countdown.
@@ -1699,25 +1795,26 @@ export function reducer(s: BloomState, a: Action): BloomState {
       const durationChanged = a.patch.durations !== undefined;
       const remaining =
         durationChanged &&
-        s.mode !== 'flow' &&
-        s.mode !== 'tiny' &&
-        !s.running &&
-        !s.justDone &&
-        !s.openFocus
-          ? settings.durations[s.mode]
-          : s.remaining;
+        current.mode !== 'flow' &&
+        current.mode !== 'tiny' &&
+        !current.running &&
+        !current.justDone &&
+        !current.openFocus
+          ? settings.durations[current.mode]
+          : current.remaining;
       const personalCadence = durationChanged
-        ? { ...s.personalCadence, computedAt: null, recommendation: null }
-        : s.personalCadence;
-      return { ...s, settings, remaining, personalCadence };
+        ? { ...current.personalCadence, computedAt: null, recommendation: null }
+        : current.personalCadence;
+      return { ...current, settings, remaining, personalCadence };
     }
     default:
       return s;
   }
 }
 
-export function useBloom(dayStartHour = 0) {
-  const [state, dispatch] = useReducer(reducer, undefined, () => loadState(dayStartHour));
+export function useBloom() {
+  const [state, dispatch] = useReducer(reducer, undefined, loadState);
+  const dayStartHour = state.settings.dayStartHour;
 
   // Persist durable fields whenever they change. Flow start/pause lands here
   // too (running/mode/flowStart), so a live stopwatch survives a reload; the
@@ -1731,7 +1828,7 @@ export function useBloom(dayStartHour = 0) {
   useEffect(() => {
     if (!state.running) return;
     const iv = setInterval(
-      () => dispatch({ type: 'tick', at: Date.now(), dayStartHour }),
+      () => dispatch({ type: 'tick', at: Date.now() }),
       250,
     );
     return () => clearInterval(iv);
@@ -1744,7 +1841,7 @@ export function useBloom(dayStartHour = 0) {
     const current = Date.now();
     const delay = Math.max(1, nextDayBoundaryAt(current, dayStartHour) - current + 1);
     const timeout = window.setTimeout(
-      () => dispatch({ type: 'rollOverDay', at: Date.now(), dayStartHour }),
+      () => dispatch({ type: 'rollOverDay', at: Date.now() }),
       delay,
     );
     return () => window.clearTimeout(timeout);
@@ -1755,7 +1852,7 @@ export function useBloom(dayStartHour = 0) {
   useEffect(() => {
     const onVis = () => {
       if (document.visibilityState === 'visible') {
-        dispatch({ type: 'tick', at: Date.now(), dayStartHour });
+        dispatch({ type: 'tick', at: Date.now() });
       }
     };
     document.addEventListener('visibilitychange', onVis);
@@ -1920,7 +2017,9 @@ export function useBloom(dayStartHour = 0) {
         dispatch({ type: 'resumeInterrupted', sessionId }),
       dismissResumeCue: (sessionId: string) =>
         dispatch({ type: 'dismissResumeCue', sessionId }),
-      patchSettings: (patch: Partial<Settings>) => dispatch({ type: 'patchSettings', patch }),
+      patchSettings: (patch: Partial<Settings>) =>
+        dispatch({ type: 'patchSettings', patch, at: Date.now() }),
+      reloadPersistedState: () => dispatch({ type: 'replaceState', state: loadState() }),
     }),
     [],
   );

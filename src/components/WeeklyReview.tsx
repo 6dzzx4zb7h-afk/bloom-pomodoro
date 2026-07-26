@@ -3,7 +3,7 @@ import { PixelPal } from './PixelPal';
 import { loadEvents } from '../store/companion';
 import type { SessionRecord } from '../store/sessions';
 import type { AnimalKind } from '../engine/pixelpals';
-import { computeWeeklyReview, weekKey } from '../insights/weekly';
+import { computeWeeklyReview, weekKeyForStudyDay } from '../insights/weekly';
 import {
   personalCadenceForSurface,
   shouldRecomputePersonalCadence,
@@ -30,6 +30,8 @@ import type { GuideArticleId } from '../content/guide';
 export function WeeklyReview({
   records,
   now,
+  studyDay,
+  dayStartHour,
   palSprite,
   onDismiss,
   onApplyCadence,
@@ -45,6 +47,9 @@ export function WeeklyReview({
   records: SessionRecord[];
   /** Day-refresh signal. Instant-based analysis takes its own fresh clock. */
   now: number;
+  /** Store-resolved current study day; all daily surfaces share this key. */
+  studyDay: string;
+  dayStartHour: number;
   palSprite: AnimalKind;
   onDismiss: () => void;
   onApplyCadence: (preset: CadencePair) => void;
@@ -60,18 +65,18 @@ export function WeeklyReview({
   const review = useMemo(
     // The rolling review window needs the fresh computation instant; `now`
     // is the store-owned day signal that invalidates it at rollover.
-    () => computeWeeklyReview(records, events, Date.now()),
-    [records, events, now],
+    () => computeWeeklyReview(records, events, Date.now(), undefined, dayStartHour),
+    [records, events, now, dayStartHour],
   );
   const guideSuggestion = useMemo(
     () => guideSuggestionFor({
       kind: 'weekly',
-      momentKey: `weekly:${weekKey(now)}`,
+      momentKey: `weekly:${weekKeyForStudyDay(studyDay)}`,
       records,
       events,
       workSessionRunning: false,
-    }, guideRead, now),
-    [events, guideRead, now, records],
+    }, guideRead, now, dayStartHour),
+    [dayStartHour, events, guideRead, now, records, studyDay],
   );
   const cadenceDecision = useMemo(
     () => {

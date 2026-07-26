@@ -35,8 +35,12 @@ export function parseDue(due: string): Date {
 }
 
 /** Whole calendar days including the due day; 1 = due today, <= 0 = past. */
+export function daysLeftForStudyDay(due: string, studyDay: string): number {
+  return daysBetween(studyDay, due) + 1;
+}
+
 export function daysLeft(due: string, now = Date.now(), dayStartHour = 0): number {
-  return daysBetween(dayKeyFor(now, dayStartHour), due) + 1;
+  return daysLeftForStudyDay(due, dayKeyFor(now, dayStartHour));
 }
 
 export type GoalStatus = 'done' | 'overdue' | 'active';
@@ -58,8 +62,17 @@ export interface GoalPace {
  * user has actually shown) — a number nobody can hit is noise, not help.
  */
 export function goalPace(goal: Goal, now = Date.now(), dayStartHour = 0): GoalPace {
+  return goalPaceForStudyDay(goal, dayKeyFor(now, dayStartHour), now);
+}
+
+/** Goal math from the store-resolved study day, shared by every planner label. */
+export function goalPaceForStudyDay(
+  goal: Goal,
+  studyDay: string,
+  now = Date.now(),
+): GoalPace {
   const remaining = Math.max(0, goal.target - goal.done);
-  const days = daysLeft(goal.due, now, dayStartHour);
+  const days = daysLeftForStudyDay(goal.due, studyDay);
 
   if (remaining === 0) {
     return { status: 'done', daysLeft: days, remaining, perDay: 0, suggestion: null };
@@ -93,8 +106,12 @@ export function goalPace(goal: Goal, now = Date.now(), dayStartHour = 0): GoalPa
 
 /** Chip copy for a goal card: "done ♡" / "overdue" / "due today" / "12 days". */
 export function dueLabel(goal: Goal, now = Date.now(), dayStartHour = 0): string {
+  return dueLabelForStudyDay(goal, dayKeyFor(now, dayStartHour));
+}
+
+export function dueLabelForStudyDay(goal: Goal, studyDay: string): string {
   if (goal.done >= goal.target) return 'done ♡';
-  const days = daysLeft(goal.due, now, dayStartHour);
+  const days = daysLeftForStudyDay(goal.due, studyDay);
   if (days <= 0) return 'overdue';
   if (days === 1) return 'due today';
   if (days === 2) return 'due tomorrow';

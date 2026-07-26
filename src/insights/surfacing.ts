@@ -15,11 +15,15 @@ import { driftsForRecord } from './why';
 import {
   type CompanionEvent,
   type DriftKind,
+  companionEventOccurredAt,
+  companionEventsForAnalytics,
   isDriftEvent,
 } from '../store/companion';
 import type { GuideReadState } from '../store/guide';
 import type { SessionRecord } from '../store/sessions';
-import { abandonStreakInfo } from '../store/sessionStats';
+import { abandonStreakInfo, sessionRecordsForAnalytics } from '../store/sessionStats';
+import { dayKeyFor } from '../store/dayKey';
+import { weekKeyForStudyDay } from './weekly';
 
 export const GUIDE_SUGGESTIONS_PER_WEEK = 3;
 export const GUIDE_REPEAT_COOLDOWN_DAYS = 30;
@@ -61,13 +65,6 @@ export function guideArticleForEvidenceKey(key: EvidenceKey): GuideArticleId {
   return GUIDE_ARTICLE_ID_BY_EVIDENCE_KEY[key];
 }
 
-function mondayStart(now: number): number {
-  const date = new Date(now);
-  date.setHours(0, 0, 0, 0);
-  date.setDate(date.getDate() - ((date.getDay() + 6) % 7));
-  return date.getTime();
-}
-
 function reasonForDrift(kind: DriftKind): string {
   switch (kind) {
     case 'rabbit':
@@ -83,20 +80,29 @@ function reasonForDrift(kind: DriftKind): string {
   }
 }
 
-function latestClassifiedDrift(events: CompanionEvent[]): CompanionEvent & { kind: DriftKind } | null {
-  const classified = events.filter(
+function latestClassifiedDrift(
+  events: CompanionEvent[],
+  now: number,
+): CompanionEvent & { kind: DriftKind } | null {
+  const classified = companionEventsForAnalytics(events, now).filter(
     (event): event is CompanionEvent & { kind: DriftKind } =>
       isDriftEvent(event) && event.kind in GUIDE_ARTICLE_BY_DRIFT_KIND,
   );
   return classified.length
-    ? classified.reduce((latest, event) => event.ts > latest.ts ? event : latest)
+    ? classified.reduce(
+        (latest, event) =>
+          companionEventOccurredAt(event) > companionEventOccurredAt(latest)
+            ? event
+            : latest,
+      )
     : null;
 }
 
 function candidatesFor(
   moment: GuideSurfacingMoment,
+  now: number,
 ): Array<{ articleId: GuideArticleId; reason: string }> {
-  if (abandonStreakInfo(moment.records).streak >= 3) {
+  if (abandonStreakInfo(sessionRecordsForAnalytics(moment.records, now)).streak >= 3) {
     return [
       {
         articleId: 'first-pebble',
@@ -110,8 +116,11 @@ function candidatesFor(
   }
 
   const drift = moment.kind === 'weekly'
-    ? latestClassifiedDrift(moment.events)
-    : latestClassifiedDrift(driftsForRecord(moment.record, moment.events));
+    ? latestClassifiedDrift(moment.events, now)
+    : latestClassifiedDrift(
+        driftsForRecord(moment.record, moment.events, now),
+        now,
+      );
   if (!drift) return [];
 
   return [{
@@ -132,6 +141,7 @@ export function guideSuggestionFor(
   moment: GuideSurfacingMoment,
   state: GuideReadState,
   now: number,
+  dayStartHour = 0,
 ): GuideSuggestion | null {
   if (moment.workSessionRunning || !Number.isFinite(now) || now < 0) return null;
 
@@ -141,18 +151,22 @@ export function guideSuggestionFor(
     if (readAt !== undefined && now - readAt < GUIDE_REPEAT_COOLDOWN_DAYS * DAY_MS) {
       return null;
     }
-    const candidate = candidatesFor(moment).find((item) => item.articleId === existing.articleId);
+    const candidate = candidatesFor(moment, now).find(
+      (item) => item.articleId === existing.articleId,
+    );
     return candidate ? { ...candidate, momentKey: moment.momentKey } : null;
   }
 
-  const weekStart = mondayStart(now);
+  const weekKey = weekKeyForStudyDay(dayKeyFor(now, dayStartHour));
   const shownThisWeek = state.suggestions.filter(
-    (item) => item.surfacedAt >= weekStart && item.surfacedAt <= now,
+    (item) =>
+      item.surfacedAt <= now &&
+      weekKeyForStudyDay(dayKeyFor(item.surfacedAt, dayStartHour)) === weekKey,
   ).length;
   if (shownThisWeek >= GUIDE_SUGGESTIONS_PER_WEEK) return null;
 
   const cooldown = GUIDE_REPEAT_COOLDOWN_DAYS * DAY_MS;
-  const candidate = candidatesFor(moment).find(({ articleId }) => {
+  const candidate = candidatesFor(moment, now).find(({ articleId }) => {
     const readAt = state.readAt[articleId];
     if (readAt !== undefined && now - readAt < cooldown) return false;
     const lastSuggestion = [...state.suggestions]

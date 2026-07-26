@@ -377,7 +377,14 @@ Rules of thumb:
 
 ---
 
-## Phase 7 — Verification & release
+## Phase 7 — Fast local browser milestone
+
+> **Current delivery scope:** Finish a locally verifiable browser build first. Android/iOS
+> packaging, physical-device evidence, app-store work, release tags, Cloudflare deployment, and
+> deployed/installed-PWA offline proof are not gates for this milestone. Bloom's local-first
+> privacy boundary still applies: the browser build must not send application data or load remote
+> runtime assets. Post-milestone work remains listed below so it is deferred honestly rather than
+> silently treated as complete.
 
 ### - [x] 7.1 Migration test suite
 
@@ -387,15 +394,24 @@ Rules of thumb:
 - **Done when:** One fixture per version; suite green; intentionally corrupting a fixture fails the suite (verified once, then reverted).
 - **Depends on:** all schema-bumping steps (1.1–6.2).
 
-### - [ ] 7.2 Local-only/offline audit
+### - [ ] 7.2 Local-only browser privacy audit
 
-- **Goal:** Prove the local-only/offline claim: grep the bundle/source for `fetch(`, `XMLHttpRequest`, `WebSocket`, and external URLs in `src/`; verify all guide content, fonts, images, audio, and other runtime assets are bundled locally; run the production build with DevTools network-blocked and exercise every new screen. Audit with every optional network feature and diagnostic reporter absent or disabled. Enabled network capabilities are audited only in their own numbered release steps against their allowlist and data inventory.
-- **Science:** n/a — privacy, offline reliability, and release verification.
-- **Quality:** `docs/product-quality.md` — Privacy and security; Loading, empty, offline, conflict, and failure states; Browser and device verification.
+- **Goal:** Prove the fast browser build is local-only: grep the bundle/source for `fetch(`,
+  `XMLHttpRequest`, `WebSocket`, and external URLs in `src/`; verify guide content, fonts, images,
+  audio, and other runtime assets are bundled locally; inspect a production preview with every
+  optional network feature and diagnostic reporter absent or disabled. Enabled network
+  capabilities are audited only in their own numbered release steps against their allowlist and
+  data inventory.
+- **Science:** n/a — privacy and release verification.
+- **Quality:** `docs/product-quality.md` — Privacy and security; Browser verification.
 - **Files:** none (audit) or a small `scripts/offline-audit.sh`.
-- **Done when:** With all optional network features and diagnostics off or absent, a full manual pass over debrief, weekly review, planner, tiny-start, ritual, parking lot, resume cue, kind restart, guide, export/import, and every core screen makes zero application-data requests and sends zero user data after the app shell loads; the same pass works with the network blocked and retains honest offline/empty/failure states. Self-hosted app-shell delivery and service-worker update checks are not user-data egress. Bundled local runtime assets are allowed; remote runtime assets are not.
-- **Depends on:** Phases 1–6 and 8.10 → 8.15 for deployed-web offline proof. Re-run the
-  local-only pass in the release step for each later optional network capability.
+- **Done when:** Source and built-output audits find no unapproved network API or remote runtime
+  asset; a production-preview smoke over the core screens makes zero application-data requests and
+  sends zero user data after the app shell loads. Self-hosted app-shell delivery and service-worker
+  update checks are not user-data egress. This milestone does not claim deployed-web or installed-PWA
+  offline support; that proof remains in deferred step 8.15.
+- **Depends on:** Phases 1–6 and 8.10. Re-run the local-only pass in the release step for each later
+  optional network capability.
 
 ### - [x] 7.3 Voice & do-not-build copy audit
 
@@ -433,18 +449,26 @@ Rules of thumb:
   `useBloom` + `FocusScreen` tests exercise Start/Pause/Reset, Tiny/Skip, Flow/Finish, return pause,
   and interrupted-session resume controls with deterministic clocks and localStorage.
 
-### - [ ] 7.5 QA script + Android release
+### - [ ] 7.5 Fast browser QA handoff
 
-- **Goal:** Write `docs/qa.md` with two layers: (a) a 10-minute golden-path smoke (ritual → if-then → tiny start → grow → drift → park → resume cue → complete → debrief → guide link → weekly review), and (b) the release matrix from `docs/product-quality.md`: keyboard/touch/screen reader; responsive, safe-area, and virtual-keyboard layouts; both themes, contrast, zoom, and reduced motion; loading/empty/offline/error/recovery states; measured performance; and supported browser/device checks. Then `npm run build`, `npx cap sync android`, build the APK, run the smoke on a device in local-only airplane mode, and upgrade-install over the previous APK to prove migrations on-device. Tag the release. Phase 11 adds its own opt-in multi-device release gate; an account must never become a prerequisite for the core path. If authoring and executing the full matrix cannot fit one run, split 7.5 in `PLAN.md` before implementation.
-- **Science:** n/a — release, accessibility, reliability, and platform verification.
-- **Quality:** `docs/product-quality.md` — all applicable acceptance sections, especially Browser and device verification.
-- **Files:** `docs/qa.md` (new; link to 8.21's `docs/testing.md` automated-test/baseline guidance), android build artifacts.
-- **Done when:** `docs/qa.md` links the automated-test and baseline rules in `docs/testing.md`; the
-  fast smoke passes on web preview and a real Android device; every release-matrix cell is recorded
-  with browser/device/settings and result; automated checks are supplemented by keyboard,
-  screen-reader, touch, and real-device evidence; performance conditions and measurements are
-  recorded; local-only airplane mode works; upgrade install preserves all data; release tagged.
-- **Depends on:** 7.1–7.4 and all release-blocking Phase 8 remediation, including 8.21.
+- **Goal:** Write `docs/qa.md` with a 10-minute golden-path smoke (ritual → if-then → tiny start →
+  grow → drift → park → resume cue → complete → debrief → guide link → weekly review) and a compact
+  browser matrix covering keyboard, focus, accessible names, narrow/short viewports, both themes,
+  zoom, reduced motion, empty/error/recovery states, and measured startup/interaction performance.
+  Run the smoke against a local production preview. Android/iOS packaging, APK/IPA builds, physical
+  devices, airplane-mode device checks, upgrade installs, deployment, store submission, and release
+  tagging are explicitly outside this milestone.
+- **Science:** n/a — accessibility, reliability, and browser verification.
+- **Quality:** `docs/product-quality.md` — applicable browser, accessibility, responsive, and
+  performance acceptance sections.
+- **Files:** `docs/qa.md` (new; link any automated-test guidance that already exists).
+- **Done when:** The golden path passes on a local production preview at desktop and 320×568 browser
+  viewports; keyboard-only navigation, visible focus, essential accessible names, 200% zoom/reflow,
+  both themes, and reduced motion are recorded; `npm run lint` when available, `npm test`,
+  `npm run build`, and `git diff --check` are green. Deferred device, deployment, exhaustive visual
+  baseline, and installed-offline evidence are listed as deferred, not recorded as passes.
+- **Depends on:** 7.1–7.4 and only the Phase 8 fixes exercised by the golden path. Deferred steps
+  8.15 and 8.21 do not block this milestone.
 
 ---
 
@@ -535,32 +559,43 @@ Rules of thumb:
 - **Quality:** `docs/product-quality.md` — Visual hierarchy, readability, contrast, and motion; Perceived and measured performance.
 - **Files:** `DaySky.tsx`, `NightSky.tsx`, `PixelPal.tsx`, new shared scheduler module.
 - **Done when:** With reduced motion on, nonessential sky/pal motion is static while state remains understandable; a hidden/obscured tab performs zero decorative animation work; one scheduler replaces per-pal intervals; the recorded trace meets the predeclared budget and shows no interaction/Core-Web-Vitals regression under the stated conditions; bundle delta and measurements are saved with verification notes.
+- **Progress (July 2026):** One shared scheduler now replaces the sky animation loops and per-pal
+  intervals, caps sky/pal draws at 20/15 fps, stops while hidden or offscreen, and renders static
+  state-specific frames under reduced motion; the night short-break CSS aurora is frozen too.
+  Deterministic lifecycle, seven-canvas budget, sky, and pal tests pass in the full suite. A
+  same-snapshot isolated build measured +997 gzip bytes for the animation implementation, within
+  the predeclared 1.5 KiB ceiling. The step remains open for the predeclared real-browser
+  main-thread/Core Web Vitals trace and timer-control interaction comparison.
 
 ### - [ ] 8.8 Touch targets and small-screen layouts
 
 - **Goal:** Settings (34 px), steppers (28 px), switches, and delete controls fall below Bloom's
-  44×44 CSS px web target and Android's 48×48 dp platform recommendation; the goal add form crams
-  name + date + parts + button into one row at 390 px; the Focus screen has no height-based variant
-  and the shell hides overflow (short phones/landscape clip content). Enlarge hit areas (padding,
-  not icon size), make the goal form two rows on mobile, add compact-height breakpoints that shrink
-  the timer ring before hiding anything. Also set every text input/textarea/select to **≥16 px
-  font-size on mobile**: iOS Safari force-zooms the whole page when focusing any smaller input, and
-  Bloom's task/goal/target/onboarding fields currently trigger that zoom-jump. Onboarding needs
-  explicit virtual-keyboard treatment: use dynamic viewport units/safe-area padding, allow the card
-  to scroll above the keyboard, and avoid autofocus when it would open the keyboard before the user
-  chooses to type.
+  44×44 CSS px web target; the goal add form crams name + date + parts + button into one row at
+  390 px; the Focus screen has no height-based variant and the shell hides overflow (short browser
+  viewports clip content). Enlarge hit areas (padding, not icon size), make the goal form two rows
+  on narrow viewports, add compact-height breakpoints that shrink the timer ring before hiding
+  anything, and set every text input/textarea/select to **≥16 px on narrow viewports**. Onboarding
+  must scroll above an emulated virtual keyboard and avoid autofocus that obscures its actions.
 - **Science:** n/a — responsive/mobile ergonomics and accessibility.
 - **Quality:** `docs/product-quality.md` — Keyboard, touch, and screen readers; Responsive layout,
-  safe areas, and virtual keyboards. Bloom's 44 CSS px web target and Android's 48 dp target are
-  stricter product/platform choices than WCAG 2.2 AA's target-size floor.
+  and virtual keyboards. Bloom's 44 CSS px web target is a stricter product choice than WCAG 2.2
+  AA's target-size floor.
 - **Files:** `src/styles.css`, `GoalsScreen.tsx`, `FocusScreen.tsx`, `Onboarding.tsx`.
 - **Done when:** All ordinary web touch targets have an effective area ≥44 CSS px with safe
-  separation, and the Android wrapper verifies ≥48 dp; goal form is usable at 390 px; at 320 CSS px
+  separation; goal form is usable at 390 px; at 320 CSS px
   and 200% zoom ordinary content reflows without two-dimensional scrolling; Focus fits a 568 px-tall
-  viewport without clipping controls; safe areas and gesture insets do not cover actions; no input
-  triggers iOS focus zoom; onboarding remains fully visible/actionable with iOS and Android keyboards
-  open in portrait and landscape. Verify the keyboard/safe-area path on real iOS Safari and Android
-  WebView as well as emulation.
+  browser viewport without clipping controls; no narrow-viewport input is smaller than 16 px;
+  onboarding remains fully visible/actionable with an emulated virtual keyboard. Verify at 320×568,
+  390×844, short landscape, and 200% zoom in browser tooling; physical iOS/Android evidence is not
+  required for the fast milestone.
+- **Progress (July 2026):** The first measured slice is in
+  `docs/verification/plan-8.8-responsive-2026-07-26.md`: shared sheet/dialog close controls,
+  steppers, switches, task delete/add/session-count controls, and mobile form fields now meet the
+  44 px/16 px web baselines. The 320×568 task add row now reflows without horizontal overflow
+  (input 142×44 px instead of the visibly compressed pre-fix field). The step remains open for
+  the documented undersized Focus/Settings controls, goal form, compact-height/safe-area/zoom/
+  keyboard matrix and complete target inventory. Physical iOS Safari/Android WebView proof is
+  deferred and does not block this browser milestone.
 
 ### - [ ] 8.9 Readability over the animated sky
 
@@ -626,6 +661,12 @@ Rules of thumb:
 - **Quality:** `docs/product-quality.md` — Loading, empty, offline, conflict, and failure states; Visual hierarchy, readability, contrast, and motion.
 - **Files:** onboarding/task seed or default-state files, `Onboarding.tsx`, `TasksScreen.tsx`, affected styles and tests.
 - **Done when:** New users can distinguish example content from their own data or see an honest empty state with one obvious action; dismissing an example does not create or delete real work; keyboard, screen-reader, narrow-layout, migration, and visual-regression fixtures pass.
+- **Progress (July 2026):** Fresh installs now persist no sample tasks. Tasks presents one semantic
+  empty-state region whose “add your first task” action focuses the real task-name input; focused
+  store/hook coverage plus a fresh-origin 320×568 browser accessibility-tree and rendered-layout
+  pass confirm the behavior. Existing users retain any historically seeded tasks as their local
+  data. The step remains open for the named pinned visual-regression fixture; the manual narrow
+  pass does not substitute for a CI-diffable baseline.
 
 ### - [ ] 8.14 Guard the running timer against accidental resets
 
@@ -636,20 +677,40 @@ Rules of thumb:
 - **Done when:** The behavior matrix for Mode, Reset, Skip, active-task change, Flow enter/exit/off, cadence/duration edit, and unresolved-return navigation is documented and integration-tested for keyboard and touch; focus placement/restoration and safe Escape/cancel behavior are covered; grace-switch leaves zero record; "keep going" is byte-for-byte state preserving; confirmed actions finalize/discard exactly once; no path orphans `openFocus`, `openFlow`, or a return snapshot; `abandonStreakInfo()` cannot be fed by sub-grace noise.
 - **Depends on:** nothing (8.4's primitive is a nice-to-have, not a blocker).
 
-### - [ ] 8.15 Service worker — make the *web* deploy actually offline
+### - [ ] 8.15 (Deferred) Prove deployed-web and installed-PWA offline behavior
 
-- **Goal:** The local-first/offline constraint currently holds only inside the Android APK (assets bundled by Capacitor). The Cloudflare Pages web deploy ships a PWA manifest (`public/manifest.webmanifest`, linked from `index.html`) but **no service worker**, so an installed PWA or any revisit without network gets a blank page — the app that promises a complete local mode does not yet deliver it on the web. Add a minimal precache service worker (build-hash-versioned app shell, cache-first, no runtime asset dependencies; old caches cleaned on activate) and register it from `main.tsx`. Future Phase 11 auth/sync API requests are opt-in data traffic and must never be treated as app-shell assets or required for boot.
+- **Milestone status:** Post-milestone; it does not block 7.2 or 7.5.
+
+- **Goal:** Preserve the implemented build-hash-versioned app-shell service worker, then—only when
+  web deployment becomes a priority—verify an installed/deployed PWA across offline reload and
+  clean service-worker updates. Future Phase 11 auth/sync API requests are opt-in data traffic and
+  must never be treated as app-shell assets or required for boot.
 - **Science:** n/a — this is hard constraint #1 applied to the web target, found by the July 2026 full audit.
 - **Files:** service worker (hand-rolled in `public/` or generated via a Vite PWA plugin), `src/main.tsx`, `vite.config.ts` if a plugin is used.
 - **Done when:** After one online visit, a full reload with DevTools network blocked boots the app and every Phase 1–5 feature works; deploying a new build updates cleanly (no stale-cache strand); 7.2's audit passes against the deployed web build, not just the APK.
 - **Depends on:** 8.10 (fonts must be local before the shell precache is complete).
+- **Progress (July 2026):** The production build now generates a content-hashed, exact app-shell
+  precache worker, excludes reserved API/auth namespaces, cleans old Bloom caches, and registers
+  only on production web (not Capacitor). Generator/registration tests cover offline navigation,
+  cached assets, cache replacement, and network-only routes. A production preview was loaded once,
+  its server was stopped, and a full reload booted the Focus screen from cache with persisted local
+  state and no console errors. The step remains open for the done-when’s deployed-web update and
+  complete Phase 1–5 offline pass.
 
 ### - [ ] 8.16 Add a linter, align dependencies/toolchain, and wire both into CI
 
 - **Goal:** The repo has **no ESLint/Prettier config at all**, and until July 2026 CI never ran the test suite (fixed during the audit: `.github/workflows/deploy.yml` now runs `npm test` before build/deploy). With many people and models committing, there is no automated correctness/style gate beyond `tsc`. Add an ESLint flat config (typescript-eslint recommended + react-hooks rules), fix or explicitly justify every finding, add `npm run lint`, and a CI lint step before tests. Also remove the current Vitest transform warnings caused by incompatible/duplicated Vite/plugin resolution: align supported Vite/Vitest/plugin-react versions or give Vitest a standalone config that does not load browser-only React transforms for pure tests. Pin the compatible set and document intentional major-version differences; do not suppress warnings. Align the Actions Node/npm toolchain with dependency engine requirements, regenerate the lockfile with that CI toolchain, and require a pristine CI-version `npm ci` check for every future dependency change. This closes the July 2026 regression where npm 11 accepted the committed lockfile but the Node 20/npm 10 runner rejected it as missing `esbuild@0.28.1` platform packages; the same resolution also introduced Wrangler packages requiring Node 22. The July 2026 hotfix that unblocked deploys pinned `npm@11.17.0` twice — a hardcoded `npm install --global` step in the workflow and `package.json`'s `packageManager` field, which is inert because corepack is never enabled; keep exactly one npm-version source of truth (corepack reading `packageManager`, or the workflow deriving its version from `package.json`) so the two cannot drift.
 - **Science:** n/a — engineering hygiene, found by the July 2026 full audit.
 - **Files:** `eslint.config.js` (new), `vitest.config.ts` if needed, `package.json`/lockfile, `.github/workflows/deploy.yml`.
-- **Done when:** A fresh checkout completes `npm ci`, `npm run lint`, `npm test`, and `npm run build` with the exact Node/npm toolchain used by Actions, and the pushed workflow is green through deployment; CI fails before deploy on lint/test/build failure; every resolved package supports the runner's Node version; dependency-tree output shows one intentional compatible Vite transform path; the lint config is the standard recommended sets, not a hand-tuned rule zoo. The workflow carries no npm-version literal duplicated from `package.json` — one pin, read by both CI and local tooling. `AGENTS.md` and `CLAUDE.md` keep the same clean CI-version lockfile check as an evergreen rule for later dependency changes.
+- **Done when:** A pristine temporary checkout completes `npm ci`, `npm run lint`, `npm test`, and
+  `npm run build` with the exact Node/npm toolchain declared for Actions; the workflow statically
+  gates deployment on lint/test/build failure; every resolved package supports the runner's Node
+  version; dependency-tree output shows one intentional compatible Vite transform path; the lint
+  config is the standard recommended sets, not a hand-tuned rule zoo. The workflow carries no
+  npm-version literal duplicated from `package.json` — one pin, read by both CI and local tooling.
+  `AGENTS.md` and `CLAUDE.md` keep the same clean CI-version lockfile check as an evergreen rule for
+  later dependency changes. Pushing or executing a deployment workflow is not required for the fast
+  local milestone.
 - **Depends on:** nothing.
 - **Progress (July 2026):** `vitest.config.ts` now keeps pure Node tests off the browser React
   transform, removing the prior Vite/esbuild warnings. The latest dependency refresh exposed a
@@ -713,7 +774,7 @@ Rules of thumb:
   Companion-local intention mirror was removed in favor of the session-owned target. Pre-start
   ordering/progressive disclosure, responsive/keyboard proof, and review discoverability remain.
 
-### - [ ] 8.19 Make insight time windows and evidence inputs trustworthy
+### - [x] 8.19 Make insight time windows and evidence inputs trustworthy
 
 - **Goal:** Normalize analytics timestamps before deriving claims. Reject or quarantine events and
   sessions implausibly in the future; use `shownAt` for when a check-in occurred/phase bucketing and
@@ -733,10 +794,15 @@ Rules of thumb:
   bounds, one-event/no-prior-session cases, and current-session leakage; UI labels match the actual
   rolling/calendar window; no explanatory sentence says "usual" below its documented sample floor.
 - **Depends on:** 1.4, 1.5, 2.2, 2.4.
-- **Progress (July 2026):** Debrief “usual” and strong-hour claims now use prior sessions only;
-  “usual” requires at least three prior drift sessions; unclassified drifts count in totals while
-  kind-specific denominators stay classified. Future-time quarantine, shownAt bucketing, full onset
-  clamps, and cross-surface window labels/tests remain.
+- **Closed (July 2026):** One normalization path now quarantines malformed/future session intervals
+  and Companion events before they reach debrief, weekly, cadence, trigger, Guide, or recipe claims.
+  Prompt occurrence (`shownAt`, falling back to legacy `ts`) owns rolling windows, time-of-day, and
+  linked-session phase; `ts` remains the answer/log time. Estimated onsets are clamped to the
+  session window and the latest earlier focused answer. Debrief “usual” and strong-hour claims use
+  prior sessions only; “usual” requires three prior drift sessions; unclassified drifts stay in
+  total counts but never enter kind-specific denominators. Future, delayed-answer, onset-bound,
+  and one-event/current-session-leakage fixtures are green; the existing UI labels the rolling
+  24-hour/7-day and study-calendar windows plainly. The full suite and production build are green.
 
 ### - [ ] 8.20 Record truthful task and goal completion timestamps
 
@@ -760,7 +826,10 @@ Rules of thumb:
   completed items correctly stay timestamp-unknown. Remaining: deadline copy keyed to the known
   completion time, History day-grouping (9.3), and the timezone-boundary fixture tests.
 
-### - [ ] 8.21 Cross-screen accessibility, component, and visual regression baseline
+### - [ ] 8.21 (Post-milestone) Cross-screen accessibility, component, and visual regression baseline
+
+- **Milestone status:** Keep adding focused regression tests when touching a screen, but the
+  exhaustive cross-screen visual matrix and physical-device evidence do not block 7.5.
 
 - **Goal:** Consolidate and close the cross-screen regression coverage that individual feature steps
   cannot prove. Start with a coverage inventory that reuses and counts the assertions and fixtures
@@ -771,8 +840,8 @@ Rules of thumb:
   touch-equivalent actions, undo, and recovery; and pinned visual
   baselines at small-phone, short-landscape, tablet, and desktop sizes in both themes plus reduced
   motion and increased-contrast modes. Document baseline-update/review rules and wire the suites into
-  CI. Automated checks supplement, not replace, the manual keyboard/screen-reader/device matrix in
-  7.5. If the screen/state inventory cannot fit one run, split this step in `PLAN.md` before implementation.
+  CI. Automated checks supplement, not replace, a future full keyboard/screen-reader/device matrix.
+  If the screen/state inventory cannot fit one run, split this step in `PLAN.md` before implementation.
 - **Science:** n/a — accessibility and engineering verification.
 - **Quality:** `docs/product-quality.md` — Browser and device verification; Component, integration,
   accessibility, and visual regression testing.
@@ -783,7 +852,8 @@ Rules of thumb:
   accessibility and component coverage; critical undo/recovery/focus paths have integration tests;
   visual diffs fail CI in the pinned environment across the required states/sizes/themes/preferences;
   baseline changes require intentional review; known defects are tracked in open remediation rather
-  than accepted by regenerating snapshots; manual evidence remains required by 7.5.
+  than accepted by regenerating snapshots; future manual device evidence is recorded here rather
+  than required by 7.5.
 - **Depends on:** coordinate with 8.4–8.10 and 8.16 so the primitives, visual states, and CI toolchain
   are stable enough to test.
 
@@ -900,7 +970,7 @@ Rules of thumb:
 - **Done when:** Anchor resolves; each claim has an evidence grade and at least one full citation; a provenance sentence in the verification-note style is included.
 - **Depends on:** 0.1.
 
-### - [ ] 9.2 Custom study-day boundary
+### - [x] 9.2 Custom study-day boundary
 
 - **Goal:** Settings question: "When does your day roll over?" → `dayStartHour` (default midnight; presets 00:00 / 03:00 / 05:00, custom hour). One shared `dayKeyFor(ts)` helper; **every** daily computation routes through it — streak, sessions-today, weekly-review windows, per-day grouping in stats — while raw records keep exact timestamps. Version bump + migration; changing the boundary re-derives summaries losslessly from raw records.
 - **Science:** n/a — user-controlled calendar semantics and data accuracy, not a behavior-change mechanism.
@@ -919,6 +989,14 @@ Rules of thumb:
   threads through leaf signatures (`daysLeft`/`goalPace`/`dueLabel`/`nextDayBoundaryAt`) that all
   still receive the default, while `todayStr` takes no hour at all, so per-call-site wiring would
   let the Goals date-input `min` split from its due labels.
+- **Closed (July 2026):** Settings now owns a persisted, normalized midnight/03:00/05:00/custom
+  boundary (schema v23 with an append-only v22→v23 migration). The store resolves one study-day
+  signal for screens and uses the configured boundary for timer completion, streak/pre-slump
+  summaries, weekly windows and Guide caps, Companion prompts, goal labels, and session-day grouping;
+  changing it re-derives the observable streak tail without changing a raw record.
+  Boundary−1/boundary, 00:30-previous-day, early-Monday weekly/Guide, migration, Settings integration,
+  deterministic America/New_York spring/fall DST, full-suite, build, and fresh-browser checks are
+  green.
 
 ### - [ ] 9.3 History ledger screen
 
@@ -929,7 +1007,7 @@ Rules of thumb:
 - **Done when:** Fixture data renders grouped days with correct session/task summaries; semantic headings/lists and paging controls work by keyboard and screen reader; empty, loading/paging, large-history, and failure states are responsive and recoverable; carried-open and reopened tasks are not misreported as completed; no derived metric appears that doesn't already exist in `sessionStats`; archive path unit-tested (records past the cap survive); component and narrow/wide visual-regression fixtures pass; all copy passes docs/voice.md. If this exceeds one session, split UI and archive-storage into sub-steps before implementation.
 - **Depends on:** 9.2, 1.4, 8.20.
 
-### - [ ] 9.4 Data export & import
+### - [x] 9.4 Data export & import
 
 - **Goal:** Settings → "Your data": one-tap **JSON export** of the entire persisted state (schema-version stamped; *entire* includes the Companion event log's separate localStorage key — see the 7.1 audit note) and a **CSV export** of session records; **import** validates the file, migrates older-schema files forward through the existing migration chain (a v12 file is treated like v12 localStorage), previews what it holds ("this backup has X sessions, Y tasks, Z goals"), then merges by stable id — never a blind overwrite — after automatically backing up the current state. Large files show accessible progress and allow cancellation before the atomic commit; any validation, migration, or merge failure leaves current state unchanged and offers a recovery/export path.
 - **Science:** n/a — offline data stewardship and recovery; no behavior-change claim.
@@ -937,6 +1015,17 @@ Rules of thumb:
 - **Files:** `src/store/exportImport.ts` (new + tests), `SettingsSheet.tsx`; reuses 7.1's version fixtures.
 - **Done when:** Export → wipe localStorage → import round-trips losslessly (automated test); importing an older-schema export migrates forward correctly; malformed, oversized, canceled, and injected merge-failure fixtures produce a calm accessible result and zero state change; progress never becomes a blank or infinite wait; the CSV opens in a spreadsheet with sane columns; the canonical validated envelope and stable-id merge helpers are reusable by Phase 11 without making export/import depend on an account or network.
 - **Depends on:** 1.1; strengthened by 7.1 and 8.11 (not blocked by them).
+- **Closed (July 2026):** Settings → Data exports one schema-stamped JSON envelope containing the
+  complete main store and separate Companion log, plus a formula-neutralized session CSV. Import
+  streams with bounded live progress/cancel, validates every persisted row plus Companion
+  version/enums/timing, migrates old main blobs through the localStorage chain while retaining the
+  source schema in preview, and merges stable ids without overwriting collisions or truncating
+  combined logs at local caps. Both live keys commit behind a recovery envelope; injected write and
+  rollback failures retain it and report their actual recovery state. Round-trip-after-wipe, v12,
+  malformed/oversized/canceled, row/version/enum, collision/cap, streamed cancellation,
+  rollback-failure, CSV, and Settings status/progress fixtures pass. A live browser invalid-file
+  pass announced “Nothing changed” in the status region with both recovery actions reachable; the
+  full suite, migration suite, production build, and diff check are green.
 
 ### - [ ] 9.5 Session repair & retroactive drift notes
 
@@ -1095,6 +1184,9 @@ Open-step gates, stated plainly: **9.2**'s `dayKeyFor` is load-bearing for every
 
 ## Phase 11 — Optional accounts & cross-device sync (local-first, opt-in)
 
+> **Current milestone status:** Entire phase deferred. Accounts, networking, cross-device behavior,
+> and real-device sync QA are not part of the fast local browser milestone.
+>
 > Sync is an optional data-stewardship layer, never a gate around Bloom. A fresh install and every
 > existing user remain local-only by default. Signing in and enabling upload are two separate,
 > explicit choices. Until both happen, no user data leaves the device; after opt-in, only documented,
@@ -1191,8 +1283,8 @@ Phase 3: 3.1 → 3.2 → 3.5   |  3.3, 3.4 after 1.2
 Phase 4: 4.1 ← (1.4, 2.4)  |  4.2 ← 2.1  |  4.3 ← 0.2  |  4.4 ← 2.4  |  4.5 ← (1.4, 2.4)  |  4.6 ← (4.1, 4.4)
 Phase 5: 5.1 ← 1.3 → 5.2 ← 4.2 → 5.3     |  5.4 ← 0.2
 Phase 6: 6.1 ← (0.1, 2.2) → 6.2 → 6.3 ← 2.4 → 6.4 ← 0.2
-Phase 7: 7.4 harness after Phase 1; relevant Phase 8 fixes add regressions → 7.1–7.4 all pass → 7.5 release QA
-Phase 8: independent unless noted  |  8.10 → 8.15 → 7.2  |  8.17 ← (5.1–5.3, 8.4)  |  8.18 ← (3.2, 3.4, 4.1, 4.2, 4.6, 8.5)  |  8.20 ← (7.1, 8.3)  |  8.12 ← 1.2  |  8.16 anytime  |  8.21 coordinates with 8.4–8.10 and 8.16, then 7.5
+Phase 7: 7.4 harness after Phase 1; relevant Phase 8 fixes add regressions → 7.1–7.4 all pass → 7.5 fast browser QA
+Phase 8: independent unless noted  |  8.10 → 7.2  |  8.15 deployed-offline proof deferred  |  8.17 ← (5.1–5.3, 8.4)  |  8.18 ← (3.2, 3.4, 4.1, 4.2, 4.6, 8.5)  |  8.20 ← (7.1, 8.3)  |  8.12 ← 1.2  |  8.16 anytime  |  8.21 post-milestone and not a 7.5 gate
 Phase 9: 9.1 ← 0.1  |  9.2 ← 1.4 → 9.3 ← 8.20 → 9.5 ← (1.5, 9.1)  |  9.4 ← 1.1  |  9.6 ← (9.1, 8.12, 4.2, 2.3)
 Phase 10: 10.1 ← (9.2, 1.1) → 10.2 ← (10.1, 8.12, 4.2, 9.2)  |  10.3 ← (9.6, 9.2, 10.1)  |  (10.2, 10.3) → 10.4 → 10.5 ← (8.3, 9.2)  |  10.6 ← (9.1 blocking, 10.1–10.3, 2.3, 8.2)
           10.7 ← (9.2, 5.4, 1.2) → 10.8 ← (8.3, 8.4, 5.1) → 10.9 ← (9.5, 5.4) → 10.10 ← (3.1, 3.2, 5.3)  |  10.11 ← (9.3, 9.4, 2.3, 10.1, 10.7, 7.1 fixtures)  |  10.12 last ← (10.2–10.11, 0.2)

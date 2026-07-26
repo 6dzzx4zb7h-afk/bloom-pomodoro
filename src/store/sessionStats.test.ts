@@ -9,6 +9,7 @@ import {
   completionRateByPlannedLength,
   completionRateByStartHour,
   driftPhaseDistribution,
+  groupSessionsByStudyDay,
   hasEnoughSignal,
   medianMinutesToFirstDrift,
 } from './sessionStats';
@@ -54,6 +55,52 @@ function drift(
     ...overrides,
   };
 }
+
+function localAt(y: number, m: number, d: number, h: number, min = 0): number {
+  return new Date(y, m - 1, d, h, min).getTime();
+}
+
+describe('groupSessionsByStudyDay', () => {
+  it('re-groups the same raw records when the boundary changes', () => {
+    const afterMidnight = record({
+      id: 'after-midnight',
+      startedAt: localAt(2026, 7, 20, 0, 5),
+      endedAt: localAt(2026, 7, 20, 0, 30),
+    });
+    const evening = record({
+      id: 'evening',
+      startedAt: localAt(2026, 7, 19, 22, 0),
+      endedAt: localAt(2026, 7, 19, 22, 25),
+    });
+    const raw = [afterMidnight, evening];
+
+    expect(groupSessionsByStudyDay(raw, 0).map((group) => ({
+      day: group.day,
+      ids: group.records.map((item) => item.id),
+    }))).toEqual([
+      { day: '2026-07-20', ids: ['after-midnight'] },
+      { day: '2026-07-19', ids: ['evening'] },
+    ]);
+
+    expect(groupSessionsByStudyDay(raw, 4).map((group) => ({
+      day: group.day,
+      ids: group.records.map((item) => item.id),
+    }))).toEqual([
+      { day: '2026-07-19', ids: ['evening', 'after-midnight'] },
+    ]);
+    expect(raw).toEqual([afterMidnight, evening]);
+  });
+
+  it('puts boundary minus one minute before the boundary day', () => {
+    const before = record({ endedAt: localAt(2026, 7, 20, 3, 59) });
+    const atBoundary = record({ endedAt: localAt(2026, 7, 20, 4, 0) });
+
+    expect(groupSessionsByStudyDay([before, atBoundary], 4).map((group) => group.day)).toEqual([
+      '2026-07-20',
+      '2026-07-19',
+    ]);
+  });
+});
 
 /* ------------------------------------------------------------------ *
  * hasEnoughSignal
@@ -146,6 +193,24 @@ describe('completionRateByStartHour', () => {
     ]);
     expect(out).toEqual([{ hour: 7, total: 1, completed: 1, rate: 1 }]);
   });
+
+  it('quarantines malformed and future session intervals', () => {
+    const valid = record({ startHour: 9, startedAt: T0, endedAt: T0 + 10_000 });
+    const future = record({
+      startHour: 21,
+      startedAt: T0 + 30_000,
+      endedAt: T0 + 40_000,
+    });
+    const reversed = record({
+      startHour: 18,
+      startedAt: T0 + 20_000,
+      endedAt: T0 + 10_000,
+    });
+
+    expect(completionRateByStartHour([valid, future, reversed], T0 + 20_000)).toEqual([
+      { hour: 9, total: 1, completed: 1, rate: 1 },
+    ]);
+  });
 });
 
 /* ------------------------------------------------------------------ *
@@ -190,6 +255,45 @@ describe('driftPhaseDistribution', () => {
     // Detected late (min 22) but the user says it started around min 3.
     const events = [drift(r.id, 22, { estOnsetMin: 3 })];
     expect(driftPhaseDistribution([r], events)).toEqual({ early: 1, mid: 0, late: 0 });
+  });
+
+  it('uses shownAt for phase and clamps onset after the last focused answer', () => {
+    const startedAt = T0;
+    const r = record({
+      id: 'shown-at-session',
+      startedAt,
+      endedAt: startedAt + 25 * 60_000,
+    });
+    const events: CompanionEvent[] = [
+      {
+        id: 'focused-before',
+        sessionId: r.id,
+        ts: startedAt + 9 * 60_000,
+        shownAt: startedAt + 8 * 60_000,
+        min: 9,
+        len: 25,
+        kind: 'focused',
+        src: 'checkin',
+      },
+      {
+        id: 'delayed-drift',
+        sessionId: r.id,
+        ts: startedAt + 20 * 60_000,
+        shownAt: startedAt + 15 * 60_000,
+        min: 20,
+        estOnsetMin: 0,
+        len: 25,
+        kind: 'wander',
+        src: 'checkin',
+      },
+    ];
+
+    expect(driftPhaseDistribution([r], events, startedAt + 25 * 60_000)).toEqual({
+      early: 0,
+      mid: 1,
+      late: 0,
+    });
+    expect(medianMinutesToFirstDrift([r], events, startedAt + 25 * 60_000)).toBe(8);
   });
 });
 

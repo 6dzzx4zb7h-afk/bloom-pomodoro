@@ -50,6 +50,8 @@ describe('WeeklyReview clock roles', () => {
       <WeeklyReview
         records={records}
         now={dayRefreshAt}
+        studyDay="2026-07-16"
+        dayStartHour={0}
         palSprite="cat"
         onDismiss={vi.fn()}
         onApplyCadence={vi.fn()}

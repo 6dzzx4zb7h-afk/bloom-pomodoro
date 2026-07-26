@@ -11,9 +11,22 @@
  * Key-to-key arithmetic (streak.ts daysBetween/dayBefore) stays where it is —
  * it never touches a timestamp. No React, no storage.
  */
+export const DAY_START_HOUR_MIN = 0;
+export const DAY_START_HOUR_MAX = 23;
+
+/** Persisted/user-entered boundaries are always a whole local-clock hour. */
+export function normalizeDayStartHour(raw: unknown): number {
+  if (typeof raw !== 'number' || !Number.isFinite(raw)) return DAY_START_HOUR_MIN;
+  return Math.max(
+    DAY_START_HOUR_MIN,
+    Math.min(DAY_START_HOUR_MAX, Math.round(raw)),
+  );
+}
+
 export function dayKeyFor(ts: number, dayStartHour = 0): string {
+  const boundary = normalizeDayStartHour(dayStartHour);
   const d = new Date(ts);
-  if (d.getHours() < dayStartHour) d.setDate(d.getDate() - 1);
+  if (d.getHours() < boundary) d.setDate(d.getDate() - 1);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(
     d.getDate(),
   ).padStart(2, '0')}`;
@@ -28,8 +41,9 @@ export function dayKeyFor(ts: number, dayStartHour = 0): string {
  * boundary.
  */
 export function nextDayBoundaryAt(now: number, dayStartHour = 0): number {
+  const boundary = normalizeDayStartHour(dayStartHour);
   const next = new Date(now);
-  next.setHours(dayStartHour, 0, 0, 0);
+  next.setHours(boundary, 0, 0, 0);
   if (next.getTime() <= now) next.setDate(next.getDate() + 1);
   return next.getTime();
 }

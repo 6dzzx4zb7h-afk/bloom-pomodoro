@@ -109,9 +109,12 @@ export const KIND_NAMES: Record<DriftKind, string> = {
   restless: 'restlessness',
 };
 
-const LOG_KEY = 'bloom-companion-v1';
-const LOG_VERSION = 2;
-const MAX_EVENTS = 400;
+export const COMPANION_STORAGE_KEY = 'bloom-companion-v1';
+export const COMPANION_LOG_VERSION = 2;
+export const COMPANION_EVENT_CAP = 400;
+const LOG_KEY = COMPANION_STORAGE_KEY;
+const LOG_VERSION = COMPANION_LOG_VERSION;
+const MAX_EVENTS = COMPANION_EVENT_CAP;
 const MAX_AGE_DAYS = 60;
 
 export function loadEvents(): CompanionEvent[] {
@@ -175,8 +178,82 @@ export function updateEvent(id: string, patch: Partial<CompanionEvent>): void {
 /**
  * The best available minute-into-session for when a drift *began*: the user's
  * own estimate when they gave one, else the detection minute (PLAN 1.5).
+ * Imported or historically malformed values are clamped to the event's
+ * observable session window before analytics can classify them (PLAN 8.19).
  */
-export const driftOnsetMin = (e: CompanionEvent): number => e.estOnsetMin ?? e.min;
+export function driftOnsetMin(e: CompanionEvent, floor = 0): number {
+  const len = Number.isFinite(e.len) ? Math.max(0, e.len) : 0;
+  const detected = Number.isFinite(e.min) ? Math.min(len, Math.max(0, e.min)) : 0;
+  const lower = Math.min(detected, Math.max(0, floor));
+  const estimated = Number.isFinite(e.estOnsetMin) ? e.estOnsetMin! : detected;
+  return Math.min(detected, Math.max(lower, estimated));
+}
+
+/** When the check-in occurred; `ts` remains answer/log latency only. */
+export function companionEventOccurredAt(e: CompanionEvent): number {
+  return e.shownAt ?? e.ts;
+}
+
+/**
+ * Quarantine impossible/future event timestamps and normalize timing fields
+ * before any selector derives a user-facing pattern.
+ *
+ * Sorting by occurrence time lets a prior focused answer become the lower
+ * bound for a later estimated drift onset in the same session. The returned
+ * values are copies; the immutable local event log is never rewritten.
+ */
+export function companionEventsForAnalytics(
+  events: CompanionEvent[],
+  now = Date.now(),
+): CompanionEvent[] {
+  if (!Number.isFinite(now) || now < 0) return [];
+
+  const valid = events
+    .filter((event) => {
+      const occurredAt = companionEventOccurredAt(event);
+      return (
+        Number.isFinite(event.ts) &&
+        event.ts >= 0 &&
+        event.ts <= now &&
+        Number.isFinite(occurredAt) &&
+        occurredAt >= 0 &&
+        occurredAt <= event.ts &&
+        Number.isFinite(event.min) &&
+        Number.isFinite(event.len) &&
+        event.len > 0
+      );
+    })
+    .sort(
+      (a, b) =>
+        companionEventOccurredAt(a) - companionEventOccurredAt(b) ||
+        a.ts - b.ts ||
+        (a.id ?? '').localeCompare(b.id ?? ''),
+    );
+
+  const lastFocusedMinBySession = new Map<string, number>();
+  return valid.map((event) => {
+    const len = Math.max(1, event.len);
+    const min = Math.min(len, Math.max(0, event.min));
+    const floor = event.sessionId
+      ? (lastFocusedMinBySession.get(event.sessionId) ?? 0)
+      : 0;
+    const normalized: CompanionEvent = {
+      ...event,
+      min,
+      len,
+      ...(isDriftEvent(event) && (event.estOnsetMin !== undefined || floor > 0)
+        ? { estOnsetMin: driftOnsetMin({ ...event, min, len }, floor) }
+        : {}),
+    };
+    if (event.kind === 'focused' && event.sessionId) {
+      lastFocusedMinBySession.set(
+        event.sessionId,
+        Math.max(floor, min),
+      );
+    }
+    return normalized;
+  });
+}
 
 export function clearEvents() {
   try {
@@ -253,10 +330,11 @@ function bucketStats(events: CompanionEvent[]): Map<string, { f: number; d: numb
   const buckets = new Map<string, { f: number; d: number }>();
   for (const e of events) {
     if (e.kind !== 'focused' && !isDriftEvent(e)) continue;
-    const b = buckets.get(timeBucket(e.ts)) ?? { f: 0, d: 0 };
+    const occurredAt = companionEventOccurredAt(e);
+    const b = buckets.get(timeBucket(occurredAt)) ?? { f: 0, d: 0 };
     if (e.kind === 'focused') b.f++;
     else b.d++;
-    buckets.set(timeBucket(e.ts), b);
+    buckets.set(timeBucket(occurredAt), b);
   }
   return buckets;
 }
@@ -278,7 +356,10 @@ export function computeInsights(
   now = Date.now(),
   windowDays = 7,
 ): Insights {
-  const week = events.filter((e) => now - e.ts <= windowDays * 86400000);
+  const normalized = companionEventsForAnalytics(events, now);
+  const week = normalized.filter(
+    (e) => now - companionEventOccurredAt(e) <= windowDays * 86400000,
+  );
   const drifts = week.filter(isDrift);
   const classifiedDrifts = drifts.filter(isClassifiedDriftEvent);
   const focused = week.filter((e) => e.kind === 'focused');
@@ -321,10 +402,13 @@ export function computeInsights(
 
   // Gentle, non-diagnostic note: only when restlessness + internal urges
   // clearly dominate over a sustained stretch (not one rough afternoon).
-  const allClassifiedDrifts = events.filter(isClassifiedDriftEvent);
+  const allClassifiedDrifts = normalized.filter(isClassifiedDriftEvent);
   const ru = allClassifiedDrifts.filter((e) => e.kind === 'restless' || e.kind === 'urge');
   const spanDays = allClassifiedDrifts.length
-    ? (allClassifiedDrifts[allClassifiedDrifts.length - 1].ts - allClassifiedDrifts[0].ts) / 86400000
+    ? (
+        companionEventOccurredAt(allClassifiedDrifts[allClassifiedDrifts.length - 1]) -
+        companionEventOccurredAt(allClassifiedDrifts[0])
+      ) / 86400000
     : 0;
   const gentleNote =
     ru.length >= 15 &&
@@ -466,7 +550,9 @@ export function computeAttentionPlan(
     completionByStartHour: [],
   },
 ): RecipeItem[] {
-  const window = events.filter((e) => now - e.ts <= windowDays * 86400000);
+  const window = companionEventsForAnalytics(events, now).filter(
+    (e) => now - companionEventOccurredAt(e) <= windowDays * 86400000,
+  );
   const drifts = window.filter(isDriftEvent);
   const classifiedDrifts = drifts.filter(isClassifiedDriftEvent);
   const focused = window.filter((e) => e.kind === 'focused');

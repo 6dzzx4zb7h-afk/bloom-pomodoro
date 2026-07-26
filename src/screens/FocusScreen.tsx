@@ -9,7 +9,7 @@ import { SettingsSheet } from '../components/SettingsSheet';
 import { WeeklyReview } from '../components/WeeklyReview';
 import { WoopCard } from '../components/WoopCard';
 import { shouldOfferWoop } from '../insights/triggers';
-import { WEEKLY_WINDOW_DAYS, weekKey } from '../insights/weekly';
+import { WEEKLY_WINDOW_DAYS, weekKeyForStudyDay } from '../insights/weekly';
 import type { SessionRecord, TargetOutcome } from '../store/sessions';
 import {
   SESSION_TARGET_MAX,
@@ -17,6 +17,7 @@ import {
   TINY_START_OPTIONS,
   flowCreditsForElapsed,
   isTinyFirstRung,
+  persistedShapeFromState,
   type TimerMode,
   type TinyStartMinutes,
   type useBloom,
@@ -26,6 +27,8 @@ import { GuideSuggestion } from '../components/GuideSuggestion';
 import { guideSuggestionFor } from '../insights/surfacing';
 import { loadEvents } from '../store/companion';
 import type { GuideArticleId } from '../content/guide';
+import { groupSessionsByStudyDay } from '../store/sessionStats';
+import { daysBetween } from '../store/streak';
 
 const RING_R = 92;
 const RING_C = 2 * Math.PI * RING_R;
@@ -115,13 +118,19 @@ export function FocusScreen({
 
   useEffect(() => {
     if (state.running || state.justDone || debrief || weekly || showSettings || hasBlockingReturnedParking || hasResumeCue) return;
-    const week = weekKey(now);
+    const week = weekKeyForStudyDay(state.today);
     if (state.lastWeeklyReviewWeek === week) return;
-    const cutoff = now - WEEKLY_WINDOW_DAYS * 86400000;
-    if (!records.some((r) => r.endedAt >= cutoff)) return;
+    const hasRecentStudyDay = groupSessionsByStudyDay(
+      records,
+      state.settings.dayStartHour,
+    ).some((group) => {
+      const age = daysBetween(group.day, state.today);
+      return age >= 0 && age < WEEKLY_WINDOW_DAYS;
+    });
+    if (!hasRecentStudyDay) return;
     setWeekly(true);
     actions.markWeeklyReview(week);
-  }, [state.running, state.justDone, debrief, weekly, showSettings, hasBlockingReturnedParking, hasResumeCue, records, state.lastWeeklyReviewWeek, actions, now]);
+  }, [state.running, state.justDone, debrief, weekly, showSettings, hasBlockingReturnedParking, hasResumeCue, records, state.lastWeeklyReviewWeek, state.settings.dayStartHour, state.today, actions]);
 
   // A fresh work run begins a new pause cycle; thoughts deferred during the
   // prior pause may return after this run ends.
@@ -306,10 +315,18 @@ export function FocusScreen({
             records,
             events: guideEvents,
             workSessionRunning: false,
-          }, state.guideRead, computedAt);
+          }, state.guideRead, computedAt, state.settings.dayStartHour);
         })()
       : null,
-    [breakGuideEligible, guideEvents, lastRecord, now, records, state.guideRead],
+    [
+      breakGuideEligible,
+      guideEvents,
+      lastRecord,
+      now,
+      records,
+      state.guideRead,
+      state.settings.dayStartHour,
+    ],
   );
   useEffect(() => {
     if (breakGuideSuggestion) {
@@ -651,6 +668,7 @@ export function FocusScreen({
           }}
           guideRead={state.guideRead}
           now={now}
+          dayStartHour={state.settings.dayStartHour}
           onGuideSuggested={actions.markGuideArticleSuggested}
           onOpenGuideArticle={onOpenGuideArticle}
           onDismiss={() => setDebrief(null)}
@@ -662,6 +680,8 @@ export function FocusScreen({
         <WeeklyReview
           records={records}
           now={now}
+          studyDay={state.today}
+          dayStartHour={state.settings.dayStartHour}
           palSprite={palSprite}
           currentCadence={{
             focusMin: Math.round(state.settings.durations.focus / 60),
@@ -701,12 +721,14 @@ export function FocusScreen({
           ritual={state.ritual}
           running={state.running}
           hasOpenSession={Boolean(state.openFocus || state.openFlow)}
+          persistedState={persistedShapeFromState(state)}
           onPatch={actions.patchSettings}
           onCacheCadence={actions.cachePersonalCadence}
           onApplyCadence={actions.applyCadence}
           onPatchRitual={actions.patchRitual}
           onUpdateRitualItem={actions.updateRitualItem}
           onClearFocusData={actions.clearFocusData}
+          onDataImported={actions.reloadPersistedState}
           onClose={() => setShowSettings(false)}
           onShowWeekly={() => {
             setShowSettings(false);

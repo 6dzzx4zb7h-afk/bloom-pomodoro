@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 
 import type { SessionRecord } from '../store/sessions';
 import type { CompanionEvent } from '../store/companion';
@@ -18,6 +18,10 @@ const DAY = 86_400_000;
 const NOW = T0 + 3 * DAY;
 
 let seq = 0;
+
+beforeEach(() => {
+  seq = 0;
+});
 
 function record(overrides: Partial<SessionRecord> = {}): SessionRecord {
   seq++;
@@ -79,6 +83,12 @@ describe('weekKey', () => {
     expect(weekKey(nextMon)).toBe('2026-07-13');
     expect(weekKey(nextMon)).not.toBe(weekKey(sun));
   });
+
+  it('keeps early Monday inside Sunday’s study week when the boundary is later', () => {
+    const mondayAt0030 = new Date(2026, 6, 13, 0, 30).getTime();
+    expect(weekKey(mondayAt0030, 4)).toBe('2026-07-06');
+    expect(weekKey(new Date(2026, 6, 13, 4, 0).getTime(), 4)).toBe('2026-07-13');
+  });
 });
 
 /* ------------------------------------------------------------------ *
@@ -107,6 +117,22 @@ describe('computeWeeklyReview', () => {
     const r = computeWeeklyReview(old, [], NOW);
     expect(r.kind).toBe('learning');
     expect(r.sessionCount).toBe(0);
+  });
+
+  it('quarantines future and reversed session timestamps', () => {
+    const valid = Array.from({ length: 4 }, () => record());
+    const future = record({
+      startedAt: NOW + DAY,
+      endedAt: NOW + DAY + 25 * 60_000,
+    });
+    const reversed = record({
+      startedAt: NOW - 60_000,
+      endedAt: NOW - 120_000,
+    });
+    const r = computeWeeklyReview([...valid, future, reversed], [], NOW);
+
+    expect(r.kind).toBe('learning');
+    expect(r.sessionCount).toBe(4);
   });
 
   it('answers both questions plus one experiment with enough sessions', () => {

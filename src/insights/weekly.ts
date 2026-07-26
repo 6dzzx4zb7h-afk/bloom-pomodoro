@@ -16,7 +16,11 @@
 import type { SessionRecord } from '../store/sessions';
 import { dayKeyFor } from '../store/dayKey';
 import { type CompanionEvent, driftOnsetMin, phaseOf } from '../store/companion';
-import { completionRateByStartHour } from '../store/sessionStats';
+import {
+  completionRateByStartHour,
+  sessionRecordsForAnalytics,
+} from '../store/sessionStats';
+import { daysBetween } from '../store/streak';
 import { driftsForRecord } from './why';
 
 /** Sessions needed in the window before the review answers its questions. */
@@ -47,11 +51,15 @@ export type WeeklyReviewResult =
  * already?" key persisted in useBloom. Monday-based so a weekend review and
  * the following Monday's don't collide into one week.
  */
-export function weekKey(now: number = Date.now()): string {
-  const d = new Date(now);
+export function weekKeyForStudyDay(studyDay: string): string {
+  const d = new Date(`${studyDay}T12:00:00`);
   d.setHours(0, 0, 0, 0);
   d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); // back to Monday
   return dayKeyFor(d.getTime());
+}
+
+export function weekKey(now: number = Date.now(), dayStartHour = 0): string {
+  return weekKeyForStudyDay(dayKeyFor(now, dayStartHour));
 }
 
 /* Thresholds — small and legible, same spirit as why.ts. */
@@ -85,14 +93,18 @@ interface WeekSignals {
   goldenHour: { hour: number; completed: number; total: number } | null;
 }
 
-function collectSignals(records: SessionRecord[], events: CompanionEvent[]): WeekSignals {
+function collectSignals(
+  records: SessionRecord[],
+  events: CompanionEvent[],
+  now: number,
+): WeekSignals {
   const driftsBySession = new Map<string, CompanionEvent[]>();
-  for (const r of records) driftsBySession.set(r.id, driftsForRecord(r, events));
+  for (const r of records) driftsBySession.set(r.id, driftsForRecord(r, events, now));
 
   // Strongest qualifying start hour, if any (ties: earliest hour wins, which
   // completionRateByStartHour's ascending order gives us for free).
   let goldenHour: WeekSignals['goldenHour'] = null;
-  for (const b of completionRateByStartHour(records)) {
+  for (const b of completionRateByStartHour(records, now)) {
     if (b.total >= GOLDEN_MIN_SAMPLES && b.rate >= GOLDEN_MIN_RATE) {
       if (!goldenHour || b.rate > goldenHour.completed / goldenHour.total) {
         goldenHour = { hour: b.hour, completed: b.completed, total: b.total };
@@ -165,9 +177,13 @@ export function computeWeeklyReview(
   events: CompanionEvent[],
   now: number = Date.now(),
   windowDays: number = WEEKLY_WINDOW_DAYS,
+  dayStartHour = 0,
 ): WeeklyReviewResult {
-  const cutoff = now - windowDays * 86400000;
-  const week = records.filter((r) => r.endedAt >= cutoff && r.endedAt <= now);
+  const today = dayKeyFor(now, dayStartHour);
+  const week = sessionRecordsForAnalytics(records, now).filter((record) => {
+    const age = daysBetween(dayKeyFor(record.endedAt, dayStartHour), today);
+    return age >= 0 && age < windowDays;
+  });
 
   if (week.length < WEEKLY_MIN_SESSIONS) {
     return {
@@ -180,7 +196,7 @@ export function computeWeeklyReview(
     };
   }
 
-  const sig = collectSignals(week, events);
+  const sig = collectSignals(week, events, now);
   return {
     kind: 'ready',
     sessionCount: week.length,

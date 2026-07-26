@@ -10,7 +10,7 @@
   "description": "Bloom — a cozy pixel-pal pomodoro app",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "tsc -b && vite build && node scripts/generate-service-worker.mjs",
     "preview": "vite preview",
     "test": "vitest run",
     "test:migrations": "vitest run src/store/migrations.test.ts",

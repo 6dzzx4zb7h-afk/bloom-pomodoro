@@ -109,6 +109,30 @@ describe('contextual Field Guide surfacing', () => {
     }, state({ suggestions }), NOW)).toBeNull();
   });
 
+  it('keeps early Monday inside the prior Guide week at a later study-day boundary', () => {
+    const mondayAt0030 = new Date(2026, 6, 13, 0, 30).getTime();
+    const sundayEvening = new Date(2026, 6, 12, 20, 0).getTime();
+    const session = {
+      ...record('boundary-wander'),
+      startedAt: mondayAt0030 - 25 * 60_000,
+      endedAt: mondayAt0030,
+    };
+    const suggestions = Array.from({ length: GUIDE_SUGGESTIONS_PER_WEEK }, (_, index) => ({
+      articleId: 'parking-lot' as const,
+      surfacedAt: sundayEvening - index * 60_000,
+      momentKey: `prior-study-week:${index}`,
+    }));
+
+    expect(guideSuggestionFor({
+      kind: 'debrief',
+      momentKey: 'debrief:boundary-wander',
+      record: session,
+      records: [session],
+      events: [{ ...drift('boundary-wander', 'wander'), ts: mondayAt0030 - 60_000 }],
+      workSessionRunning: false,
+    }, state({ suggestions }), mondayAt0030, 4)).toBeNull();
+  });
+
   it('does not repeat a recently read article and allows it after 30 days', () => {
     const session = record('wander');
     const moment = {

@@ -2,6 +2,11 @@
 // Faithful TypeScript port of the design-handoff `pixelpals.js`.
 // Animals: bunny, cat, duck, owl, crab, octopus. Behaviours: idle, work, sleep, celebrate.
 
+import {
+  observeDecorativeAnimation,
+  type DecorativeFrame,
+} from './decorativeScheduler';
+
 export type AnimalKind = 'bunny' | 'cat' | 'duck' | 'owl' | 'crab' | 'octopus';
 export type Mode = 'idle' | 'work' | 'sleep' | 'celebrate';
 
@@ -256,10 +261,10 @@ export function makeAnimal(canvas: HTMLCanvasElement, opts: AnimalOptions = {}):
 
   let mode: Mode = opts.mode || 'idle';
   let modeStart = performance.now();
-  let lastFrame = modeStart;
   let particles: Particle[] = [];
   let lastSpawn = 0;
   let running = true;
+  let celebrationBurstPending = mode === 'celebrate';
 
   function spawnBurst() {
     // Scale the burst to the canvas: tiny renders (speech bubbles, settings
@@ -284,14 +289,11 @@ export function makeAnimal(canvas: HTMLCanvasElement, opts: AnimalOptions = {}):
       });
     }
   }
-  if (mode === 'celebrate') spawnBurst();
-
-  function frame(now: number) {
+  function frame({ now, deltaMs, reducedMotion }: DecorativeFrame) {
     if (!running) return;
-    const t = (now - modeStart) / 1000;
+    const t = reducedMotion ? 0 : (now - modeStart) / 1000;
     // Real elapsed time (clamped) so particle speed is framerate-independent.
-    const dt = Math.min(0.1, Math.max(0, (now - lastFrame) / 1000));
-    lastFrame = now;
+    const dt = reducedMotion ? 0 : Math.min(0.1, Math.max(0, deltaMs / 1000));
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, cssW, cssH);
 
@@ -308,42 +310,57 @@ export function makeAnimal(canvas: HTMLCanvasElement, opts: AnimalOptions = {}):
     const headroom = Math.max(0, cssH * 0.56 - spriteH / 2 - 1);
 
     if (mode === 'idle') {
-      const bob = Math.sin(t * 2.2);
-      offsetY = -Math.abs(bob) * Math.min(4, headroom);
-      sy = 1 - Math.max(0, -bob) * 0.05;
-      sx = 1 + Math.max(0, -bob) * 0.05;
-      eyesClosed = t % 3.4 > 3.26; // quick blink
+      if (!reducedMotion) {
+        const bob = Math.sin(t * 2.2);
+        offsetY = -Math.abs(bob) * Math.min(4, headroom);
+        sy = 1 - Math.max(0, -bob) * 0.05;
+        sx = 1 + Math.max(0, -bob) * 0.05;
+        eyesClosed = t % 3.4 > 3.26; // quick blink
+      }
     } else if (mode === 'work') {
-      const bob = Math.sin(t * 6.5);
-      offsetY = -Math.abs(bob) * Math.min(2.4, headroom);
-      skew = Math.sin(t * 6.5) * 0.04;
-      eyesClosed = t % 4.2 > 4.08;
-      if (now - lastSpawn > 520) {
-        lastSpawn = now;
-        particles.push({ type: 'spark', x: spriteW * 0.28, y: -spriteH * 0.32, vx: 10, vy: -22, life: 0, max: 0.9, col: '#c7a9ec', s: 2 });
+      if (!reducedMotion) {
+        const bob = Math.sin(t * 6.5);
+        offsetY = -Math.abs(bob) * Math.min(2.4, headroom);
+        skew = Math.sin(t * 6.5) * 0.04;
+        eyesClosed = t % 4.2 > 4.08;
+        if (now - lastSpawn > 520) {
+          lastSpawn = now;
+          particles.push({ type: 'spark', x: spriteW * 0.28, y: -spriteH * 0.32, vx: 10, vy: -22, life: 0, max: 0.9, col: '#c7a9ec', s: 2 });
+        }
       }
     } else if (mode === 'sleep') {
-      const br = Math.sin(t * 1.4);
-      offsetY = 5 + br * 1.2;
-      sy = 1 + br * 0.03;
-      sx = 1 - br * 0.02;
       eyesClosed = true;
-      if (now - lastSpawn > 1000) {
-        lastSpawn = now;
-        particles.push({ type: 'z', x: spriteW * 0.22, y: -spriteH * 0.28, vx: 9, vy: -16, life: 0, max: 1.8, col: '#b79fe3', s: 2 });
+      if (reducedMotion) {
+        offsetY = 5;
+      } else {
+        const br = Math.sin(t * 1.4);
+        offsetY = 5 + br * 1.2;
+        sy = 1 + br * 0.03;
+        sx = 1 - br * 0.02;
+        if (now - lastSpawn > 1000) {
+          lastSpawn = now;
+          particles.push({ type: 'z', x: spriteW * 0.22, y: -spriteH * 0.28, vx: 9, vy: -16, life: 0, max: 1.8, col: '#b79fe3', s: 2 });
+        }
       }
     } else if (mode === 'celebrate') {
-      const jump = Math.abs(Math.sin(t * 4));
-      offsetY = -jump * Math.min(13, headroom);
-      sy = 1 + jump * 0.06;
-      sx = 1 - jump * 0.04;
       happyEyes = true;
-      // Small canvases also celebrate less often, so sparkles never crowd
-      // the little square they live in.
-      const room = Math.max(0.3, Math.min(1, Math.min(cssW, cssH) / 130));
-      if (now - lastSpawn > 360 / (room * room)) {
-        lastSpawn = now;
-        spawnBurst();
+      if (!reducedMotion) {
+        if (celebrationBurstPending) {
+          spawnBurst();
+          lastSpawn = now;
+          celebrationBurstPending = false;
+        }
+        const jump = Math.abs(Math.sin(t * 4));
+        offsetY = -jump * Math.min(13, headroom);
+        sy = 1 + jump * 0.06;
+        sx = 1 - jump * 0.04;
+        // Small canvases also celebrate less often, so sparkles never crowd
+        // the little square they live in.
+        const room = Math.max(0.3, Math.min(1, Math.min(cssW, cssH) / 130));
+        if (now - lastSpawn > 360 / (room * room)) {
+          lastSpawn = now;
+          spawnBurst();
+        }
       }
     }
 
@@ -381,40 +398,42 @@ export function makeAnimal(canvas: HTMLCanvasElement, opts: AnimalOptions = {}):
     }
     ctx.restore();
 
-    // particles
-    particles = particles.filter((p) => {
-      p.life += dt;
-      p.x += p.vx * dt;
-      p.y += p.vy * dt;
-      p.vy += 26 * dt;
-      const a = Math.max(0, 1 - p.life / p.max);
-      if (a <= 0) return false;
-      // Anchor particles to the same origin as the body (cssH * 0.56).
-      drawGlyph(ctx, p.type, cssW / 2 + p.x - 5, cssH * 0.56 + p.y, p.s, p.col, a);
-      return true;
-    });
+    // Particles are decorative motion too. Reduced motion clears them and
+    // keeps the mode legible through the pet's static face/pose.
+    if (reducedMotion) {
+      particles = [];
+    } else {
+      particles = particles.filter((p) => {
+        p.life += dt;
+        p.x += p.vx * dt;
+        p.y += p.vy * dt;
+        p.vy += 26 * dt;
+        const a = Math.max(0, 1 - p.life / p.max);
+        if (a <= 0) return false;
+        // Anchor particles to the same origin as the body (cssH * 0.56).
+        drawGlyph(ctx, p.type, cssW / 2 + p.x - 5, cssH * 0.56 + p.y, p.s, p.col, a);
+        return true;
+      });
+    }
   }
 
-  // setInterval drives the loop so it keeps painting even when rAF is throttled.
-  // Pause when the tab is hidden to save battery (per handoff note).
-  frame(performance.now());
-  const iv = setInterval(() => {
-    if (running && document.visibilityState !== 'hidden') frame(performance.now());
-  }, 50);
+  const animation = observeDecorativeAnimation(canvas, frame, { framesPerSecond: 15 });
 
   return {
     setMode(m: Mode) {
       if (m === mode) return;
       mode = m;
       modeStart = performance.now();
-      if (m === 'celebrate') spawnBurst();
+      celebrationBurstPending = m === 'celebrate';
+      particles = [];
+      animation.requestRender();
     },
     getMode() {
       return mode;
     },
     destroy() {
       running = false;
-      clearInterval(iv);
+      animation.destroy();
     },
   };
 }

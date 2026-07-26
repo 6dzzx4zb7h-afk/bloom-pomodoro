@@ -1,4 +1,9 @@
 import { useEffect, useRef } from 'react';
+import {
+  observeDecorativeAnimation,
+  type DecorativeAnimationHandle,
+  type DecorativeFrame,
+} from '../engine/decorativeScheduler';
 
 interface Cloud {
   x: number; // 0..1 fraction of width (can drift past 1, wraps)
@@ -33,7 +38,7 @@ export function DaySky() {
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
     let w = 0;
     let h = 0;
-    let raf = 0;
+    let animation: DecorativeAnimationHandle | null = null;
 
     function fit() {
       const r = canvas.getBoundingClientRect();
@@ -41,6 +46,7 @@ export function DaySky() {
       h = r.height;
       canvas.width = Math.round(w * dpr);
       canvas.height = Math.round(h * dpr);
+      animation?.requestRender();
     }
     fit();
     window.addEventListener('resize', fit);
@@ -65,9 +71,7 @@ export function DaySky() {
       flapRate: 5 + Math.random() * 3,
     }));
 
-    let last = performance.now();
-
-    function drawSun() {
+    function drawSun(now: number, reducedMotion: boolean) {
       // Same anchor the crescent moon uses in NightSky, so the sun rises in
       // the moon's exact spot when you flip out of night mode.
       const sx = w * 0.87;
@@ -83,7 +87,7 @@ export function DaySky() {
       ctx.fillRect(sx - sr * 4, sy - sr * 4, sr * 8, sr * 8);
 
       // Gentle rays, slowly turning.
-      const spin = (performance.now() / 9000) % (Math.PI * 2);
+      const spin = reducedMotion ? 0 : (now / 9000) % (Math.PI * 2);
       ctx.save();
       ctx.translate(sx, sy);
       ctx.rotate(spin);
@@ -152,41 +156,43 @@ export function DaySky() {
       ctx.stroke();
     }
 
-    function frame(now: number) {
-      raf = requestAnimationFrame(frame);
-      const dt = Math.min(50, now - last);
-      last = now;
+    function frame({ now, deltaMs, reducedMotion }: DecorativeFrame) {
+      const dt = reducedMotion ? 0 : deltaMs;
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, w, h);
 
-      drawSun();
+      drawSun(now, reducedMotion);
 
       // Clouds drift rightward and wrap around once fully off-screen.
       for (const c of clouds) {
-        c.x += (c.v * dt) / 1000 / w;
-        if (c.x * w - 60 * c.s > w) {
-          c.x = -(60 * c.s) / w;
-          c.y = 0.08 + Math.random() * 0.5;
+        if (!reducedMotion && w > 0) {
+          c.x += (c.v * dt) / 1000 / w;
+          if (c.x * w - 60 * c.s > w) {
+            c.x = -(60 * c.s) / w;
+            c.y = 0.08 + Math.random() * 0.5;
+          }
         }
         drawCloud(c.x * w, c.y * h, c.s, c.a);
       }
 
       // Birds flap and glide across, wrapping like the clouds.
       for (const b of birds) {
-        b.x += (b.v * dt) / 1000 / w;
-        b.flap += (b.flapRate * dt) / 1000;
-        if (b.x * w - b.size * 2 > w) {
-          b.x = -(b.size * 2) / w;
-          b.y = 0.12 + Math.random() * 0.4;
-          b.v = 22 + Math.random() * 26;
+        if (!reducedMotion && w > 0) {
+          b.x += (b.v * dt) / 1000 / w;
+          b.flap += (b.flapRate * dt) / 1000;
+          if (b.x * w - b.size * 2 > w) {
+            b.x = -(b.size * 2) / w;
+            b.y = 0.12 + Math.random() * 0.4;
+            b.v = 22 + Math.random() * 26;
+          }
         }
         drawBird(b.x * w, b.y * h, b.size, b.flap);
       }
     }
 
-    raf = requestAnimationFrame(frame);
+    animation = observeDecorativeAnimation(canvas, frame, { framesPerSecond: 20 });
     return () => {
-      cancelAnimationFrame(raf);
+      animation?.destroy();
       window.removeEventListener('resize', fit);
     };
   }, []);

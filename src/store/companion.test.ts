@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { WHY_EVIDENCE_ANCHORS, EVIDENCE_EXPLAINERS } from '../insights/why';
 import {
   appendDriftEvent,
+  companionEventsForAnalytics,
   computeAttentionPlan,
   computeInsights,
   isClassifiedDriftEvent,
@@ -186,6 +187,66 @@ describe('unclassified drift analytics', () => {
     const items = plan([...focusedAt(9, 8), ev('drift'), ev('drift')]);
 
     expect(items.some((item) => item.emoji === '📈')).toBe(false);
+  });
+});
+
+describe('analytics timestamp integrity', () => {
+  it('uses prompt time for the window/hour and quarantines future answers', () => {
+    const shownAt = new Date(2023, 5, 15, 9, 0, 0).getTime();
+    const answeredAt = new Date(2023, 5, 15, 11, 0, 0).getTime();
+    const delayed = Array.from({ length: 3 }, (_, index): CompanionEvent => ({
+      id: `delayed-${index}`,
+      ts: answeredAt + index,
+      shownAt: shownAt + index,
+      min: 5,
+      len: 25,
+      kind: 'focused',
+      src: 'checkin',
+    }));
+    const future: CompanionEvent = {
+      id: 'future',
+      ts: NOW + 60_000,
+      shownAt: NOW - 60_000,
+      min: 10,
+      len: 25,
+      kind: 'wander',
+      src: 'checkin',
+    };
+
+    expect(computeInsights([...delayed, future], NOW)).toMatchObject({
+      answers: 3,
+      drifts: 0,
+      bestTime: 'mornings',
+    });
+  });
+
+  it('clamps imported onset estimates to the session and last focused answer', () => {
+    const events: CompanionEvent[] = [
+      {
+        id: 'focused',
+        sessionId: 's-clamp',
+        ts: NOW - 2_000,
+        min: 8,
+        len: 25,
+        kind: 'focused',
+        src: 'checkin',
+      },
+      {
+        id: 'drift',
+        sessionId: 's-clamp',
+        ts: NOW - 1_000,
+        min: 40,
+        estOnsetMin: -12,
+        len: 25,
+        kind: 'wander',
+        src: 'checkin',
+      },
+    ];
+
+    expect(companionEventsForAnalytics(events, NOW)[1]).toMatchObject({
+      min: 25,
+      estOnsetMin: 8,
+    });
   });
 });
 

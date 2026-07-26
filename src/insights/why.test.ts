@@ -262,8 +262,9 @@ function oneOfEach(): WhyInsight[] {
       [...past.map((p) => drift(p.id, 10)), drift(timing.id, 8)],
     ),
   );
+  const goldenHistory = history(5, 9);
   const golden = record({ startHour: 9 });
-  out.push(whyFor(golden, [...history(5, 9), golden], []));
+  out.push(whyFor(golden, [...goldenHistory, golden], []));
   const tiny = record({ mode: 'tiny', plannedMin: 5, actualMin: 5 });
   out.push(whyFor(tiny, [tiny], []));
   const fresh = record();

@@ -22,8 +22,10 @@ import {
 } from '../store/companion';
 import {
   completionRateByStartHour,
+  eventsForSessionAnalytics,
   hasEnoughSignal,
   medianMinutesToFirstDrift,
+  sessionRecordsForAnalytics,
 } from '../store/sessionStats';
 
 export type WhyEvidenceKey =
@@ -134,13 +136,9 @@ const SHORT_SESSION_MAX_MIN = 15;
 export function driftsForRecord(
   record: SessionRecord,
   events: CompanionEvent[],
+  now = Date.now(),
 ): CompanionEvent[] {
-  const linked = new Set(record.driftEventIds);
-  return events.filter(
-    (e) =>
-      isDriftEvent(e) &&
-      (e.sessionId === record.id || (e.id != null && linked.has(e.id))),
-  );
+  return eventsForSessionAnalytics(record, events, now).filter(isDriftEvent);
 }
 
 function fmtHour(h: number): string {
@@ -158,9 +156,12 @@ export function whyFor(
   record: SessionRecord,
   allRecords: SessionRecord[],
   allEvents: CompanionEvent[],
+  now = Date.now(),
 ): WhyInsight {
-  const drifts = driftsForRecord(record, allEvents);
-  const priorRecords = allRecords.filter((r) => r.id !== record.id);
+  const drifts = driftsForRecord(record, allEvents, now);
+  const priorRecords = sessionRecordsForAnalytics(allRecords, now).filter(
+    (prior) => prior.id !== record.id && prior.endedAt <= record.startedAt,
+  );
 
   // 1) Abandon-kindness: a session that ended early always gets the kind
   //    restart, never analysis (docs/science.md#recovering — Wohl 2010:
@@ -195,9 +196,9 @@ export function whyFor(
   //    single data point.
   if (enough && drifts.length > 0) {
     const priorDriftSessions = priorRecords.filter(
-      (prior) => driftsForRecord(prior, allEvents).length > 0,
+      (prior) => driftsForRecord(prior, allEvents, now).length > 0,
     ).length;
-    const median = medianMinutesToFirstDrift(priorRecords, allEvents);
+    const median = medianMinutesToFirstDrift(priorRecords, allEvents, now);
     const first = Math.min(...drifts.map(driftOnsetMin));
     if (
       priorDriftSessions >= FIRST_DRIFT_MIN_PRIOR_SESSIONS &&
@@ -216,7 +217,7 @@ export function whyFor(
   //    chronotype / time-of-day synchrony effects).
   if (enough && record.outcome === 'completed') {
     // The session being explained cannot make its own hour look stronger.
-    const byHour = completionRateByStartHour(priorRecords);
+    const byHour = completionRateByStartHour(priorRecords, now);
     const b = byHour.find((x) => x.hour === record.startHour);
     if (b && b.total >= GOLDEN_MIN_SAMPLES && b.rate >= GOLDEN_MIN_RATE) {
       return {

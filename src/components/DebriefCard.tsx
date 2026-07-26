@@ -36,6 +36,7 @@ export function DebriefCard({
   onTinyRestart,
   guideRead,
   now,
+  dayStartHour,
   onGuideSuggested,
   onOpenGuideArticle,
   onDismiss,
@@ -49,6 +50,7 @@ export function DebriefCard({
   guideRead: GuideReadState;
   /** Store-owned day signal; instant-based checks take a fresh clock below. */
   now: number;
+  dayStartHour: number;
   onGuideSuggested: (id: GuideArticleId, momentKey: string) => void;
   onOpenGuideArticle: (id: GuideArticleId) => void;
   onDismiss: () => void;
@@ -67,9 +69,9 @@ export function DebriefCard({
         records,
         events,
         workSessionRunning: false,
-      }, guideRead, computedAt);
+      }, guideRead, computedAt, dayStartHour);
     },
-    [events, guideRead, now, record, records],
+    [dayStartHour, events, guideRead, now, record, records],
   );
   useEffect(() => {
     if (guideSuggestion) {

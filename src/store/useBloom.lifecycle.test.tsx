@@ -94,7 +94,7 @@ function seedState(
   localStorage.setItem(
     'bloom-state',
     JSON.stringify({
-      version: 22,
+      version: 23,
       ritual: { ...DEFAULT_RITUAL, suggestionSeen: true },
       ...patch,
       settings,
@@ -180,9 +180,9 @@ describe('timer lifecycle controls at the hook/component boundary', () => {
     expect(started.openFocus).toMatchObject({
       mode: 'focus',
       plannedMin: 25,
-      taskId: 1,
       targetText: 'Draft the first paragraph',
     });
+    expect(started.openFocus?.taskId).toBeUndefined();
 
     const sessionId = started.openFocus?.id;
     act(() => vi.setSystemTime(new Date(Date.now() + 2 * 60_000)));
@@ -431,6 +431,41 @@ describe('safe destructive controls', () => {
   });
 });
 
+describe('honest task empty state', () => {
+  beforeEach(() => {
+    vi.stubGlobal('localStorage', new MemoryStorage());
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-16T09:00:00'));
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.clearAllTimers();
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  it('starts empty and offers one clear path into the real add form', () => {
+    render(<TasksHarness />);
+
+    expect(screen.queryByRole('checkbox')).toBeNull();
+    expect(screen.getByRole('heading', { level: 2, name: 'your list starts here' })).toBeTruthy();
+
+    const taskName = screen.getByRole('textbox', { name: 'Task name' });
+    fireEvent.click(screen.getByRole('button', { name: 'add your first task' }));
+    expect(document.activeElement).toBe(taskName);
+
+    fireEvent.change(taskName, { target: { value: 'Read one page' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Add task' }));
+
+    expect(screen.queryByRole('heading', { level: 2, name: 'your list starts here' })).toBeNull();
+    expect(destructiveState<{ tasks: Array<{ t: string }>; activeTaskId: number | null }>()).toMatchObject({
+      tasks: [{ t: 'Read one page' }],
+      activeTaskId: 1,
+    });
+  });
+});
+
 describe('store-owned local day rollover', () => {
   beforeEach(() => {
     vi.stubGlobal('localStorage', new MemoryStorage());
@@ -513,13 +548,40 @@ describe('store-owned local day rollover', () => {
   it('honors a configured study-day boundary while the store owns scheduling', () => {
     const before = new Date(2026, 6, 20, 3, 59, 59, 900);
     vi.setSystemTime(before);
-    const hook = renderHook(() => useBloom(4));
+    seedState({ settings: { dayStartHour: 4 } });
+    const hook = renderHook(() => useBloom());
     expect(hook.result.current.today).toBe('2026-07-19');
 
     act(() => vi.advanceTimersByTime(101));
 
     expect(hook.result.current.today).toBe('2026-07-20');
     expect(new Date(hook.result.current.now).getHours()).toBe(4);
+  });
+
+  it('lets Settings change the boundary and refreshes every date surface immediately', () => {
+    vi.setSystemTime(new Date(2026, 6, 20, 0, 30));
+    seedState({ settings: { dayStartHour: 0 } });
+
+    render(<FocusHarness />);
+    fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+    const customHour = screen.getByLabelText('Custom hour') as HTMLSelectElement;
+    fireEvent.change(customHour, { target: { value: '4' } });
+    expect(customHour.value).toBe('4');
+    expect(
+      (JSON.parse(localStorage.getItem('bloom-state') ?? '{}') as {
+        settings?: { dayStartHour?: number };
+      }).settings?.dayStartHour,
+    ).toBe(4);
+    fireEvent.click(screen.getByRole('button', { name: 'done' }));
+
+    cleanup();
+    render(<TasksHarness />);
+    expect(screen.getByText(/Sunday · July 19/)).toBeTruthy();
+
+    const persisted = JSON.parse(localStorage.getItem('bloom-state') ?? '{}') as {
+      settings?: { dayStartHour?: number };
+    };
+    expect(persisted.settings?.dayStartHour).toBe(4);
   });
 });
 

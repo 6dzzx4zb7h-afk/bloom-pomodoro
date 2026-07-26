@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { PixelPal } from '../components/PixelPal';
 import type { Task, useBloom } from '../store/useBloom';
 import {
@@ -41,6 +41,7 @@ export function TasksScreen({
   const [addedNotice, setAddedNotice] = useState(0);
   const [deletedTask, setDeletedTask] = useState<DeletedTask | null>(null);
   const [draftTouched, setDraftTouched] = useState(false);
+  const taskNameRef = useRef<HTMLInputElement>(null);
 
   // Optional task→goal link (a first slice of PLAN 8.12): only offered while
   // the planner is on and a goal still has parts to go. Purely a label — the
@@ -66,8 +67,10 @@ export function TasksScreen({
   const progPct = total ? Math.round((doneCount / total) * 100) : 0;
   const allDone = total > 0 && doneCount === total;
 
-  const localDate = new Date(now);
-  const dateLabel = `${WEEKDAYS[localDate.getDay()]} · ${MONTHS[localDate.getMonth()]} ${localDate.getDate()}`;
+  // The heading follows the store-resolved study day, so a chosen late
+  // rollover cannot disagree with streaks, goals, or History grouping.
+  const studyDate = new Date(`${state.today}T12:00:00`);
+  const dateLabel = `${WEEKDAYS[studyDate.getDay()]} · ${MONTHS[studyDate.getMonth()]} ${studyDate.getDate()}`;
 
   // Focus Patterns: only rendered while Companion Mode is on. The data stays
   // put when the mode is off — just hidden. The log is capped and local, so
@@ -184,26 +187,22 @@ export function TasksScreen({
         <div className="head-sub">ongoing list · {dateLabel}</div>
       </div>
 
-      <div className="prog-card">
-        <div className="prog-tile">
-          <PixelPal sprite={palSprite} mode={allDone ? 'celebrate' : 'idle'} scale={3} size={58} />
-        </div>
-        <div style={{ flex: 1 }}>
-          <div className="prog-count">
-            {total === 0 ? 'ready when you are' : `${doneCount} of ${total} done!`}
+      {total > 0 && (
+        <div className="prog-card">
+          <div className="prog-tile">
+            <PixelPal sprite={palSprite} mode={allDone ? 'celebrate' : 'idle'} scale={3} size={58} />
           </div>
-          <div className="prog-sub">
-            {total === 0
-              ? 'one small task is enough to begin'
-              : allDone
-                ? 'everything on the list bloomed'
-                : "keep it up, you're blooming"}
-          </div>
-          <div className="prog-track">
-            <div className="prog-fill" style={{ width: `${progPct}%` }} />
+          <div style={{ flex: 1 }}>
+            <div className="prog-count">{doneCount} of {total} done!</div>
+            <div className="prog-sub">
+              {allDone ? 'everything on the list bloomed' : "keep it up, you're blooming"}
+            </div>
+            <div className="prog-track">
+              <div className="prog-fill" style={{ width: `${progPct}%` }} />
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
       <div className="task-list">
         {state.tasks.map((task, index) => {
@@ -251,7 +250,20 @@ export function TasksScreen({
             </div>
           );
         })}
-        {total === 0 && <div className="task-empty">nothing here yet — add something sweet below</div>}
+        {total === 0 && (
+          <section className="task-empty" aria-labelledby="task-empty-heading">
+            <h2 id="task-empty-heading">your list starts here</h2>
+            <p>name one small thing you’d like to begin.</p>
+            <button
+              type="button"
+              className="task-empty-action"
+              aria-controls="new-task-name"
+              onClick={() => taskNameRef.current?.focus()}
+            >
+              add your first task
+            </button>
+          </section>
+        )}
 
         {insights && (
           <div className="patterns-card">
@@ -428,6 +440,7 @@ export function TasksScreen({
           <label className="compact-field-label" htmlFor="new-task-name">task name</label>
           <input
             id="new-task-name"
+            ref={taskNameRef}
             className="add-input"
             value={draft}
             onChange={(e) => setDraft(e.target.value)}

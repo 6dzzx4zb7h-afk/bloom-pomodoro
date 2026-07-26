@@ -10,12 +10,13 @@
 
 import type { SessionRecord } from '../store/sessions';
 import type { CompanionEvent } from '../store/companion';
-import { isDriftEvent } from '../store/companion';
+import { companionEventsForAnalytics, isDriftEvent } from '../store/companion';
 import { dayKeyFor } from '../store/dayKey';
 import {
   abandonStreakInfo,
   hasEnoughSignal,
   medianMinutesToFirstDrift,
+  sessionRecordsForAnalytics,
 } from '../store/sessionStats';
 
 export const WOOP_ABANDON_THRESHOLD = 3;
@@ -59,9 +60,9 @@ export const EMPTY_PRE_SLUMP_CAPS: PreSlumpCaps = {
 export const PRE_SLUMP_DAILY_CAP = 2;
 export const PRE_SLUMP_LEAD_MIN = 2;
 
-/** Local calendar day: caps follow the user's day, not UTC. */
-export function localDayKey(now: number): string {
-  return dayKeyFor(now);
+/** Local study day: caps follow the user's chosen boundary, not UTC. */
+export function localDayKey(now: number, dayStartHour = 0): string {
+  return dayKeyFor(now, dayStartHour);
 }
 
 export interface PreSlumpSuggestion {
@@ -81,6 +82,9 @@ interface PreSlumpTriggerInput {
   events: CompanionEvent[];
   caps: PreSlumpCaps;
   now?: number;
+  /** Store-resolved study day; keeps all daily UI on one clock owner. */
+  studyDayKey?: string;
+  dayStartHour?: number;
 }
 
 /**
@@ -98,10 +102,12 @@ export function preSlumpSuggestion({
   events,
   caps,
   now = Date.now(),
+  studyDayKey,
+  dayStartHour = 0,
 }: PreSlumpTriggerInput): PreSlumpSuggestion | null {
   if (!optedIn || !sessionId || !Number.isFinite(elapsedMin)) return null;
 
-  const today = localDayKey(now);
+  const today = studyDayKey ?? localDayKey(now, dayStartHour);
   const countToday = caps.day === today ? caps.count : 0;
   const silencedToday = caps.day === today && caps.silenced;
   if (
@@ -114,7 +120,10 @@ export function preSlumpSuggestion({
 
   // A focus cue should learn only from comparable focus countdowns, not a
   // tiny start or an open-ended flow stopwatch.
-  const focusRecords = records.filter((record) => record.mode === 'focus');
+  const focusRecords = sessionRecordsForAnalytics(records, now).filter(
+    (record) => record.mode === 'focus',
+  );
+  const analyticsEvents = companionEventsForAnalytics(events, now);
   const focusSessionIds = new Set(focusRecords.map((record) => record.id));
   const linkedEventToSession = new Map<string, string>();
   for (const record of focusRecords) {
@@ -122,7 +131,7 @@ export function preSlumpSuggestion({
   }
 
   const signalSessionIds = new Set<string>();
-  for (const event of events) {
+  for (const event of analyticsEvents) {
     if (!isDriftEvent(event)) continue;
     const linkedSessionId =
       event.sessionId ?? (event.id ? linkedEventToSession.get(event.id) : undefined);
@@ -132,7 +141,11 @@ export function preSlumpSuggestion({
   }
   if (!hasEnoughSignal(signalSessionIds.size)) return null;
 
-  const typicalFirstDriftMin = medianMinutesToFirstDrift(focusRecords, events);
+  const typicalFirstDriftMin = medianMinutesToFirstDrift(
+    focusRecords,
+    analyticsEvents,
+    now,
+  );
   // If drifting usually begins in the first minute, there is no honest
   // "shortly before" moment to use, so Bloom stays quiet.
   if (typicalFirstDriftMin == null || typicalFirstDriftMin <= 1) return null;

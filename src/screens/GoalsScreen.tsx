@@ -2,7 +2,13 @@ import { useEffect, useMemo, useState } from 'react';
 import { PixelPal } from '../components/PixelPal';
 import { Dialog } from '../components/Dialog';
 import type { useBloom } from '../store/useBloom';
-import { GOAL_TARGET_MAX, dueLabel, goalPace, parseDue, type Goal } from '../store/goals';
+import {
+  GOAL_TARGET_MAX,
+  dueLabelForStudyDay,
+  goalPaceForStudyDay,
+  parseDue,
+  type Goal,
+} from '../store/goals';
 
 const MONTHS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -110,7 +116,7 @@ export function GoalsScreen({ bloom }: { bloom: ReturnType<typeof useBloom> }) {
   );
   const pct = totals.target ? Math.round((totals.done / totals.target) * 100) : 0;
   const allDone = goals.length > 0 && totals.done >= totals.target;
-  const nextUp = goals.find((g) => goalPace(g, now).status === 'active');
+  const nextUp = goals.find((g) => goalPaceForStudyDay(g, today, now).status === 'active');
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -145,7 +151,7 @@ export function GoalsScreen({ bloom }: { bloom: ReturnType<typeof useBloom> }) {
               {allDone
                 ? 'every goal is fully logged — lovely work ♡'
                 : nextUp
-                  ? `next up: ${nextUp.title} · ${dueLabel(nextUp, now)}`
+                  ? `next up: ${nextUp.title} · ${dueLabelForStudyDay(nextUp, today)}`
                   : 'nothing pressing — breathe easy'}
             </div>
             <div className="prog-track">
@@ -157,7 +163,7 @@ export function GoalsScreen({ bloom }: { bloom: ReturnType<typeof useBloom> }) {
 
       <div className="task-list">
         {goals.map((goal) => {
-          const pace = goalPace(goal, now);
+          const pace = goalPaceForStudyDay(goal, today, now);
           const gpct = Math.round((Math.min(goal.done, goal.target) / goal.target) * 100);
           if (editId === goal.id) {
             return (
@@ -224,7 +230,9 @@ export function GoalsScreen({ bloom }: { bloom: ReturnType<typeof useBloom> }) {
                   <h2 className="goal-title">{goal.title}</h2>
                   <div className="goal-when">due {shortDate(goal.due)}</div>
                 </div>
-                <span className={`goal-chip ${pace.status}`}>{dueLabel(goal, now)}</span>
+                <span className={`goal-chip ${pace.status}`}>
+                  {dueLabelForStudyDay(goal, today)}
+                </span>
                 <button
                   className="task-del goal-edit-btn"
                   onClick={() => beginEdit(goal)}

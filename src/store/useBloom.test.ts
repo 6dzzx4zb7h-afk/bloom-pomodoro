@@ -6,6 +6,7 @@ import {
   flowCreditsForElapsed,
   loadState,
   readPersisted,
+  rederiveStreakForBoundary,
   reducer,
   type BloomState,
 } from './useBloom';
@@ -39,6 +40,22 @@ class MemoryStorage implements Storage {
   }
 }
 
+const TEST_TASK_ONE = {
+  id: 1,
+  t: 'Draft the outline',
+  done: false,
+  pomos: 0,
+  goal: 2,
+};
+
+const TEST_TASK_TWO = {
+  id: 2,
+  t: 'Review the notes',
+  done: false,
+  pomos: 0,
+  goal: 1,
+};
+
 function makeState(patch: Partial<BloomState> = {}): BloomState {
   const base: BloomState = {
     ...DEFAULT_STATE,
@@ -65,6 +82,13 @@ function makeState(patch: Partial<BloomState> = {}): BloomState {
   return { ...base, ...patch };
 }
 
+describe('honest first-run task state', () => {
+  it('starts with no example tasks or preselected active task', () => {
+    expect(DEFAULT_STATE.tasks).toEqual([]);
+    expect(DEFAULT_STATE.activeTaskId).toBeNull();
+  });
+});
+
 describe('timer lifecycle invariants', () => {
   beforeEach(() => {
     vi.useFakeTimers();
@@ -78,6 +102,8 @@ describe('timer lifecycle invariants', () => {
       mode: 'short',
       justDone: true,
       remaining: 0,
+      tasks: [{ ...TEST_TASK_ONE }],
+      activeTaskId: TEST_TASK_ONE.id,
       settings: { ...DEFAULT_STATE.settings, autoStart: true },
     });
 
@@ -235,6 +261,63 @@ describe('timer lifecycle invariants', () => {
     expect(next.sessions).toBe(0);
     expect(next.palXp).toEqual({});
     expect(next.sessionRecords[next.sessionRecords.length - 1]?.outcome).toBe('completed');
+  });
+
+  it('counts an early-morning completion toward the previous study day', () => {
+    const endedAt = new Date(2026, 6, 20, 0, 30).getTime();
+    vi.setSystemTime(endedAt);
+    const openFocus = {
+      ...newOpenSession('focus', 25, undefined, undefined, endedAt - 25 * 60_000),
+      endsAt: endedAt,
+      remainingSec: 0,
+    };
+    const state = makeState({
+      today: '2026-07-19',
+      now: endedAt,
+      running: true,
+      endsAt: endedAt,
+      remaining: 0,
+      openFocus,
+      settings: { ...DEFAULT_STATE.settings, dayStartHour: 4 },
+    });
+
+    const completed = reducer(state, { type: 'complete' });
+
+    expect(completed.lastFocusDay).toBe('2026-07-19');
+    expect(completed.streak).toBe(1);
+    expect(completed.sessionRecords[0]?.endedAt).toBe(endedAt);
+  });
+
+  it('re-derives the streak tail from raw records when the boundary changes', () => {
+    const endedAt = new Date(2026, 6, 20, 0, 30).getTime();
+    const record = finalizeSession(
+      newOpenSession('focus', 25, undefined, undefined, endedAt - 25 * 60_000),
+      'completed',
+      25,
+      endedAt,
+    );
+    const state = makeState({
+      today: '2026-07-20',
+      now: endedAt,
+      streak: 1,
+      lastFocusDay: '2026-07-20',
+      sessionRecords: [record],
+    });
+
+    expect(rederiveStreakForBoundary(state, 4)).toMatchObject({
+      streak: 1,
+      lastFocusDay: '2026-07-19',
+    });
+
+    const changed = reducer(state, {
+      type: 'patchSettings',
+      patch: { dayStartHour: 4 },
+      at: endedAt,
+    });
+    expect(changed.today).toBe('2026-07-19');
+    expect(changed.lastFocusDay).toBe('2026-07-19');
+    expect(changed.sessionRecords).toEqual([record]);
+    expect(changed.sessionRecords[0]).toBe(record);
   });
 
   it('banks Flow credit to the task stamped at start', () => {
@@ -494,7 +577,7 @@ describe('persisted-state recovery', () => {
     expect(state.comeBack).toBe(true);
   });
 
-  it('migrates v20 through capped guide state without moving existing data', () => {
+  it('migrates v20 through guide and study-day settings without moving existing data', () => {
     const task = {
       id: 42,
       t: 'Keep this task',
@@ -516,12 +599,12 @@ describe('persisted-state recovery', () => {
     const persisted = readPersisted();
 
     expect(persisted).toMatchObject({
-      version: 22,
+      version: 23,
       sessions: 7,
       streak: 5,
       tasks: [task],
       guideRead: { readAt: {}, suggestions: [] },
-      settings: { name: 'Mira' },
+      settings: { name: 'Mira', dayStartHour: 0 },
     });
   });
 
@@ -598,13 +681,16 @@ describe('goal links and completion stamps (v19/v20 quick wins)', () => {
   const goal = { id: 3, title: 'read 12 papers', due: '2026-08-01', target: 12, done: 0, createdAt: 1 };
 
   it('stamps completedAt when a task is checked off and clears it on un-check', () => {
-    const state = makeState();
+    const state = makeState({
+      tasks: [{ ...TEST_TASK_ONE }],
+      activeTaskId: TEST_TASK_ONE.id,
+    });
 
-    const done = reducer(state, { type: 'toggleTask', id: 1 });
-    expect(done.tasks.find((t) => t.id === 1)?.completedAt).toBe(Date.now());
+    const done = reducer(state, { type: 'toggleTask', id: TEST_TASK_ONE.id });
+    expect(done.tasks.find((t) => t.id === TEST_TASK_ONE.id)?.completedAt).toBe(Date.now());
 
-    const undone = reducer(done, { type: 'toggleTask', id: 1 });
-    expect(undone.tasks.find((t) => t.id === 1)?.completedAt).toBeUndefined();
+    const undone = reducer(done, { type: 'toggleTask', id: TEST_TASK_ONE.id });
+    expect(undone.tasks.find((t) => t.id === TEST_TASK_ONE.id)?.completedAt).toBeUndefined();
   });
 
   it('stamps completedAt on a goal only when the last part lands', () => {
@@ -675,8 +761,8 @@ describe('goal links and completion stamps (v19/v20 quick wins)', () => {
   });
 
   it('restores a removed task intact and returns active focus to it', () => {
-    const task = { ...DEFAULT_STATE.tasks[0], pomos: 3, completedAt: Date.now() };
-    const state = makeState({ tasks: [task, { ...DEFAULT_STATE.tasks[1] }], activeTaskId: task.id });
+    const task = { ...TEST_TASK_ONE, pomos: 3, completedAt: Date.now() };
+    const state = makeState({ tasks: [task, { ...TEST_TASK_TWO }], activeTaskId: task.id });
 
     const removed = reducer(state, { type: 'removeTask', id: task.id });
     const restored = reducer(removed, {
@@ -694,7 +780,7 @@ describe('goal links and completion stamps (v19/v20 quick wins)', () => {
     const completedGoal = { ...goal, done: 12, completedAt: Date.now() };
     const state = makeState({
       goals: [completedGoal],
-      tasks: [{ ...DEFAULT_STATE.tasks[0], goalId: goal.id }],
+      tasks: [{ ...TEST_TASK_ONE, goalId: goal.id }],
     });
 
     const removed = reducer(state, { type: 'removeGoal', id: goal.id });
@@ -702,7 +788,7 @@ describe('goal links and completion stamps (v19/v20 quick wins)', () => {
       type: 'restoreGoal',
       goal: completedGoal,
       index: 0,
-      linkedTaskIds: [DEFAULT_STATE.tasks[0].id],
+      linkedTaskIds: [TEST_TASK_ONE.id],
     });
 
     expect(restored.goals).toEqual([completedGoal]);
@@ -713,7 +799,7 @@ describe('goal links and completion stamps (v19/v20 quick wins)', () => {
 describe('focus-history clearing', () => {
   it('clears raw reflection history and its cadence cache in one state transition', () => {
     const record = finalizeSession(newOpenSession('focus', 25, 1), 'completed', 25);
-    const task = { ...DEFAULT_STATE.tasks[0], pomos: 4, done: true };
+    const task = { ...TEST_TASK_ONE, pomos: 4, done: true };
     const goal = {
       id: 9,
       title: 'Keep this progress',

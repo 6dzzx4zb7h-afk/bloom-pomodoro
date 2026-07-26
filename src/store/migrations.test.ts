@@ -25,6 +25,7 @@ import mainV19 from './fixtures/migrations/main-v19.json';
 import mainV20 from './fixtures/migrations/main-v20.json';
 import mainV21 from './fixtures/migrations/main-v21.json';
 import mainV22 from './fixtures/migrations/main-v22.json';
+import mainV23 from './fixtures/migrations/main-v23.json';
 import { loadEvents, updateEvent } from './companion';
 import { readPersisted } from './useBloom';
 
@@ -107,6 +108,7 @@ const mainFixtures: MainFixture[] = [
   mainV20,
   mainV21,
   mainV22,
+  mainV23,
 ];
 const companionFixtures: CompanionFixture[] = [companionV1, companionV2];
 const latestMainFixtureVersion = Math.max(...mainFixtures.map((fixture) => fixture.version));
@@ -196,7 +198,7 @@ describe('main persisted-state migrations', () => {
       personalCadence: { computedAt: null, recommendation: null, history: [] },
       parking: [],
       guideRead: { readAt: {}, suggestions: [] },
-      settings: { chronotype: 'notSure', preSlumpCheck: false },
+      settings: { chronotype: 'notSure', preSlumpCheck: false, dayStartHour: 0 },
     });
   });
 });

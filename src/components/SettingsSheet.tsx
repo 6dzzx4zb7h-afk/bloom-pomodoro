@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import type { DurationMode, Settings } from '../store/useBloom';
+import type { DurationMode, PersistedShape, Settings } from '../store/useBloom';
 import { audioEngine, BG_SOUNDS, requestNotifyPermission, type BgSound } from '../engine/audio';
 import {
   AWAY_CHOICES,
@@ -22,6 +22,18 @@ import {
 import type { SessionRecord } from '../store/sessions';
 import { Dialog } from './Dialog';
 import { Sheet } from './Sheet';
+import {
+  BackupError,
+  IMPORT_RECOVERY_KEY,
+  commitPreparedImport,
+  createBackupEnvelope,
+  parseBackup,
+  prepareImport,
+  readBackupFile,
+  serializeBackup,
+  sessionRecordsCsv,
+  type PreparedImport,
+} from '../store/exportImport';
 
 interface SettingsSheetProps {
   settings: Settings;
@@ -33,6 +45,7 @@ interface SettingsSheetProps {
   running: boolean;
   /** Includes paused work records whose history still belongs to the timer. */
   hasOpenSession: boolean;
+  persistedState: PersistedShape;
   onPatch: (patch: Partial<Settings>) => void;
   onCacheCadence: (recommendation: PersonalCadenceRecommendation) => void;
   onApplyCadence: (pair: CadencePair) => void;
@@ -40,6 +53,7 @@ interface SettingsSheetProps {
   onPatchRitual: (patch: Partial<Pick<RitualSettings, 'enabled' | 'suggestionSeen'>>) => void;
   onUpdateRitualItem: (id: string, text: string) => void;
   onClearFocusData: () => void;
+  onDataImported: () => void;
   onClose: () => void;
   /** Open the weekly review card on demand (PLAN 2.3); closes the sheet. */
   onShowWeekly?: () => void;
@@ -64,6 +78,12 @@ const CHRONOTYPE_CHOICES: { value: Chronotype; label: string }[] = [
   { value: 'betterLater', label: 'better later' },
   { value: 'notSure', label: 'not sure' },
 ];
+
+const DAY_BOUNDARY_PRESETS = [0, 3, 5] as const;
+
+function clockHourLabel(hour: number): string {
+  return `${String(hour).padStart(2, '0')}:00`;
+}
 
 function SettingSection({
   title,
@@ -137,12 +157,14 @@ export function SettingsSheet({
   ritual,
   running,
   hasOpenSession,
+  persistedState,
   onPatch,
   onCacheCadence,
   onApplyCadence,
   onPatchRitual,
   onUpdateRitualItem,
   onClearFocusData,
+  onDataImported,
   onClose,
   onShowWeekly,
 }: SettingsSheetProps) {
@@ -158,6 +180,20 @@ export function SettingsSheet({
   const [clearedNote, setClearedNote] = useState(false);
   const [showClearScope, setShowClearScope] = useState(false);
   const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
+  const [importState, setImportState] = useState<
+    | { kind: 'idle' }
+    | { kind: 'reading'; percent: number; fileName: string }
+    | { kind: 'ready'; prepared: PreparedImport; fileName: string }
+    | { kind: 'saving'; prepared: PreparedImport; fileName: string }
+    | { kind: 'success'; safetyBackup: string | null }
+    | {
+        kind: 'error';
+        message: string;
+        recoveryRequired: boolean;
+        recoveryBackup: string | null;
+      }
+  >({ kind: 'idle' });
+  const importController = useRef<AbortController | null>(null);
   const currentCadence = useMemo(
     () => ({
       focusMin: Math.round(settings.durations.focus / 60),
@@ -191,6 +227,7 @@ export function SettingsSheet({
   useEffect(
     () => () => {
       if (waveTimer.current) clearTimeout(waveTimer.current);
+      importController.current?.abort();
     },
     [],
   );
@@ -260,6 +297,106 @@ export function SettingsSheet({
     setShowClearScope(false);
     setClearConfirmOpen(false);
     setClearedNote(true);
+  }
+
+  function downloadText(contents: string, fileName: string, mime: string) {
+    const url = URL.createObjectURL(new Blob([contents], { type: mime }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = fileName;
+    link.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 0);
+  }
+
+  function currentBackup() {
+    return createBackupEnvelope(persistedState, loadEvents());
+  }
+
+  function exportJson() {
+    const day = new Date().toISOString().slice(0, 10);
+    downloadText(
+      serializeBackup(currentBackup()),
+      `bloom-backup-${day}.json`,
+      'application/json',
+    );
+  }
+
+  function exportCsv() {
+    const day = new Date().toISOString().slice(0, 10);
+    downloadText(
+      sessionRecordsCsv(records),
+      `bloom-sessions-${day}.csv`,
+      'text/csv;charset=utf-8',
+    );
+  }
+
+  async function chooseImport(file: File | undefined) {
+    if (!file) return;
+    importController.current?.abort();
+    const controller = new AbortController();
+    importController.current = controller;
+    setImportState({ kind: 'reading', percent: 0, fileName: file.name });
+    try {
+      const text = await readBackupFile(file, controller.signal, (percent) => {
+        setImportState((state) =>
+          state.kind === 'reading' ? { ...state, percent } : state,
+        );
+      });
+      const incoming = parseBackup(text, controller.signal);
+      const prepared = prepareImport(incoming, currentBackup());
+      setImportState({ kind: 'ready', prepared, fileName: file.name });
+    } catch (error) {
+      if (error instanceof BackupError && error.code === 'canceled') {
+        setImportState({ kind: 'idle' });
+      } else {
+        setImportState({
+          kind: 'error',
+          message:
+            error instanceof BackupError
+              ? error.message
+              : 'That file could not be read. Your current data is unchanged.',
+          recoveryRequired: false,
+          recoveryBackup: null,
+        });
+      }
+    } finally {
+      if (importController.current === controller) importController.current = null;
+    }
+  }
+
+  function cancelImport() {
+    importController.current?.abort();
+    importController.current = null;
+    setImportState({ kind: 'idle' });
+  }
+
+  function saveImport(prepared: PreparedImport, fileName: string) {
+    setImportState({ kind: 'saving', prepared, fileName });
+    try {
+      commitPreparedImport(prepared, localStorage);
+      const safetyBackup = prepared.safetyBackup
+        ? serializeBackup(prepared.safetyBackup)
+        : null;
+      onDataImported();
+      const nextEvents = prepared.merged.companion.events;
+      setCadenceEvents(nextEvents);
+      setEventCount(nextEvents.length);
+      setClearedNote(false);
+      setImportState({ kind: 'success', safetyBackup });
+    } catch (error) {
+      setImportState({
+        kind: 'error',
+        message:
+          error instanceof BackupError
+            ? error.message
+            : 'The import could not be saved. Your current data is unchanged.',
+        recoveryRequired: error instanceof BackupError && error.recoveryRequired,
+        recoveryBackup:
+          error instanceof BackupError && error.code === 'storage'
+            ? localStorage.getItem(IMPORT_RECOVERY_KEY)
+            : null,
+      });
+    }
   }
 
   function closeSettings() {
@@ -420,6 +557,40 @@ export function SettingsSheet({
             </div>
           );
         })}
+
+        <fieldset className="set-block day-boundary-setting">
+          <legend className="set-label">When does your day roll over?</legend>
+          <span className="set-sub">
+            Sessions finished before this time belong to the previous study day. Their timestamps
+            stay unchanged.
+          </span>
+          <div className="day-boundary-presets" aria-label="Study day rollover presets">
+            {DAY_BOUNDARY_PRESETS.map((hour) => (
+              <button
+                type="button"
+                key={hour}
+                className={settings.dayStartHour === hour ? 'on' : ''}
+                aria-pressed={settings.dayStartHour === hour}
+                onClick={() => onPatch({ dayStartHour: hour })}
+              >
+                {clockHourLabel(hour)}
+              </button>
+            ))}
+          </div>
+          <label className="day-boundary-custom">
+            <span>Custom hour</span>
+            <select
+              value={settings.dayStartHour}
+              onChange={(event) => onPatch({ dayStartHour: Number(event.target.value) })}
+            >
+              {Array.from({ length: 24 }, (_, hour) => (
+                <option key={hour} value={hour}>
+                  {clockHourLabel(hour)}
+                </option>
+              ))}
+            </select>
+          </label>
+        </fieldset>
 
         <div className="set-row">
           <span className="set-label">Auto-start next</span>
@@ -777,6 +948,142 @@ export function SettingsSheet({
         </SettingSection>
 
         <SettingSection title="Data">
+        <div className="set-block data-transfer">
+          <span className="set-label">
+            Your data
+            <span className="set-sub">
+              download a complete local backup, or a spreadsheet of session records
+            </span>
+          </span>
+          <div className="data-export-actions">
+            <button className="mini-btn" type="button" onClick={exportJson}>
+              export JSON backup
+            </button>
+            <button className="mini-btn" type="button" onClick={exportCsv}>
+              export sessions CSV
+            </button>
+          </div>
+          <label className={`data-import-picker${running || hasOpenSession ? ' disabled' : ''}`}>
+            <span>choose a JSON backup to import</span>
+            <input
+              type="file"
+              accept="application/json,.json"
+              disabled={
+                running ||
+                hasOpenSession ||
+                importState.kind === 'reading' ||
+                importState.kind === 'saving'
+              }
+              onChange={(event) => {
+                void chooseImport(event.target.files?.[0]);
+                event.currentTarget.value = '';
+              }}
+            />
+          </label>
+          {(running || hasOpenSession) && (
+            <span className="set-sub">finish or reset the open timer before importing</span>
+          )}
+
+          <div className="data-import-status" role="status" aria-live="polite">
+            {importState.kind === 'reading' && (
+              <>
+                <span>
+                  reading {importState.fileName} · {importState.percent}%
+                </span>
+                <progress value={importState.percent} max={100}>
+                  {importState.percent}%
+                </progress>
+                <button className="mini-btn" type="button" onClick={cancelImport}>
+                  cancel
+                </button>
+              </>
+            )}
+            {importState.kind === 'ready' && (
+              <>
+                <strong>Ready to review</strong>
+                <span>
+                  This backup has {importState.prepared.preview.sessions} sessions,{' '}
+                  {importState.prepared.preview.tasks} tasks,{' '}
+                  {importState.prepared.preview.goals} goals, and{' '}
+                  {importState.prepared.preview.companionMoments} Companion moments.
+                </span>
+                <span className="set-sub">
+                  Bloom will merge stable records, keep current device preferences, and save a
+                  safety backup first.
+                </span>
+                <div className="data-import-actions">
+                  <button
+                    className="mini-btn"
+                    type="button"
+                    onClick={() => saveImport(importState.prepared, importState.fileName)}
+                  >
+                    merge this backup
+                  </button>
+                  <button className="mini-btn focus-clear-keep" type="button" onClick={cancelImport}>
+                    keep current data
+                  </button>
+                </div>
+              </>
+            )}
+            {importState.kind === 'saving' && (
+              <span>saving the safety backup and imported records…</span>
+            )}
+            {importState.kind === 'success' && (
+              <>
+                <strong>Backup merged ♡</strong>
+                <span>Your sessions, tasks, goals, and Companion moments are ready.</span>
+                {importState.safetyBackup && (
+                  <button
+                    className="mini-btn"
+                    type="button"
+                    onClick={() =>
+                      downloadText(
+                        importState.safetyBackup!,
+                        'bloom-before-import.json',
+                        'application/json',
+                      )
+                    }
+                  >
+                    download safety backup
+                  </button>
+                )}
+              </>
+            )}
+            {importState.kind === 'error' && (
+              <>
+                <strong>
+                  {importState.recoveryRequired ? 'Recovery backup ready' : 'Nothing changed'}
+                </strong>
+                <span>{importState.message}</span>
+                <div className="data-import-actions">
+                  {importState.recoveryBackup ? (
+                    <button
+                      className="mini-btn"
+                      type="button"
+                      onClick={() =>
+                        downloadText(
+                          importState.recoveryBackup!,
+                          'bloom-import-recovery.json',
+                          'application/json',
+                        )
+                      }
+                    >
+                      download recovery backup
+                    </button>
+                  ) : (
+                    <button className="mini-btn" type="button" onClick={exportJson}>
+                      export current data
+                    </button>
+                  )}
+                  <button className="mini-btn focus-clear-keep" type="button" onClick={cancelImport}>
+                    choose another file
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+
         {onShowWeekly && (
           <div className="set-row">
             <span className="set-label">

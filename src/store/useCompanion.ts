@@ -213,6 +213,7 @@ export function useCompanion(bloom: Bloom) {
         return;
       }
       const sessionId = cur.state.openFocus?.id ?? null;
+      const at = Date.now();
       const suggestion = preSlumpSuggestion({
         optedIn: cur.state.settings.preSlumpCheck,
         sessionId,
@@ -222,10 +223,12 @@ export function useCompanion(bloom: Bloom) {
         records: cur.state.sessionRecords,
         events,
         caps: cur.state.preSlump,
+        now: at,
+        studyDayKey: cur.state.today,
       });
       if (!suggestion || !sessionId) return;
 
-      bloom.actions.recordPreSlump(sessionId, Date.now());
+      bloom.actions.recordPreSlump(sessionId, at);
       clearDismiss();
       setPrompt({
         type: 'preSlump',

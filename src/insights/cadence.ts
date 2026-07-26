@@ -8,7 +8,7 @@
  */
 
 import type { CompanionEvent } from '../store/companion';
-import { isDriftEvent } from '../store/companion';
+import { companionEventsForAnalytics, isDriftEvent } from '../store/companion';
 import {
   completionRateByPlannedLength,
   driftPhaseDistribution,
@@ -242,8 +242,9 @@ export function computeCadenceSuggestion(
     (record) =>
       record.mode === 'focus' && record.endedAt >= cutoff && record.endedAt <= now,
   );
-  const driftedSessions = focusRecords.filter((record) => hasLinkedDrift(record, events));
-  const median = medianMinutesToFirstDrift(focusRecords, events);
+  const analyticsEvents = companionEventsForAnalytics(events, now);
+  const driftedSessions = focusRecords.filter((record) => hasLinkedDrift(record, analyticsEvents));
+  const median = medianMinutesToFirstDrift(focusRecords, analyticsEvents, now);
 
   if (driftedSessions.length >= CADENCE_MIN_DRIFTED_SESSIONS && median != null) {
     const preset = presetForDriftMinute(median);
@@ -256,7 +257,7 @@ export function computeCadenceSuggestion(
     };
   }
 
-  const long = completionRateByPlannedLength(focusRecords)
+  const long = completionRateByPlannedLength(focusRecords, now)
     .filter(
       (bucket) =>
         bucket.plannedMin >= 40 &&
@@ -368,11 +369,12 @@ export function suggestPersonalCadence(
       record.endedAt <= now &&
       record.plannedMin != null,
   );
+  const analyticsEvents = companionEventsForAnalytics(events, now);
   const rungs = makeRungs(current);
   const rolling = currentRollingWindow(focusRecords, current.focusMin);
   const rollingCompleted = completedCount(rolling);
   const rollingRate = rolling.length ? rollingCompleted / rolling.length : 0;
-  const distribution = driftPhaseDistribution(focusRecords, events);
+  const distribution = driftPhaseDistribution(focusRecords, analyticsEvents, now);
   const phaseText = phaseSummary(distribution);
   const chrono = chronotypeFitNote(chronotype, focusRecords);
 
@@ -443,9 +445,9 @@ export function suggestPersonalCadence(
     };
   }
 
-  const driftedSessions = linkedDriftSessionCount(focusRecords, events);
-  const median = medianMinutesToFirstDrift(focusRecords, events);
-  const rates = completionRateByPlannedLength(focusRecords);
+  const driftedSessions = linkedDriftSessionCount(focusRecords, analyticsEvents);
+  const median = medianMinutesToFirstDrift(focusRecords, analyticsEvents, now);
+  const rates = completionRateByPlannedLength(focusRecords, now);
   const supported = rates
     .filter((bucket) => bucket.total >= 3 && bucket.rate >= 0.75)
     .sort((a, b) => b.plannedMin - a.plannedMin)[0];

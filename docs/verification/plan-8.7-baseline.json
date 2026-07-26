@@ -1,0 +1,57 @@
+{
+  "planStep": "8.7",
+  "recordedAt": "2026-07-23",
+  "fixture": {
+    "screen": "Collection / Friends",
+    "pixelPals": 6,
+    "skyCanvases": 1,
+    "assumedVisibleRefreshHz": 60
+  },
+  "before": {
+    "palIntervalMs": 50,
+    "palDriverCallbacksPerSecond": 120,
+    "skyDriverCallbacksPerSecond": 60,
+    "totalDriverCallbacksPerSecond": 180,
+    "hiddenPalWakeupsPerSecond": 120,
+    "offscreenPalWakeupsPerSecondEach": 20,
+    "bundleJsRawBytes": 328310,
+    "bundleJsGzipBytes": 101414
+  },
+  "budgets": {
+    "sharedAnimationDrivers": 1,
+    "palFramesPerSecondMax": 15,
+    "skyFramesPerSecondMax": 20,
+    "allVisibleSubscriberDrawsPerSecondMax": 110,
+    "hiddenSubscriberDrawsPerSecond": 0,
+    "offscreenSubscriberDrawsPerSecond": 0,
+    "syntheticDispatchP95MsMax": 2,
+    "browserDecorativeTaskP95MsMax": 8,
+    "browserAnimationLongTasksMax": 0,
+    "bundleJsGzipDeltaBytesMax": 1536
+  },
+  "after": {
+    "recordedAt": "2026-07-25",
+    "sharedAnimationDrivers": 1,
+    "palFramesPerSecondMax": 15,
+    "skyFramesPerSecondMax": 20,
+    "animatedSubscriberDrawsPerSecondMin": 100,
+    "animatedSubscriberDrawsPerSecondMax": 110,
+    "hiddenPendingFrames": 0,
+    "hiddenSubscriberDraws": 0,
+    "offscreenSubscriberDraws": 0,
+    "syntheticDispatchP95BelowMs": 2,
+    "fullBatchBundleJsRawBytes": 345375,
+    "fullBatchBundleJsGzipBytes": 106868,
+    "fullBatchBundleDeltaIsAnimationOnly": false,
+    "isolatedBundleRecordedAt": "2026-07-26",
+    "isolatedBaselineJsRawBytes": 327218,
+    "isolatedBaselineJsGzipBytes": 101031,
+    "isolatedAnimationJsRawBytes": 330411,
+    "isolatedAnimationJsGzipBytes": 102028,
+    "isolatedAnimationJsRawDeltaBytes": 3193,
+    "isolatedAnimationJsGzipDeltaBytes": 997,
+    "isolatedAnimationBundleBudgetPassed": true
+  },
+  "browserTraceAvailable": false,
+  "limitation": "Implementation, deterministic budgets, and the isolated bundle delta are verified. A real-browser main-thread and Core Web Vitals trace remains required before closing PLAN 8.7."
+}

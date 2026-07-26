@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { dayKeyFor, nextDayBoundaryAt } from './dayKey';
+import { dayKeyFor, nextDayBoundaryAt, normalizeDayStartHour } from './dayKey';
 
 /** Local-time instant, so the tests hold in any timezone the suite runs in. */
 function at(y: number, m: number, d: number, h = 0, min = 0): number {
@@ -41,6 +41,14 @@ describe('dayKeyFor', () => {
       );
     }
   });
+
+  it('normalizes an untrusted boundary before doing calendar math', () => {
+    expect(normalizeDayStartHour(3.6)).toBe(4);
+    expect(normalizeDayStartHour(-5)).toBe(0);
+    expect(normalizeDayStartHour(99)).toBe(23);
+    expect(normalizeDayStartHour('4')).toBe(0);
+    expect(dayKeyFor(at(2026, 7, 4, 3, 59), 99)).toBe('2026-07-03');
+  });
 });
 
 describe('nextDayBoundaryAt', () => {
@@ -69,6 +77,35 @@ describe('nextDayBoundaryAt', () => {
       expected.setDate(expected.getDate() + 1);
       expect(next.getTime()).toBe(expected.getTime());
       expect(dayKeyFor(next.getTime())).not.toBe(dayKeyFor(start));
+    }
+  });
+
+  it('keeps a configured boundary at the same wall-clock hour across real DST changes', () => {
+    const previousTimeZone = process.env.TZ;
+    process.env.TZ = 'America/New_York';
+    try {
+      const beforeSpringShift = new Date(2026, 2, 7, 5, 0).getTime();
+      const springBoundary = new Date(nextDayBoundaryAt(beforeSpringShift, 4));
+      expect(springBoundary.getHours()).toBe(4);
+      expect(springBoundary.getDate()).toBe(8);
+      expect(springBoundary.getTimezoneOffset()).not.toBe(
+        new Date(beforeSpringShift).getTimezoneOffset(),
+      );
+      expect(dayKeyFor(springBoundary.getTime() - 1, 4)).toBe('2026-03-07');
+      expect(dayKeyFor(springBoundary.getTime(), 4)).toBe('2026-03-08');
+
+      const beforeFallShift = new Date(2026, 9, 31, 5, 0).getTime();
+      const fallBoundary = new Date(nextDayBoundaryAt(beforeFallShift, 4));
+      expect(fallBoundary.getHours()).toBe(4);
+      expect(fallBoundary.getDate()).toBe(1);
+      expect(fallBoundary.getTimezoneOffset()).not.toBe(
+        new Date(beforeFallShift).getTimezoneOffset(),
+      );
+      expect(dayKeyFor(fallBoundary.getTime() - 1, 4)).toBe('2026-10-31');
+      expect(dayKeyFor(fallBoundary.getTime(), 4)).toBe('2026-11-01');
+    } finally {
+      if (previousTimeZone === undefined) delete process.env.TZ;
+      else process.env.TZ = previousTimeZone;
     }
   });
 });

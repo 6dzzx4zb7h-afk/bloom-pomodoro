@@ -126,7 +126,7 @@ function isValidTimerSnapshot(raw: unknown, sessionId?: string): raw is TimerSna
   );
 }
 
-function isValidRecord(r: unknown): r is SessionRecord {
+export function isValidSessionRecord(r: unknown): r is SessionRecord {
   if (!r || typeof r !== 'object') return false;
   const x = r as Record<string, unknown>;
   return (
@@ -163,7 +163,7 @@ function isValidRecord(r: unknown): r is SessionRecord {
  */
 export function sanitizeSessionRecords(raw: unknown): SessionRecord[] {
   if (!Array.isArray(raw)) return [];
-  return raw.filter(isValidRecord).slice(-SESSION_LOG_CAP);
+  return raw.filter(isValidSessionRecord).slice(-SESSION_LOG_CAP);
 }
 
 /** Save one target answer without disturbing the record's captured session data. */
