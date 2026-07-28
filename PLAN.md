@@ -566,6 +566,13 @@ Rules of thumb:
   same-snapshot isolated build measured +997 gzip bytes for the animation implementation, within
   the predeclared 1.5 KiB ceiling. The step remains open for the predeclared real-browser
   main-thread/Core Web Vitals trace and timer-control interaction comparison.
+- **Progress (July 28, 2026):** A live production preview is now reachable (see 8.8), but it cannot
+  supply this trace. The automation browser pane reports `document.visibilityState === "hidden"` for
+  the whole scripted session, which suspends `requestAnimationFrame` and `IntersectionObserver` by
+  design; the decorative canvases correctly draw zero frames in that state. That confirms the
+  "hidden tab performs zero decorative animation work" clause but leaves the *visible*-tab trace
+  unobtainable through this harness. Closing 8.7 needs a foregrounded browser session or an
+  instrumented in-page frame counter read from a genuinely visible tab.
 
 ### - [ ] 8.8 Touch targets and small-screen layouts
 
@@ -596,6 +603,17 @@ Rules of thumb:
   the documented undersized Focus/Settings controls, goal form, compact-height/safe-area/zoom/
   keyboard matrix and complete target inventory. Physical iOS Safari/Android WebView proof is
   deferred and does not block this browser milestone.
+- **Progress (July 28, 2026):** The browser-evidence blocker recorded on July 26 was a preview
+  launch-config fault, not a sandbox limitation — `.claude/launch.json` invoked bare `npm`, which is
+  absent from the preview spawner's `PATH`. With an absolute Node interpreter the production preview
+  binds and boots normally. The first live pass found and fixed two real compact-height geometry
+  defects: `.ring-svg` kept its 236 px intrinsic attribute size while `.ring-wrap` shrank to
+  164/132 px (ring overflowed by 72 px and sat 36 px off-centre), and `.ring-animal` centred with
+  `transform: translate(-50%, -50%)` under a `scale` override, which scales the centring offset and
+  left the pet 14.3 px off-centre. Both are fixed and re-measured at 320x568, where the document has
+  no horizontal overflow, no interactive target is under 44 x 44 CSS px, and inputs are 16 px. Full
+  measurements in `docs/verification/plan-8.8-ring-geometry-2026-07-28.md`. The compact-height,
+  safe-area, 200% zoom, and virtual-keyboard matrix cells remain open.
 
 ### - [ ] 8.9 Readability over the animated sky
 
