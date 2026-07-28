@@ -1,14 +1,39 @@
 import { useEffect, useMemo, useState } from 'react';
 import { PixelPal } from '../components/PixelPal';
 import { Dialog } from '../components/Dialog';
+import { RolloverTriageCard } from '../components/RolloverTriageCard';
 import type { useBloom } from '../store/useBloom';
 import {
   GOAL_TARGET_MAX,
+  GOAL_UNIT_MAX,
   dueLabelForStudyDay,
+  daysLeftForStudyDay,
+  goalDeadlineOutcomeLine,
   goalPaceForStudyDay,
+  goalProgressText,
+  goalUnit,
   parseDue,
   type Goal,
 } from '../store/goals';
+import {
+  medianSessionCredit,
+  type GoalCredit,
+} from '../store/goalLedger';
+import {
+  observedLanding,
+  observedLandingLine,
+  sessionEffortLine,
+} from '../insights/paceActual';
+import {
+  isGoalDailyTarget,
+  rolloverOffers,
+  spreadRolloverTarget,
+  targetActual,
+  type RolloverOffer,
+  type TaskDailyTarget,
+} from '../store/dailyTarget';
+import { dayKeyFor } from '../store/dayKey';
+import { sessionCountsTowardDay } from '../store/sessions';
 
 const MONTHS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -16,6 +41,7 @@ interface DeletedGoal {
   goal: Goal;
   index: number;
   linkedTaskIds: number[];
+  goalCredits: GoalCredit[];
 }
 
 type GoalConfirmation =
@@ -25,6 +51,11 @@ type GoalConfirmation =
 function shortDate(due: string): string {
   const d = parseDue(due);
   return `${MONTHS_SHORT[d.getMonth()]} ${d.getDate()}`;
+}
+
+function localNoon(dayKey: string): number {
+  const [year, month, day] = dayKey.split('-').map(Number);
+  return new Date(year, month - 1, day, 12).getTime();
 }
 
 /**
@@ -39,13 +70,21 @@ export function GoalsScreen({ bloom }: { bloom: ReturnType<typeof useBloom> }) {
   const [title, setTitle] = useState('');
   const [due, setDue] = useState('');
   const [target, setTarget] = useState('10');
+  const [unit, setUnit] = useState('');
   const [editId, setEditId] = useState<number | null>(null);
   const [editTitle, setEditTitle] = useState('');
   const [editDue, setEditDue] = useState('');
   const [editTarget, setEditTarget] = useState('1');
+  const [editUnit, setEditUnit] = useState('');
   const [deletedGoal, setDeletedGoal] = useState<DeletedGoal | null>(null);
   const [confirmation, setConfirmation] = useState<GoalConfirmation | null>(null);
+  const [editedGoalUndo, setEditedGoalUndo] = useState<Goal | null>(null);
   const [addTouched, setAddTouched] = useState({ title: false, due: false });
+  const [planningGoalId, setPlanningGoalId] = useState<number | null>(null);
+  const [planAmount, setPlanAmount] = useState('1');
+  const [planDate, setPlanDate] = useState(today);
+  const [targetDrafts, setTargetDrafts] = useState<Record<string, string>>({});
+  const [rolloverOffer, setRolloverOffer] = useState<RolloverOffer | null>(null);
 
   useEffect(() => {
     if (!deletedGoal) return;
@@ -53,11 +92,21 @@ export function GoalsScreen({ bloom }: { bloom: ReturnType<typeof useBloom> }) {
     return () => window.clearTimeout(timeout);
   }, [deletedGoal]);
 
-  function beginEdit(goal: Goal) {
+  useEffect(() => {
+    if (!editedGoalUndo) return;
+    const timeout = window.setTimeout(() => setEditedGoalUndo(null), 6000);
+    return () => window.clearTimeout(timeout);
+  }, [editedGoalUndo]);
+
+  function beginEdit(
+    goal: Goal,
+    patch: Partial<Pick<Goal, 'due' | 'target'>> = {},
+  ) {
     setEditId(goal.id);
     setEditTitle(goal.title);
-    setEditDue(goal.due);
-    setEditTarget(String(goal.target));
+    setEditDue(patch.due ?? goal.due);
+    setEditTarget(String(patch.target ?? goal.target));
+    setEditUnit(goal.unit ?? '');
   }
 
   function saveEdit(goal: Goal) {
@@ -73,9 +122,26 @@ export function GoalsScreen({ bloom }: { bloom: ReturnType<typeof useBloom> }) {
   }
 
   function commitEdit(goal: Goal, nextTarget: number) {
-    actions.updateGoal(goal.id, { title: editTitle, due: editDue, target: nextTarget });
+    setEditedGoalUndo({ ...goal });
+    actions.updateGoal(goal.id, {
+      title: editTitle,
+      due: editDue,
+      target: nextTarget,
+      unit: editUnit,
+    });
     setEditId(null);
     setConfirmation(null);
+  }
+
+  function undoGoalEdit() {
+    if (!editedGoalUndo) return;
+    actions.updateGoal(editedGoalUndo.id, {
+      title: editedGoalUndo.title,
+      due: editedGoalUndo.due,
+      target: editedGoalUndo.target,
+      unit: editedGoalUndo.unit,
+    });
+    setEditedGoalUndo(null);
   }
 
   function removeGoal(goal: Goal) {
@@ -91,6 +157,7 @@ export function GoalsScreen({ bloom }: { bloom: ReturnType<typeof useBloom> }) {
       goal: { ...goal },
       index: state.goals.findIndex((item) => item.id === goal.id),
       linkedTaskIds: state.tasks.filter((task) => task.goalId === goal.id).map((task) => task.id),
+      goalCredits: state.goalLedger.filter((credit) => credit.goalId === goal.id),
     });
     actions.removeGoal(goal.id);
     setConfirmation(null);
@@ -98,7 +165,12 @@ export function GoalsScreen({ bloom }: { bloom: ReturnType<typeof useBloom> }) {
 
   function undoGoalDelete() {
     if (!deletedGoal) return;
-    actions.restoreGoal(deletedGoal.goal, deletedGoal.index, deletedGoal.linkedTaskIds);
+    actions.restoreGoal(
+      deletedGoal.goal,
+      deletedGoal.index,
+      deletedGoal.linkedTaskIds,
+      deletedGoal.goalCredits,
+    );
     setDeletedGoal(null);
   }
 
@@ -106,6 +178,93 @@ export function GoalsScreen({ bloom }: { bloom: ReturnType<typeof useBloom> }) {
     () => [...state.goals].sort((a, b) => a.due.localeCompare(b.due) || a.id - b.id),
     [state.goals],
   );
+  const dayPlanTargets = state.dayPlan?.targets ?? [];
+  const todayTargets = useMemo(
+    () => dayPlanTargets.filter((item) => item.dayKey === today),
+    [dayPlanTargets, today],
+  );
+  const taskActual = (item: TaskDailyTarget) =>
+    state.sessionRecords.filter(
+      (record) =>
+        record.taskId === item.taskId &&
+        sessionCountsTowardDay(record) &&
+        dayKeyFor(record.endedAt, state.settings.dayStartHour) === item.dayKey,
+    ).length;
+  const rolloverCandidates = useMemo(
+    () =>
+      rolloverOffers(
+        { targets: dayPlanTargets, archive: state.dayPlan?.archive ?? [] },
+        {
+          todayKey: today,
+          ledger: state.goalLedger,
+          goals: state.goals,
+          taskActual,
+        },
+      ).filter((offer) => isGoalDailyTarget(offer.target)),
+    [
+      dayPlanTargets,
+      state.dayPlan?.archive,
+      state.goalLedger,
+      state.goals,
+      state.sessionRecords,
+      state.settings.dayStartHour,
+      today,
+    ],
+  );
+
+  useEffect(() => {
+    setRolloverOffer(null);
+  }, [today]);
+
+  useEffect(() => {
+    if (
+      !state.settings.planner ||
+      rolloverOffer ||
+      state.lastRolloverOfferDay === today ||
+      rolloverCandidates.length === 0
+    ) return;
+    setRolloverOffer(rolloverCandidates[0]);
+    actions.markRolloverOffered(today);
+  }, [
+    actions,
+    rolloverCandidates,
+    rolloverOffer,
+    state.lastRolloverOfferDay,
+    state.settings.planner,
+    today,
+  ]);
+
+  function beginPlan(goal: Goal) {
+    const pace = goalPaceForStudyDay(goal, today, now);
+    setPlanningGoalId(goal.id);
+    setPlanAmount(String(Math.max(1, Math.min(pace.remaining, Math.ceil(pace.perDay) || 1))));
+    setPlanDate(today);
+  }
+
+  function confirmPlan(goal: Goal) {
+    actions.addGoalDailyTarget(
+      goal.id,
+      Math.max(1, parseInt(planAmount, 10) || 1),
+      localNoon(planDate),
+    );
+    setPlanningGoalId(null);
+  }
+
+  function spreadOffer() {
+    if (!rolloverOffer || !isGoalDailyTarget(rolloverOffer.target)) return;
+    const goal = state.goals.find((item) => item.id === rolloverOffer.target.goalId);
+    const draft = spreadRolloverTarget(rolloverOffer, goal, today, now);
+    if (!draft) {
+      setRolloverOffer(null);
+      actions.resolveRollover(rolloverOffer.target.id, 'rest');
+      return;
+    }
+    setPlanningGoalId(draft.goalId);
+    setPlanAmount(String(draft.plannedAmount));
+    setPlanDate(draft.dayKey);
+    setRolloverOffer(null);
+    actions.resolveRollover(rolloverOffer.target.id, 'rest');
+  }
 
   const totals = goals.reduce(
     (acc, g) => ({
@@ -125,9 +284,10 @@ export function GoalsScreen({ bloom }: { bloom: ReturnType<typeof useBloom> }) {
       return;
     }
     const t = Math.max(1, Math.min(GOAL_TARGET_MAX, parseInt(target, 10) || 1));
-    actions.addGoal(title, due, t);
+    actions.addGoal(title, due, t, unit);
     // Keep date + size so a whole batch of entries goes in quickly.
     setTitle('');
+    setUnit('');
     setAddTouched({ title: false, due: false });
   }
 
@@ -145,7 +305,7 @@ export function GoalsScreen({ bloom }: { bloom: ReturnType<typeof useBloom> }) {
           </div>
           <div style={{ flex: 1 }}>
             <div className="prog-count">
-              {totals.done} of {totals.target} parts done
+              progress across {goals.length} goal{goals.length === 1 ? '' : 's'}
             </div>
             <div className="prog-sub">
               {allDone
@@ -161,10 +321,122 @@ export function GoalsScreen({ bloom }: { bloom: ReturnType<typeof useBloom> }) {
         </div>
       )}
 
+      {(todayTargets.length > 0 || rolloverOffer) && (
+        <section className="prog-card day-plan-card" aria-labelledby="today-plan-heading">
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <h2 className="prog-count" id="today-plan-heading">Today</h2>
+            {rolloverOffer && (
+              <RolloverTriageCard
+                offer={rolloverOffer}
+                onCarry={() => {
+                  actions.resolveRollover(rolloverOffer.target.id, 'carry');
+                  setRolloverOffer(null);
+                }}
+                onSpread={spreadOffer}
+                onRest={() => {
+                  actions.resolveRollover(rolloverOffer.target.id, 'rest');
+                  setRolloverOffer(null);
+                }}
+              />
+            )}
+            <div className="day-plan-list">
+              {todayTargets.map((item) => {
+                const actual = targetActual(item, state.goalLedger, taskActual);
+                const pct = Math.round((actual / item.plannedAmount) * 100);
+                return (
+                  <div className="day-plan-row" key={item.id}>
+                    <div className="day-plan-copy">
+                      <strong>{item.snapshot.title}</strong>
+                      <span>{actual} of {item.plannedAmount} {item.snapshot.unit}</span>
+                    </div>
+                    <div
+                      className="goal-track"
+                      role="progressbar"
+                      aria-label={`${item.snapshot.title}: ${actual} of ${item.plannedAmount} ${item.snapshot.unit}`}
+                      aria-valuemin={0}
+                      aria-valuenow={actual}
+                      aria-valuemax={item.plannedAmount}
+                    >
+                      <div className="goal-fill active" style={{ width: `${pct}%` }} />
+                    </div>
+                    <label className="day-plan-edit">
+                      <span className="sr-only">Planned {item.snapshot.unit} for {item.snapshot.title}</span>
+                      <input
+                        type="number"
+                        min={Math.max(1, actual)}
+                        max={99}
+                        value={targetDrafts[item.id] ?? String(item.plannedAmount)}
+                        onChange={(event) =>
+                          setTargetDrafts((current) => ({
+                            ...current,
+                            [item.id]: event.target.value,
+                          }))
+                        }
+                      />
+                    </label>
+                    <button
+                      type="button"
+                      className="goal-go"
+                      onClick={() =>
+                        actions.editDailyTarget(
+                          item.id,
+                          parseInt(targetDrafts[item.id] ?? String(item.plannedAmount), 10),
+                        )
+                      }
+                    >
+                      save
+                    </button>
+                    <button
+                      type="button"
+                      className="task-del"
+                      aria-label={`Remove today's target for ${item.snapshot.title}`}
+                      onClick={() => actions.dismissDailyTarget(item.id)}
+                    >
+                      &times;
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </section>
+      )}
+
       <div className="task-list">
         {goals.map((goal) => {
           const pace = goalPaceForStudyDay(goal, today, now);
+          const outlook = observedLanding(
+            state.goalLedger,
+            goal,
+            now,
+            state.settings.dayStartHour,
+          );
+          const effortLine = sessionEffortLine(
+            parseInt(planAmount, 10),
+            goalUnit(goal),
+            medianSessionCredit(state.goalLedger, goal.id, now),
+          );
           const gpct = Math.round((Math.min(goal.done, goal.target) / goal.target) * 100);
+          const deadlineOutcome = goalDeadlineOutcomeLine(
+            goal,
+            state.settings.dayStartHour,
+          );
+          const outlookNeedsChoice = Boolean(
+            outlook && outlook.projectedDayKey > goal.due,
+          );
+          const shrinkTarget = outlook
+            ? Math.max(
+                goal.done + 1,
+                Math.min(
+                  goal.target,
+                  goal.done +
+                    Math.floor(
+                      outlook.amountPerActiveDay *
+                        Math.max(1, daysLeftForStudyDay(goal.due, today)),
+                    ),
+                ),
+              )
+            : goal.target;
           if (editId === goal.id) {
             return (
               <div className="goal-card" key={goal.id}>
@@ -195,7 +467,17 @@ export function GoalsScreen({ bloom }: { bloom: ReturnType<typeof useBloom> }) {
                     />
                   </label>
                   <label className="form-field">
-                    <span>Parts</span>
+                    <span>Counted in</span>
+                    <input
+                      className="goal-parts"
+                      value={editUnit}
+                      maxLength={GOAL_UNIT_MAX}
+                      placeholder="parts"
+                      onChange={(e) => setEditUnit(e.target.value)}
+                    />
+                  </label>
+                  <label className="form-field">
+                    <span>Amount</span>
                     <input
                       className="goal-parts"
                       type="number"
@@ -255,7 +537,7 @@ export function GoalsScreen({ bloom }: { bloom: ReturnType<typeof useBloom> }) {
                   <div className={`goal-fill ${pace.status}`} style={{ width: `${gpct}%` }} />
                 </div>
                 <span className="goal-count">
-                  {goal.done}/{goal.target}
+                  {goalProgressText(goal)}
                 </span>
                 <div className="goal-log">
                   <button
@@ -277,22 +559,101 @@ export function GoalsScreen({ bloom }: { bloom: ReturnType<typeof useBloom> }) {
                 </div>
               </div>
 
-              <div className={`goal-pace ${pace.status}`}>
-                {pace.status === 'done'
-                  ? 'all parts logged — nicely done ♡'
+              <div className={`goal-pace ${outlook ? 'observed' : pace.status}`}>
+                {outlook
+                  ? observedLandingLine(outlook, goal)
+                  : pace.status === 'done'
+                  ? deadlineOutcome
                   : pace.status === 'overdue'
-                    ? `the date slipped by — the ${goal.done} you finished still count`
+                    ? `the date passed — the ${goal.done} ${goalUnit(goal)} you recorded still count. Keep going or edit the goal whenever you like.`
                     : (pace.suggestion ??
-                      `${pace.remaining} left · ${pace.daysLeft} day${pace.daysLeft === 1 ? '' : 's'} — do what you can, it all counts`)}
+                      `${pace.remaining} ${goalUnit(goal)} left · ${pace.daysLeft} day${pace.daysLeft === 1 ? '' : 's'} — do what you can, it all counts`)}
               </div>
+              {outlookNeedsChoice && (
+                <div
+                  className="goal-outlook-actions"
+                  role="group"
+                  aria-label={`Adjust ${goal.title} from its recorded pace`}
+                >
+                  {shrinkTarget < goal.target && (
+                    <button
+                      type="button"
+                      className="goal-go"
+                      onClick={() => beginEdit(goal, { target: shrinkTarget })}
+                    >
+                      shrink amount
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className="goal-go"
+                    onClick={() =>
+                      beginEdit(goal, { due: outlook?.projectedDayKey ?? goal.due })
+                    }
+                  >
+                    move date
+                  </button>
+                </div>
+              )}
+              {planningGoalId === goal.id ? (
+                <form
+                  className="day-plan-form"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    confirmPlan(goal);
+                  }}
+                >
+                  <label>
+                    <span>Plan</span>
+                    <input
+                      type="number"
+                      min={1}
+                      max={Math.min(99, Math.max(1, pace.remaining))}
+                      value={planAmount}
+                      onChange={(event) => setPlanAmount(event.target.value)}
+                      aria-label={`Planned ${goalUnit(goal)} for ${goal.title}`}
+                    />
+                  </label>
+                  <label>
+                    <span>For</span>
+                    <input
+                      type="date"
+                      min={today}
+                      max={goal.due}
+                      value={planDate}
+                      onChange={(event) => setPlanDate(event.target.value)}
+                    />
+                  </label>
+                  <button type="submit" className="goal-go">confirm</button>
+                  <button type="button" className="goal-go goal-cancel" onClick={() => setPlanningGoalId(null)}>
+                    cancel
+                  </button>
+                  {effortLine && (
+                    <div className="day-plan-effort">{effortLine}</div>
+                  )}
+                </form>
+              ) : (
+                pace.status === 'active' &&
+                !dayPlanTargets.some(
+                  (item) =>
+                    isGoalDailyTarget(item) &&
+                    item.dayKey === today &&
+                    item.goalId === goal.id,
+                ) && (
+                  <button type="button" className="goal-go day-plan-open" onClick={() => beginPlan(goal)}>
+                    plan today
+                  </button>
+                )
+              )}
             </div>
           );
         })}
         {goals.length === 0 && (
           <div className="task-empty">
             put anything you're working toward in — an exam, a project, a book to read, a habit
-            to build — how many parts it has, and when you'd like it done. then just log parts as
-            you finish them, and Bloom shows the gentle pace that gets you there ♡
+            to build — how many parts it has, and when you'd like it done. log parts as you
+            finish them, and Bloom can mirror the calendar pace or, after enough entries,
+            your recorded pace ♡
           </div>
         )}
       </div>
@@ -301,6 +662,12 @@ export function GoalsScreen({ bloom }: { bloom: ReturnType<typeof useBloom> }) {
         <div className="undo-toast" role="status" aria-live="polite">
           <span>“{deletedGoal.goal.title}” removed</span>
           <button type="button" onClick={undoGoalDelete}>undo</button>
+        </div>
+      )}
+      {editedGoalUndo && (
+        <div className="undo-toast" role="status" aria-live="polite">
+          <span>Goal updated</span>
+          <button type="button" onClick={undoGoalEdit}>undo</button>
         </div>
       )}
 
@@ -342,7 +709,18 @@ export function GoalsScreen({ bloom }: { bloom: ReturnType<typeof useBloom> }) {
             </span>
           </label>
           <label className="form-field">
-            <span>Parts</span>
+            <span>Counted in…</span>
+            <input
+              className="goal-parts"
+              value={unit}
+              maxLength={GOAL_UNIT_MAX}
+              placeholder="parts"
+              onChange={(e) => setUnit(e.target.value)}
+              aria-describedby="goal-unit-hint"
+            />
+          </label>
+          <label className="form-field">
+            <span>Amount</span>
             <input
               className="goal-parts"
               type="number"
@@ -356,7 +734,9 @@ export function GoalsScreen({ bloom }: { bloom: ReturnType<typeof useBloom> }) {
             add
           </button>
         </form>
-        <div className="goal-hint">name · deadline · how many parts it splits into</div>
+        <div className="goal-hint" id="goal-unit-hint">
+          choose a counting word that reads well with any number
+        </div>
       </div>
       {confirmation?.kind === 'shrink' && (
         <Dialog

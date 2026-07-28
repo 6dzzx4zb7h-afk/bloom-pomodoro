@@ -21,8 +21,20 @@ import {
   migratePersistedBlob,
   persistedShapeFromState,
 } from './useBloom';
-import { COMPANION_STORAGE_KEY } from './companion';
+import {
+  COMPANION_LOG_VERSION,
+  COMPANION_STORAGE_KEY,
+} from './companion';
 import type { SessionRecord } from './sessions';
+import {
+  foundationEntryId,
+  foundationInstanceId,
+} from './foundations';
+import {
+  archiveSessionRecords,
+  emptyHistoryArchive,
+  historyArchiveDaySummaries,
+} from './historyArchive';
 
 const session: SessionRecord = {
   id: 's-one',
@@ -38,6 +50,7 @@ const session: SessionRecord = {
 };
 
 function stateWithData() {
+  const foundationId = foundationInstanceId('phone-away');
   return persistedShapeFromState({
     ...DEFAULT_STATE,
     tasks: [{ id: 7, t: 'Read chapter', done: false, pomos: 1, goal: 2 }],
@@ -45,6 +58,47 @@ function stateWithData() {
     goals: [
       { id: 4, title: 'Exam review', due: '2026-08-10', target: 8, done: 2, createdAt: 1 },
     ],
+    goalLedger: [{
+      id: 'g-4',
+      goalId: 4,
+      delta: 2,
+      source: 'carryover',
+      dayKey: '1970-01-01',
+      at: 1,
+    }],
+    foundations: {
+      instances: [{
+        id: foundationId,
+        type: 'phone-away',
+        enabled: true,
+        order: 0,
+        ranges: [{ from: '2026-01-01' }],
+        createdAt: 1,
+      }],
+      entries: [{
+        id: foundationEntryId(foundationId, '2026-07-20'),
+        instanceId: foundationId,
+        dayKey: '2026-07-20',
+        recordedAt: 20,
+      }],
+      archive: [{
+        instanceId: foundationId,
+        monthKey: '2026-06',
+        doneDays: 4,
+      }],
+    },
+    dayPlan: {
+      targets: [{
+        id: 'dt-round-trip',
+        goalId: 4,
+        dayKey: '2026-07-20',
+        plannedAmount: 3,
+        snapshot: Object.freeze({ title: 'Exam review', unit: 'parts' }),
+        createdAt: 2,
+      }],
+      archive: [{ weekKey: '2026-04-06', plannedSum: 7, actualSum: 5 }],
+    },
+    lastRolloverOfferDay: '2026-07-20',
     sessionRecords: [session],
     sessions: 1,
     settings: { ...DEFAULT_STATE.settings, name: 'Lina', dayStartHour: 4 },
@@ -88,7 +142,7 @@ describe('Bloom backup envelope', () => {
 
     expect(JSON.parse(storage.getItem(BLOOM_STORAGE_KEY)!)).toEqual(bloom);
     expect(JSON.parse(storage.getItem(COMPANION_STORAGE_KEY)!)).toEqual({
-      version: 2,
+      version: COMPANION_LOG_VERSION,
       events,
     });
     expect(storage.getItem(IMPORT_RECOVERY_KEY)).not.toBeNull();
@@ -143,6 +197,169 @@ describe('Bloom backup envelope', () => {
       3,
     );
     expect(() => prepareImport(conflict, current)).toThrow(BackupError);
+  });
+
+  it('unions goal-ledger rows and re-derives the denormalized goal cache', () => {
+    const current = createBackupEnvelope(stateWithData(), [], 1);
+    const incomingBloom = {
+      ...stateWithData(),
+      goals: stateWithData().goals.map((goal) => ({ ...goal, done: 3 })),
+      goalLedger: [{
+        id: 'g-imported-progress',
+        goalId: 4,
+        delta: 3,
+        source: 'manual' as const,
+        dayKey: '2026-07-21',
+        at: 21,
+      }],
+    };
+    const incoming = parseBackup(
+      serializeBackup(createBackupEnvelope(incomingBloom, [], 2)),
+    );
+    expect(incoming.bloom.goals[0]).toEqual({
+      ...current.bloom.goals[0],
+      done: 3,
+      completedAt: undefined,
+    });
+    const { done: _currentDone, completedAt: _currentCompleted, ...currentMetadata } =
+      current.bloom.goals[0];
+    const { done: _incomingDone, completedAt: _incomingCompleted, ...incomingMetadata } =
+      incoming.bloom.goals[0];
+    expect(incomingMetadata).toEqual(currentMetadata);
+
+    const merged = prepareImport(incoming, current).merged.bloom;
+
+    expect(merged.goalLedger.map((row) => row.id).sort()).toEqual([
+      'g-4',
+      'g-imported-progress',
+    ]);
+    expect(merged.goals.find((goal) => goal.id === 4)?.done).toBe(5);
+  });
+
+  it('keeps the newest foundation natural-key entry across devices', () => {
+    const current = createBackupEnvelope(stateWithData(), [], 1);
+    const foundationId = foundationInstanceId('phone-away');
+    const entryId = foundationEntryId(foundationId, '2026-07-20');
+    const incoming = createBackupEnvelope({
+      ...stateWithData(),
+      foundations: {
+        ...stateWithData().foundations,
+        entries: [{
+          id: entryId,
+          instanceId: foundationId,
+          dayKey: '2026-07-20',
+          recordedAt: 99,
+          late: true,
+        }],
+      },
+    }, [], 2);
+
+    const merged = prepareImport(incoming, current).merged.bloom.foundations;
+
+    expect(merged.entries).toEqual([{
+      id: entryId,
+      instanceId: foundationId,
+      dayKey: '2026-07-20',
+      recordedAt: 99,
+      late: true,
+    }]);
+  });
+
+  it('does not resurrect entry rows from an already compacted foundation month', () => {
+    const current = createBackupEnvelope(stateWithData(), [], 1);
+    const foundationId = foundationInstanceId('phone-away');
+    const incoming = createBackupEnvelope({
+      ...stateWithData(),
+      foundations: {
+        ...stateWithData().foundations,
+        archive: [],
+        entries: [{
+          id: foundationEntryId(foundationId, '2026-06-10'),
+          instanceId: foundationId,
+          dayKey: '2026-06-10',
+          recordedAt: 100,
+        }],
+      },
+    }, [], 2);
+
+    const merged = prepareImport(incoming, current).merged.bloom.foundations;
+
+    expect(merged.archive).toEqual([{
+      instanceId: foundationId,
+      monthKey: '2026-06',
+      doneDays: 4,
+    }]);
+    expect(merged.entries.some((entry) => entry.dayKey.startsWith('2026-06'))).toBe(false);
+  });
+
+  it('merges day-plan detail and archive rows without duplicating semantic targets', () => {
+    const current = createBackupEnvelope(stateWithData(), [], 1);
+    const incoming = createBackupEnvelope({
+      ...stateWithData(),
+      dayPlan: {
+        targets: [
+          {
+            ...stateWithData().dayPlan.targets[0],
+            id: 'same-goal-and-day-from-backup',
+            createdAt: 3,
+          },
+          {
+            ...stateWithData().dayPlan.targets[0],
+            id: 'dt-next-day',
+            dayKey: '2026-07-21',
+            createdAt: 4,
+          },
+        ],
+        archive: [{ weekKey: '2026-04-13', plannedSum: 8, actualSum: 6 }],
+      },
+    }, [], 2);
+
+    const merged = prepareImport(incoming, current).merged.bloom.dayPlan;
+
+    expect(merged.targets.map((target) => target.id)).toEqual([
+      'dt-round-trip',
+      'dt-next-day',
+    ]);
+    expect(merged.archive).toEqual([
+      { weekKey: '2026-04-06', plannedSum: 7, actualSum: 5 },
+      { weekKey: '2026-04-13', plannedSum: 8, actualSum: 6 },
+    ]);
+  });
+
+  it('re-imports an older backup without duplicating migrated carryover progress', () => {
+    const old = {
+      version: 24,
+      sessions: 0,
+      goals: [{
+        id: 4,
+        title: 'Exam review',
+        due: '2026-08-10',
+        target: 8,
+        done: 2,
+        createdAt: 1,
+      }],
+      tasks: [],
+      settings: { name: 'Older backup', durations: { focus: 1200, short: 300, long: 900 } },
+    };
+    const parsed = parseBackup(JSON.stringify({
+      format: BACKUP_FORMAT,
+      formatVersion: BACKUP_FORMAT_VERSION,
+      exportedAt: 1,
+      bloom: old,
+      companion: { version: 1, events: [] },
+    }));
+    const current = createBackupEnvelope(parsed.bloom, [], 2);
+
+    const merged = prepareImport(parsed, current).merged.bloom;
+
+    expect(merged.goalLedger).toHaveLength(1);
+    expect(merged.goalLedger[0]).toMatchObject({
+      id: 'g-carry-4',
+      goalId: 4,
+      delta: 2,
+    });
+    expect(merged.goals).toHaveLength(1);
+    expect(merged.goals[0].done).toBe(2);
   });
 
   it('rejects malformed, oversized, future-schema, and canceled input', () => {
@@ -213,14 +430,14 @@ describe('Bloom backup envelope', () => {
 
     const futureCompanion = JSON.stringify({
       ...base,
-      companion: { version: 3, events: [] },
+      companion: { version: COMPANION_LOG_VERSION + 1, events: [] },
     });
     expect(() => parseBackup(futureCompanion)).toThrowError(
       expect.objectContaining({ code: 'invalid' }),
     );
   });
 
-  it('stops instead of truncating combined session or Companion history', () => {
+  it('archives merged session overflow and still stops before Companion truncation', () => {
     const sessions = (prefix: string, count: number) =>
       Array.from({ length: count }, (_, index) => ({
         ...session,
@@ -243,9 +460,11 @@ describe('Bloom backup envelope', () => {
       { ...stateWithData(), sessionRecords: sessions('incoming', 260) },
       [],
     );
-    expect(() => prepareImport(incomingSessions, current)).toThrowError(
-      expect.objectContaining({ code: 'conflict' }),
-    );
+    const mergedSessions = prepareImport(incomingSessions, current).merged.bloom;
+    expect(mergedSessions.sessionRecords).toHaveLength(500);
+    expect(historyArchiveDaySummaries(mergedSessions.historyArchive)).toEqual([
+      expect.objectContaining({ sessionCount: 20 }),
+    ]);
 
     const incomingEvents = createBackupEnvelope(
       { ...stateWithData(), sessionRecords: [] },
@@ -263,6 +482,41 @@ describe('Bloom backup envelope', () => {
       current.companion.events,
     );
     expect(() => prepareImport(incomingEvents, currentWithoutSessions)).toThrowError(
+      expect.objectContaining({ code: 'conflict' }),
+    );
+  });
+
+  it('unions disjoint archive rows and refuses an ambiguous same-hour aggregate', () => {
+    const currentArchive = archiveSessionRecords(emptyHistoryArchive(), [
+      { ...session, id: 'archived-current', endedAt: Date.UTC(2026, 6, 20, 8, 25) },
+    ]);
+    const incomingArchive = archiveSessionRecords(emptyHistoryArchive(), [
+      { ...session, id: 'archived-incoming', endedAt: Date.UTC(2026, 6, 21, 9, 25) },
+    ]);
+    const current = createBackupEnvelope({
+      ...stateWithData(),
+      historyArchive: currentArchive,
+    }, []);
+    const incoming = createBackupEnvelope({
+      ...stateWithData(),
+      historyArchive: incomingArchive,
+    }, []);
+
+    const merged = prepareImport(incoming, current).merged.bloom.historyArchive;
+    expect(merged.hours).toHaveLength(2);
+
+    const ambiguous = createBackupEnvelope({
+      ...stateWithData(),
+      historyArchive: archiveSessionRecords(emptyHistoryArchive(), [
+        {
+          ...session,
+          id: 'different-source-same-hour',
+          actualMin: 10,
+          endedAt: Date.UTC(2026, 6, 20, 8, 40),
+        },
+      ]),
+    }, []);
+    expect(() => prepareImport(ambiguous, current)).toThrowError(
       expect.objectContaining({ code: 'conflict' }),
     );
   });

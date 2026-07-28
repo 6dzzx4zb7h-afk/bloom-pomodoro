@@ -20,13 +20,34 @@ export interface Goal {
   target: number;
   /** Parts finished so far. */
   done: number;
+  /** Optional user-defined counting word. Missing values render as "parts". */
+  unit?: string;
   /** Epoch ms when the goal was added — anchors the observed pace. */
   createdAt: number;
   /** Epoch ms when `done` last reached `target`; cleared if it drops back (v19). */
   completedAt?: number;
 }
 
+export type GoalDeadlineOutcome = 'before' | 'on' | 'after' | 'unknown';
+
 export const GOAL_TARGET_MAX = 500;
+export const GOAL_UNIT_MAX = 16;
+
+export function normalizeGoalUnit(raw: unknown): string | undefined {
+  if (typeof raw !== 'string') return undefined;
+  const unit = raw.trim().slice(0, GOAL_UNIT_MAX);
+  return unit || undefined;
+}
+
+export function goalUnit(goal: Pick<Goal, 'unit'>): string {
+  return normalizeGoalUnit(goal.unit) ?? 'parts';
+}
+
+export function goalProgressText(
+  goal: Pick<Goal, 'done' | 'target' | 'unit'>,
+): string {
+  return `${goal.done} of ${goal.target} ${goalUnit(goal)}`;
+}
 
 /** Parse YYYY-MM-DD as a local date (avoids the UTC shift of `new Date(str)`). */
 export function parseDue(due: string): Date {
@@ -92,19 +113,19 @@ export function goalPaceForStudyDay(
   let suggestion: string | null = null;
   if (!unrealistic) {
     if (days === 1) {
-      suggestion = `due today — ${remaining} to go, one last push ♡`;
+      suggestion = `due today — ${remaining} to go, if today has room`;
     } else if (perDay <= 6 / 7) {
       const perWeek = Math.max(1, Math.ceil(perDay * 7));
-      suggestion = `about ${perWeek} a week gets you there with room to breathe`;
+      suggestion = `from the date and amount: about ${perWeek} a week. Want to try that pace?`;
     } else {
-      suggestion = `about ${Math.ceil(perDay)} a day and you'll land right on time`;
+      suggestion = `from the date and amount: about ${Math.ceil(perDay)} a day. Want to try that pace?`;
     }
   }
 
   return { status: 'active', daysLeft: days, remaining, perDay, suggestion };
 }
 
-/** Chip copy for a goal card: "done ♡" / "overdue" / "due today" / "12 days". */
+/** Chip copy for a goal card: "done ♡" / "past its date" / "due today" / "12 days". */
 export function dueLabel(goal: Goal, now = Date.now(), dayStartHour = 0): string {
   return dueLabelForStudyDay(goal, dayKeyFor(now, dayStartHour));
 }
@@ -112,8 +133,45 @@ export function dueLabel(goal: Goal, now = Date.now(), dayStartHour = 0): string
 export function dueLabelForStudyDay(goal: Goal, studyDay: string): string {
   if (goal.done >= goal.target) return 'done ♡';
   const days = daysLeftForStudyDay(goal.due, studyDay);
-  if (days <= 0) return 'overdue';
+  if (days <= 0) return 'past its date';
   if (days === 1) return 'due today';
   if (days === 2) return 'due tomorrow';
   return `${days} days`;
+}
+
+/**
+ * Compare a finished goal with its deadline using the same local study-day
+ * boundary as the planner. Legacy completions deliberately return `unknown`:
+ * a current counter cannot tell us when the work was actually finished.
+ */
+export function goalDeadlineOutcome(
+  goal: Pick<Goal, 'done' | 'target' | 'due' | 'completedAt'>,
+  dayStartHour = 0,
+): GoalDeadlineOutcome | null {
+  if (goal.done < goal.target) return null;
+  if (
+    typeof goal.completedAt !== 'number' ||
+    !Number.isFinite(goal.completedAt) ||
+    goal.completedAt < 0
+  ) {
+    return 'unknown';
+  }
+
+  const completedDay = dayKeyFor(goal.completedAt, dayStartHour);
+  if (completedDay < goal.due) return 'before';
+  if (completedDay > goal.due) return 'after';
+  return 'on';
+}
+
+/** Warm, neutral card copy backed only by a trustworthy completion timestamp. */
+export function goalDeadlineOutcomeLine(
+  goal: Pick<Goal, 'done' | 'target' | 'due' | 'completedAt'>,
+  dayStartHour = 0,
+): string | null {
+  const outcome = goalDeadlineOutcome(goal, dayStartHour);
+  if (outcome === 'before') return 'Finished before the due date ♡';
+  if (outcome === 'on') return 'Finished on the due date ♡';
+  if (outcome === 'after') return 'Finished after the due date — the work still counts';
+  if (outcome === 'unknown') return 'Finished — the completion date wasn’t recorded';
+  return null;
 }

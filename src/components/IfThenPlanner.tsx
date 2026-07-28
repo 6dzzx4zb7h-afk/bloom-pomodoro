@@ -30,6 +30,8 @@ export function IfThenPlanner({
   plans,
   selectedId,
   initialOpen = false,
+  initialCueType = 'time',
+  initialActionText = '',
   onSelect,
   onClear,
   onCreate,
@@ -40,15 +42,19 @@ export function IfThenPlanner({
   selectedId: string | null;
   /** WOOP's Plan step opens the same planner immediately (PLAN 3.5). */
   initialOpen?: boolean;
+  /** Foundation anchors reuse this flow with their action already supplied. */
+  initialCueType?: CueType;
+  initialActionText?: string;
   onSelect: (id: string) => void;
   onClear: () => void;
   onCreate: (cueType: CueType, cueText: string, actionText: string) => void;
   onRemove: (id: string) => void;
 }) {
   const [open, setOpen] = useState(initialOpen);
-  const [cueType, setCueType] = useState<CueType>('time');
+  const [cueType, setCueType] = useState<CueType>(initialCueType);
   const [cueText, setCueText] = useState('');
-  const [actionText, setActionText] = useState('');
+  const [actionText, setActionText] = useState(initialActionText);
+  const cueRef = useRef<HTMLInputElement>(null);
   // Creating a plan is a dispatch, so the new id arrives via the plans prop:
   // remember the length at save time and select whatever got appended.
   const wantSelect = useRef<number | null>(null);
@@ -63,6 +69,10 @@ export function IfThenPlanner({
     }
     wantSelect.current = null;
   }, [plans, onSelect]);
+
+  useEffect(() => {
+    if (open) cueRef.current?.focus();
+  }, [open]);
 
   const selected = plans.find((p) => p.id === selectedId);
   const tpl = IF_THEN_TEMPLATES.find((t) => t.cueType === cueType) ?? IF_THEN_TEMPLATES[0];
@@ -143,6 +153,7 @@ export function IfThenPlanner({
           ))}
         </div>
         <input
+          ref={cueRef}
           className="pop-jot-input"
           value={cueText}
           maxLength={120}

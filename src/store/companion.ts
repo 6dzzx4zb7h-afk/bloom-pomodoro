@@ -11,6 +11,11 @@
 // Type-only (erased at compile time, so no runtime cycle with why.ts, which
 // imports helpers from this file): the shared evidence vocabulary (PLAN 2.4).
 import type { EvidenceKey } from '../insights/why';
+import {
+  clearStorageFailure,
+  reportStorageFailure,
+  storageWritesBlocked,
+} from './storageHealth';
 
 /** A gentle self-description, never a diagnosis or a fixed identity. */
 export type Chronotype = 'betterEarlier' | 'betterLater' | 'notSure';
@@ -80,6 +85,11 @@ export interface CompanionEvent {
    * `min` when present. Optional: only answered "since when?" steps have it.
    */
   estOnsetMin?: number;
+  /**
+   * User-estimated drift length in minutes for a repaired historical record.
+   * Kept separate from `len`, which is the session length used for phases.
+   */
+  estDurationMin?: number;
   /** Session length in minutes (so phases stay meaningful across lengths). */
   len: number;
   /**
@@ -88,7 +98,7 @@ export interface CompanionEvent {
    * so skipping that follow-up (or closing the app) never loses the answer.
    */
   kind: DriftKind | 'drift' | 'focused' | 'away' | 'skip';
-  src: 'checkin' | 'return';
+  src: 'checkin' | 'return' | 'repair';
 }
 
 export type StoredCompanionEvent = CompanionEvent & { id: string };
@@ -110,20 +120,83 @@ export const KIND_NAMES: Record<DriftKind, string> = {
 };
 
 export const COMPANION_STORAGE_KEY = 'bloom-companion-v1';
-export const COMPANION_LOG_VERSION = 2;
+export const COMPANION_LOG_VERSION = 4;
 export const COMPANION_EVENT_CAP = 400;
 const LOG_KEY = COMPANION_STORAGE_KEY;
 const LOG_VERSION = COMPANION_LOG_VERSION;
 const MAX_EVENTS = COMPANION_EVENT_CAP;
 const MAX_AGE_DAYS = 60;
 
+function finite(value: unknown, min = 0): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= min;
+}
+
+/** Complete persisted-row guard shared by ordinary boot recovery and backups. */
+export function isValidCompanionEvent(value: unknown): value is CompanionEvent {
+  if (!value || typeof value !== 'object') return false;
+  const event = value as Record<string, unknown>;
+  return (
+    (event.id === undefined || (typeof event.id === 'string' && event.id.length > 0)) &&
+    (event.sessionId === undefined || typeof event.sessionId === 'string') &&
+    finite(event.ts) &&
+    (event.shownAt === undefined || finite(event.shownAt)) &&
+    finite(event.min) &&
+    finite(event.len, 1) &&
+    (event.estOnsetMin === undefined || finite(event.estOnsetMin)) &&
+    (event.estDurationMin === undefined ||
+      (finite(event.estDurationMin, 1) && event.estDurationMin <= event.len)) &&
+    [...DRIFT_KINDS, 'drift', 'focused', 'away', 'skip'].includes(event.kind as string) &&
+    (event.src === 'checkin' || event.src === 'return' || event.src === 'repair')
+  );
+}
+
 export function loadEvents(): CompanionEvent[] {
+  let raw: string | null = null;
   try {
-    const raw = localStorage.getItem(LOG_KEY);
-    if (!raw) return [];
-    const blob = JSON.parse(raw);
-    return Array.isArray(blob?.events) ? (blob.events as CompanionEvent[]) : [];
-  } catch {
+    raw = localStorage.getItem(LOG_KEY);
+    if (!raw) {
+      clearStorageFailure('companion-log');
+      return [];
+    }
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') throw new Error('the log is not an object');
+    const blob = parsed as Record<string, unknown>;
+    if (
+      !Number.isSafeInteger(blob.version) ||
+      (blob.version as number) < 1 ||
+      (blob.version as number) > LOG_VERSION
+    ) {
+      throw new Error('the log version is not supported');
+    }
+    if (!Array.isArray(blob.events)) throw new Error('the event log is not a list');
+    const events = blob.events.filter(isValidCompanionEvent).slice(-MAX_EVENTS);
+    const ids = new Set<string>();
+    const unique = events.filter((event) => {
+      if (!event.id) return true;
+      if (ids.has(event.id)) return false;
+      ids.add(event.id);
+      return true;
+    });
+    if (unique.length !== blob.events.length) {
+      reportStorageFailure({
+        area: 'companion-log',
+        key: LOG_KEY,
+        kind: 'validation',
+        reason: 'The Companion log contained malformed or duplicate moments.',
+        raw,
+      });
+    } else {
+      clearStorageFailure('companion-log');
+    }
+    return unique;
+  } catch (error) {
+    reportStorageFailure({
+      area: 'companion-log',
+      key: LOG_KEY,
+      kind: 'read',
+      reason: error instanceof Error ? error.message : 'The Companion log could not be read.',
+      raw,
+    });
     return [];
   }
 }
@@ -139,12 +212,23 @@ export function newEventId(now = Date.now()): string {
 /** Append one event, stamping an id if it has none. Returns the stored event. */
 export function appendEvent(e: CompanionEvent): StoredCompanionEvent {
   const ev: StoredCompanionEvent = { ...e, id: e.id ?? newEventId(e.ts) };
+  if (!isValidCompanionEvent(ev)) return ev;
   const cutoff = ev.ts - MAX_AGE_DAYS * 86400000;
   const events = [...loadEvents().filter((x) => x.ts >= cutoff), ev].slice(-MAX_EVENTS);
+  if (storageWritesBlocked('companion-log')) return ev;
+  let prior: string | null = null;
   try {
+    prior = localStorage.getItem(LOG_KEY);
     localStorage.setItem(LOG_KEY, JSON.stringify({ version: LOG_VERSION, events }));
-  } catch {
-    /* storage unavailable — companion runs without memory */
+    clearStorageFailure('companion-log');
+  } catch (error) {
+    reportStorageFailure({
+      area: 'companion-log',
+      key: LOG_KEY,
+      kind: 'write',
+      reason: error instanceof Error ? error.message : 'The Companion log could not be saved.',
+      raw: prior,
+    });
   }
   return ev;
 }
@@ -167,11 +251,22 @@ export function updateEvent(id: string, patch: Partial<CompanionEvent>): void {
   const events = loadEvents();
   const i = events.findIndex((e) => e.id === id);
   if (i === -1) return;
-  events[i] = { ...events[i], ...patch };
+  const updated = { ...events[i], ...patch };
+  if (!isValidCompanionEvent(updated) || storageWritesBlocked('companion-log')) return;
+  events[i] = updated;
+  let prior: string | null = null;
   try {
+    prior = localStorage.getItem(LOG_KEY);
     localStorage.setItem(LOG_KEY, JSON.stringify({ version: LOG_VERSION, events }));
-  } catch {
-    /* storage unavailable — companion runs without memory */
+    clearStorageFailure('companion-log');
+  } catch (error) {
+    reportStorageFailure({
+      area: 'companion-log',
+      key: LOG_KEY,
+      kind: 'write',
+      reason: error instanceof Error ? error.message : 'The Companion log could not be saved.',
+      raw: prior,
+    });
   }
 }
 
@@ -258,8 +353,36 @@ export function companionEventsForAnalytics(
 export function clearEvents() {
   try {
     localStorage.removeItem(LOG_KEY);
-  } catch {
-    /* nothing to clear */
+    clearStorageFailure('companion-log');
+  } catch (error) {
+    reportStorageFailure({
+      area: 'companion-log',
+      key: LOG_KEY,
+      kind: 'write',
+      reason: error instanceof Error ? error.message : 'The Companion log could not be cleared.',
+      raw: null,
+    });
+  }
+}
+
+/** Explicit recovery path: called only after the user chooses the recovered copy. */
+export function replaceCompanionLog(events: CompanionEvent[]): boolean {
+  const safe = events.filter(isValidCompanionEvent).slice(-MAX_EVENTS);
+  let prior: string | null = null;
+  try {
+    prior = localStorage.getItem(LOG_KEY);
+    localStorage.setItem(LOG_KEY, JSON.stringify({ version: LOG_VERSION, events: safe }));
+    clearStorageFailure('companion-log');
+    return true;
+  } catch (error) {
+    reportStorageFailure({
+      area: 'companion-log',
+      key: LOG_KEY,
+      kind: 'write',
+      reason: error instanceof Error ? error.message : 'The Companion log could not be recovered.',
+      raw: prior,
+    });
+    return false;
   }
 }
 

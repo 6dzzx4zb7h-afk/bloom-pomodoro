@@ -4,13 +4,16 @@ import { NightSky } from './components/NightSky';
 import { DaySky } from './components/DaySky';
 import { Onboarding } from './components/Onboarding';
 import { CompanionPrompt } from './components/CompanionPrompt';
+import { StorageRecoveryNotice } from './components/StorageRecoveryNotice';
 import { FocusScreen } from './screens/FocusScreen';
 import { TasksScreen } from './screens/TasksScreen';
+import { HistoryScreen } from './screens/HistoryScreen';
 import { GoalsScreen } from './screens/GoalsScreen';
 import { CollectionScreen } from './screens/CollectionScreen';
-import { useBloom } from './store/useBloom';
+import { timerTransitionPolicy, useBloom } from './store/useBloom';
 import { useCompanion } from './store/useCompanion';
 import type { GuideArticleId } from './content/guide';
+import { resolveFocusSurface } from './store/surfaceCoordinator';
 
 export default function App() {
   const bloom = useBloom();
@@ -22,13 +25,18 @@ export default function App() {
   const night = bloom.state.settings.night;
   const mode = bloom.state.mode;
   const showGoals = bloom.state.settings.planner;
-  const hasResumeCue = Boolean(bloom.state.openFocus?.returnSnapshot?.returnedAt) ||
-    bloom.state.sessionRecords.some(
-      (record) => record.outcome === 'interrupted' && record.resumeCuePending,
-    );
+  const hasPendingReturnTruth = Boolean(
+    bloom.state.openFocus?.returnSnapshot?.returnedAt,
+  );
+  const appSurface = resolveFocusSurface({ returnTruth: hasPendingReturnTruth });
   const workSessionRunning =
     bloom.state.running &&
     (bloom.state.mode === 'focus' || bloom.state.mode === 'tiny' || bloom.state.mode === 'flow');
+  const companionFocusLabel =
+    bloom.state.openFocus?.targetText ||
+    bloom.state.openFlow?.targetText ||
+    bloom.activeTask?.t ||
+    null;
 
   const openGuideArticle = (id: GuideArticleId) => {
     // PLAN 6.3: contextual links wait for a natural pause. Manual browsing of
@@ -55,12 +63,8 @@ export default function App() {
   // user answers. Bring its small re-entry card into view even if they left
   // Bloom while browsing another in-app screen (PLAN 5.2).
   useEffect(() => {
-    const activeReturn = Boolean(bloom.state.openFocus?.returnSnapshot?.returnedAt);
-    const interruptedReturn = bloom.state.sessionRecords.some(
-      (record) => record.outcome === 'interrupted' && record.resumeCuePending,
-    );
-    if (activeReturn || interruptedReturn) setScreen('focus');
-  }, [bloom.state.openFocus?.returnSnapshot?.returnedAt, bloom.state.sessionRecords]);
+    if (appSurface.blocksNavigation) setScreen('focus');
+  }, [appSurface.blocksNavigation]);
 
   // Flow and Tiny Start share Focus's sky mood — both are working modes.
   const skyMode = mode === 'flow' || mode === 'tiny' ? 'focus' : mode;
@@ -68,6 +72,11 @@ export default function App() {
   return (
     <div className="bezel">
       <div className={`phone${night ? ' night' : ''} mode-${skyMode}`}>
+        <StorageRecoveryNotice
+          recoveredBloom={bloom.storageRecovery.recoveredBloom}
+          onRetry={bloom.storageRecovery.retry}
+          onRecover={bloom.storageRecovery.recover}
+        />
         {/* Per-mode sky gradients; the active one crossfades in behind the
             animated sun/moon canvas. */}
         <div className="sky-mood" aria-hidden="true">
@@ -85,10 +94,24 @@ export default function App() {
                 bloom={bloom}
                 companion={companion}
                 onOpenGuideArticle={openGuideArticle}
+                onOpenGoals={() => setScreen('goals')}
               />
             )}
             {screen === 'tasks' && (
               <TasksScreen bloom={bloom} onOpenGuideArticle={openGuideArticle} />
+            )}
+            {screen === 'history' && (
+              <HistoryScreen
+                records={bloom.state.sessionRecords}
+                archive={bloom.state.historyArchive}
+                tasks={bloom.state.tasks}
+                foundations={bloom.state.foundations}
+                goalLedger={bloom.state.goalLedger}
+                goals={bloom.state.goals}
+                onRepair={bloom.actions.repairSession}
+                dayStartHour={bloom.state.settings.dayStartHour}
+                now={bloom.state.now}
+              />
             )}
             {screen === 'goals' && showGoals && <GoalsScreen bloom={bloom} />}
             {screen === 'collection' && (
@@ -100,20 +123,24 @@ export default function App() {
             )}
             <TabBar
               active={screen}
-              onChange={(next) => setScreen(hasResumeCue ? 'focus' : next)}
+              onChange={(next) => {
+                const decision = timerTransitionPolicy(bloom.state, 'navigation');
+                setScreen(
+                  appSurface.blocksNavigation || decision.kind === 'confirm'
+                    ? 'focus'
+                    : next,
+                );
+              }}
               showGoals={showGoals}
             />
             {/* The pet's check-in bubble floats over whichever screen is open. */}
-            <CompanionPrompt
-              companion={companion}
-              palSprite={bloom.palSprite}
-              focusLabel={
-                bloom.state.openFocus?.targetText ||
-                bloom.state.openFlow?.targetText ||
-                bloom.activeTask?.t ||
-                null
-              }
-            />
+            {screen !== 'focus' && (
+              <CompanionPrompt
+                companion={companion}
+                palSprite={bloom.palSprite}
+                focusLabel={companionFocusLabel}
+              />
+            )}
           </>
         )}
       </div>

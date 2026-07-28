@@ -761,6 +761,48 @@ export function SettingsSheet({
             <span className="knob" />
           </button>
         </div>
+        {settings.planner && (
+          <label className="set-row goal-credit-setting">
+            <span className="set-label">
+              Credit linked work
+              <span className="set-sub">
+                choose whether a finished linked task or session can log one goal part
+              </span>
+            </span>
+            <select
+              className="name-input"
+              value={settings.goalCredit}
+              onChange={(event) =>
+                onPatch({ goalCredit: event.target.value as Settings['goalCredit'] })
+              }
+              aria-label="Goal credit after linked work"
+            >
+              <option value="off">keep manual</option>
+              <option value="ask">ask each time</option>
+              <option value="auto">add automatically</option>
+            </select>
+          </label>
+        )}
+        </SettingSection>
+
+        <SettingSection title="Daily foundations">
+        <div className="set-row">
+          <span className="set-label">
+            Daily foundations
+            <span className="set-sub">
+              keep up to three tiny daily actions beside your finished-session marker
+            </span>
+          </span>
+          <button
+            className={`switch${settings.foundations ? ' on' : ''}`}
+            onClick={() => onPatch({ foundations: !settings.foundations })}
+            role="switch"
+            aria-checked={settings.foundations}
+            aria-label="Daily foundations"
+          >
+            <span className="knob" />
+          </button>
+        </div>
         </SettingSection>
 
         <SettingSection title="Companion">

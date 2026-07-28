@@ -29,7 +29,6 @@ export function Onboarding({ bloom }: { bloom: ReturnType<typeof useBloom> }) {
           <label className="onboard-label" htmlFor="onboarding-name">Your name</label>
           <input
             id="onboarding-name"
-            autoFocus
             className="onboard-input"
             value={name}
             onChange={(e) => setName(e.target.value)}

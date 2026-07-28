@@ -16,6 +16,17 @@ import { GuideSuggestion } from './GuideSuggestion';
 import { guideSuggestionFor } from '../insights/surfacing';
 import type { GuideReadState } from '../store/guide';
 import type { GuideArticleId } from '../content/guide';
+import {
+  EMPTY_FOUNDATIONS,
+  foundationsWeekLine,
+  type FoundationsState,
+} from '../store/foundations';
+import { EMPTY_DAY_PLAN, type DayPlanState } from '../store/dailyTarget';
+import type { GoalCredit } from '../store/goalLedger';
+import {
+  weeklyPlanCalibration,
+  weeklyPlanCalibrationLine,
+} from '../insights/paceActual';
 
 /**
  * Weekly review card (PLAN 2.3): once per calendar week — or on demand from
@@ -40,6 +51,9 @@ export function WeeklyReview({
   personalCadence,
   chronotype,
   guideRead,
+  foundations = EMPTY_FOUNDATIONS,
+  dayPlan = EMPTY_DAY_PLAN,
+  goalLedger = [],
   onGuideSuggested,
   onOpenGuideArticle,
 }: {
@@ -58,6 +72,9 @@ export function WeeklyReview({
   personalCadence: PersonalCadenceMemory;
   chronotype: Chronotype;
   guideRead: GuideReadState;
+  foundations?: FoundationsState;
+  dayPlan?: DayPlanState;
+  goalLedger?: GoalCredit[];
   onGuideSuggested: (id: GuideArticleId, momentKey: string) => void;
   onOpenGuideArticle: (id: GuideArticleId) => void;
 }) {
@@ -78,6 +95,25 @@ export function WeeklyReview({
     }, guideRead, now, dayStartHour),
     [dayStartHour, events, guideRead, now, records, studyDay],
   );
+  const foundationLine = useMemo(
+    () =>
+      foundationsWeekLine(
+        foundations.instances,
+        foundations.entries,
+        weekKeyForStudyDay(studyDay),
+      ),
+    [foundations.entries, foundations.instances, studyDay],
+  );
+  const planCalibrationLine = useMemo(() => {
+    const calibration = weeklyPlanCalibration(
+      dayPlan,
+      goalLedger,
+      records,
+      studyDay,
+      dayStartHour,
+    );
+    return calibration ? weeklyPlanCalibrationLine(calibration) : null;
+  }, [dayPlan, dayStartHour, goalLedger, records, studyDay]);
   const cadenceDecision = useMemo(
     () => {
       // Staleness and recommendation share this exact computation instant.
@@ -129,6 +165,14 @@ export function WeeklyReview({
             </>
           ) : (
             <div className="debrief-row">🌱 {review.text}</div>
+          )}
+          {foundationLine && (
+            <div className="debrief-row foundation-week-line">🌿 {foundationLine}</div>
+          )}
+          {planCalibrationLine && (
+            <div className="debrief-row plan-calibration-line">
+              🌱 {planCalibrationLine}
+            </div>
           )}
           <div className="debrief-row cadence-because">
             cadence check: {cadence.text} {cadence.because}

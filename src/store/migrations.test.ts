@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import companionV1 from './fixtures/migrations/companion-v1.json';
 import companionV2 from './fixtures/migrations/companion-v2.json';
+import companionV3 from './fixtures/migrations/companion-v3.json';
+import companionV4 from './fixtures/migrations/companion-v4.json';
 import mainV00 from './fixtures/migrations/main-v00.json';
 import mainV01 from './fixtures/migrations/main-v01.json';
 import mainV02 from './fixtures/migrations/main-v02.json';
@@ -26,8 +28,15 @@ import mainV20 from './fixtures/migrations/main-v20.json';
 import mainV21 from './fixtures/migrations/main-v21.json';
 import mainV22 from './fixtures/migrations/main-v22.json';
 import mainV23 from './fixtures/migrations/main-v23.json';
+import mainV24 from './fixtures/migrations/main-v24.json';
+import mainV25 from './fixtures/migrations/main-v25.json';
+import mainV26 from './fixtures/migrations/main-v26.json';
+import mainV27 from './fixtures/migrations/main-v27.json';
+import mainV28 from './fixtures/migrations/main-v28.json';
+import mainV29 from './fixtures/migrations/main-v29.json';
+import mainV30 from './fixtures/migrations/main-v30.json';
 import { loadEvents, updateEvent } from './companion';
-import { readPersisted } from './useBloom';
+import { readPersisted, SCHEMA_VERSION } from './useBloom';
 
 interface MainFixture {
   version: number;
@@ -50,6 +59,7 @@ interface CompanionFixture {
     shownAt?: number;
     min: number;
     estOnsetMin?: number;
+    estDurationMin?: number;
     len: number;
     kind: string;
     src: string;
@@ -109,8 +119,20 @@ const mainFixtures: MainFixture[] = [
   mainV21,
   mainV22,
   mainV23,
+  mainV24,
+  mainV25,
+  mainV26,
+  mainV27,
+  mainV28,
+  mainV29,
+  mainV30,
 ];
-const companionFixtures: CompanionFixture[] = [companionV1, companionV2];
+const companionFixtures: CompanionFixture[] = [
+  companionV1,
+  companionV2,
+  companionV3,
+  companionV4,
+];
 const latestMainFixtureVersion = Math.max(...mainFixtures.map((fixture) => fixture.version));
 
 const expectedCore = {
@@ -162,6 +184,7 @@ describe('main persisted-state migrations', () => {
     expect(mainFixtures.map((fixture) => fixture.version)).toEqual(
       Array.from({ length: latestMainFixtureVersion + 1 }, (_, version) => version),
     );
+    expect(latestMainFixtureVersion).toBe(SCHEMA_VERSION);
   });
 
   it.each(mainFixtures)('migrates schema v$version to latest without losing user data', (fixture) => {
@@ -179,6 +202,19 @@ describe('main persisted-state migrations', () => {
       restDayUsedOn: null,
       comeBack: false,
       sessionRecords: [],
+      historyArchive: {
+        hours: [],
+        completedTasks: [],
+        overflow: {
+          hourBucketCount: 0,
+          focusMinutes: 0,
+          sessionCount: 0,
+          completedSessionCount: 0,
+          driftCount: 0,
+          recoveryCount: 0,
+          completedTaskCount: 0,
+        },
+      },
       openFocus: null,
       openFlow: null,
       lastWeeklyReviewWeek: null,
@@ -198,14 +234,22 @@ describe('main persisted-state migrations', () => {
       personalCadence: { computedAt: null, recommendation: null, history: [] },
       parking: [],
       guideRead: { readAt: {}, suggestions: [] },
-      settings: { chronotype: 'notSure', preSlumpCheck: false, dayStartHour: 0 },
+      foundations: { instances: [], entries: [], archive: [] },
+      dayPlan: { targets: [], archive: [] },
+      lastRolloverOfferDay: null,
+      settings: {
+        chronotype: 'notSure',
+        preSlumpCheck: false,
+        dayStartHour: 0,
+        foundations: false,
+      },
     });
   });
 });
 
 describe('independent companion-log migrations', () => {
   it('has one fixture for every shipped companion-log version', () => {
-    expect(companionFixtures.map((fixture) => fixture.version)).toEqual([1, 2]);
+    expect(companionFixtures.map((fixture) => fixture.version)).toEqual([1, 2, 3, 4]);
   });
 
   it.each(companionFixtures)('loads companion log v$version and rewrites it at latest', (fixture) => {
@@ -215,7 +259,7 @@ describe('independent companion-log migrations', () => {
     updateEvent(fixture.events[0].id, { min: fixture.events[0].min });
 
     expect(JSON.parse(localStorage.getItem('bloom-companion-v1')!)).toEqual({
-      version: 2,
+      version: 4,
       events: fixture.events,
     });
   });

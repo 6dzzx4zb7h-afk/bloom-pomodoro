@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { PixelPal } from '../components/PixelPal';
-import type { Task, useBloom } from '../store/useBloom';
+import { timerTransitionPolicy, type Task, type useBloom } from '../store/useBloom';
 import {
   computeAttentionPlan,
   computeInsights,
@@ -17,6 +17,7 @@ import {
 import { completionRateByStartHour } from '../store/sessionStats';
 import type { GuideArticleId } from '../content/guide';
 import { guideArticleForEvidenceKey } from '../insights/surfacing';
+import { FoundationsCard } from '../components/FoundationsCard';
 
 const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
@@ -187,6 +188,24 @@ export function TasksScreen({
         <div className="head-sub">ongoing list · {dateLabel}</div>
       </div>
 
+      {state.settings.foundations && (
+        <FoundationsCard
+          foundations={state.foundations}
+          records={state.sessionRecords}
+          today={state.today}
+          dayStartHour={state.settings.dayStartHour}
+          onToggleDay={actions.toggleFoundationDay}
+          onSetEnabled={actions.setFoundationEnabled}
+          onReorder={actions.reorderFoundation}
+          onRenameCustom={actions.renameCustomFoundation}
+          plans={state.ifThenPlans}
+          onCreatePlan={actions.addIfThenPlan}
+          onRemovePlan={actions.removeIfThenPlan}
+          onSetIfThen={actions.setFoundationIfThen}
+          onMarkRestartOffered={actions.markFoundationRestartOffered}
+        />
+      )}
+
       {total > 0 && (
         <div className="prog-card">
           <div className="prog-tile">
@@ -207,6 +226,9 @@ export function TasksScreen({
       <div className="task-list">
         {state.tasks.map((task, index) => {
           const isActive = activeTask?.id === task.id;
+          const linkedGoal = task.goalId == null
+            ? undefined
+            : state.goals.find((item) => item.id === task.goalId);
           return (
             <div className={`task-row${isActive ? ' active' : ''}`} key={task.id}>
               <div
@@ -228,7 +250,11 @@ export function TasksScreen({
               <button
                 type="button"
                 className="task-select"
-                onClick={() => actions.setActiveTask(task.id)}
+                onClick={() => {
+                  if (timerTransitionPolicy(state, 'activeTask').kind === 'allow') {
+                    actions.setActiveTask(task.id);
+                  }
+                }}
                 disabled={task.done}
                 aria-pressed={isActive}
                 aria-label={`${isActive ? 'Selected task' : 'Select task'}: ${task.t}`}
@@ -244,6 +270,58 @@ export function TasksScreen({
                   ))}
                 </div>
               </button>
+              {state.settings.planner && state.goals.length > 0 && (
+                <div className="task-goal-tools">
+                  <label>
+                    <span className="sr-only">Goal for {task.t}</span>
+                    <select
+                      className="goal-link"
+                      value={task.goalId ?? ''}
+                      disabled={task.done}
+                      onChange={(event) =>
+                        actions.setTaskGoal(
+                          task.id,
+                          event.target.value ? Number(event.target.value) : undefined,
+                        )
+                      }
+                      aria-label={`Goal for ${task.t}`}
+                    >
+                      <option value="">no goal</option>
+                      {state.goals.map((item) => (
+                        <option key={item.id} value={item.id}>
+                          {item.title}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  {task.goalCredit === 'pending' && linkedGoal && (
+                    <div
+                      className="task-goal-credit"
+                      role="group"
+                      aria-label={`Add one part to ${linkedGoal.title}?`}
+                    >
+                      <span>add 1 part to {linkedGoal.title}?</span>
+                      <button
+                        type="button"
+                        onClick={() => actions.resolveGoalCredit('task', task.id, true)}
+                      >
+                        add
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => actions.resolveGoalCredit('task', task.id, false)}
+                      >
+                        not this time
+                      </button>
+                    </div>
+                  )}
+                  {task.goalCredit === 'credited' && linkedGoal && (
+                    <span className="task-credit-note" role="status">
+                      1 part added to {linkedGoal.title}
+                    </span>
+                  )}
+                </div>
+              )}
               <button className="task-del" onClick={() => removeTask(task, index)} aria-label={`Delete ${task.t}`}>
                 &times;
               </button>

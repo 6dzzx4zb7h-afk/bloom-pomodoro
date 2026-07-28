@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 
-export type ScreenName = 'focus' | 'tasks' | 'goals' | 'collection';
+export type ScreenName = 'focus' | 'tasks' | 'history' | 'goals' | 'collection';
 
 /* Inline SVG icons so colors flow through CSS variables and render the same
    on every device. Outlines ride on `currentColor` (the nav button's color);
@@ -61,6 +61,31 @@ function PencilIcon() {
   );
 }
 
+/** History: a small open ledger with three calm entries. */
+function LedgerIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <rect
+        x="4"
+        y="3.5"
+        width="16"
+        height="17"
+        rx="3"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+      />
+      <path
+        d="M8 8 H16 M8 12 H16 M8 16 H13"
+        fill="none"
+        stroke="var(--nav-icon-a)"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
 /** Friends: a plump heart. */
 function HeartIcon() {
   return (
@@ -102,6 +127,7 @@ const TABS: { name: ScreenName; icon: ReactNode; label: string }[] = [
     label: 'Focus',
   },
   { name: 'tasks', icon: <PencilIcon />, label: 'Tasks' },
+  { name: 'history', icon: <LedgerIcon />, label: 'History' },
   { name: 'goals', icon: <FlagIcon />, label: 'Goals' },
   { name: 'collection', icon: <HeartIcon />, label: 'Friends' },
 ];

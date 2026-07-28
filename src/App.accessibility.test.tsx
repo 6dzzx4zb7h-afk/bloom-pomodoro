@@ -70,6 +70,41 @@ function seedNamedState() {
   );
 }
 
+function seedPendingReturnState() {
+  const now = Date.now();
+  const id = 'return-owner';
+  localStorage.setItem(
+    'bloom-state',
+    JSON.stringify({
+      version: 29,
+      settings: { name: 'Mira', companion: { on: true } },
+      ritual: { enabled: false, suggestionSeen: true },
+      running: true,
+      remaining: 12 * 60,
+      openFocus: {
+        id,
+        startedAt: now - 10 * 60_000,
+        mode: 'focus',
+        plannedMin: 25,
+        startHour: new Date(now).getHours(),
+        endsAt: now + 12 * 60_000,
+        remainingSec: 12 * 60,
+        running: true,
+        driftEventIds: [],
+        returnSnapshot: {
+          capturedAt: now - 60_000,
+          returnedAt: now,
+          elapsedSec: 9 * 60,
+          remainingSec: 16 * 60,
+          mode: 'focus',
+          round: 1,
+          sessionId: id,
+        },
+      },
+    }),
+  );
+}
+
 describe('screen semantics and named controls', () => {
   beforeEach(() => {
     vi.stubGlobal('localStorage', new MemoryStorage());
@@ -95,6 +130,11 @@ describe('screen semantics and named controls', () => {
     expect(screen.getByRole('main', { name: 'Tasks' })).toBeTruthy();
     expect(screen.getByRole('heading', { level: 1, name: 'Tasks' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Tasks' }).getAttribute('aria-current')).toBe('page');
+
+    fireEvent.click(screen.getByRole('button', { name: 'History' }));
+    expect(screen.getByRole('main', { name: 'History' })).toBeTruthy();
+    expect(screen.getByRole('heading', { level: 1, name: 'History' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'History' }).getAttribute('aria-current')).toBe('page');
 
     fireEvent.click(screen.getByRole('button', { name: 'Goals' }));
     expect(screen.getByRole('main', { name: 'Goals & deadlines' })).toBeTruthy();
@@ -139,7 +179,8 @@ describe('screen semantics and named controls', () => {
 
     const goalName = screen.getByRole('textbox', { name: 'Goal name' });
     const dueDate = screen.getByLabelText('Due date');
-    expect(screen.getByLabelText('Parts')).toBeTruthy();
+    expect(screen.getByLabelText('Amount')).toBeTruthy();
+    expect(screen.getByLabelText('Counted in…')).toBeTruthy();
 
     fireEvent.blur(goalName);
     fireEvent.blur(dueDate);
@@ -155,5 +196,27 @@ describe('screen semantics and named controls', () => {
     expect(screen.getByRole('main', { name: 'welcome to Bloom' })).toBeTruthy();
     expect(screen.getByRole('heading', { level: 1, name: 'welcome to Bloom' })).toBeTruthy();
     expect(screen.getByRole('textbox', { name: 'Your name' })).toBeTruthy();
+  });
+
+  it('keeps unresolved return truth modal, focused, and visible across navigation attempts', () => {
+    seedPendingReturnState();
+    render(<App />);
+
+    const dialog = screen.getByRole('dialog', { name: 'Return to your session' });
+    expect(dialog.getAttribute('aria-modal')).toBe('true');
+    expect(document.activeElement).toBe(
+      screen.getByRole('heading', { name: 'Return to your session' }),
+    );
+    expect(
+      screen.getByRole('button', { name: 'Pause', hidden: true }).hasAttribute('disabled'),
+    ).toBe(true);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Tasks', hidden: true }));
+
+    expect(screen.getByRole('dialog', { name: 'Return to your session' })).toBeTruthy();
+    expect(screen.queryByRole('main', { name: 'Tasks', hidden: true })).toBeNull();
+    expect(
+      screen.getByRole('main', { name: /Focus\. Hi, Mira/i, hidden: true }),
+    ).toBeTruthy();
   });
 });

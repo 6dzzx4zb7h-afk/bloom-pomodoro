@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { DebriefCard } from '../components/DebriefCard';
+import { CompanionPrompt } from '../components/CompanionPrompt';
+import { Dialog } from '../components/Dialog';
 import { IfThenPlanner } from '../components/IfThenPlanner';
 import { ParkingLot } from '../components/ParkingLot';
 import { PixelPal } from '../components/PixelPal';
@@ -18,6 +20,8 @@ import {
   flowCreditsForElapsed,
   isTinyFirstRung,
   persistedShapeFromState,
+  timerTransitionPolicy,
+  type TimerTransitionIntent,
   type TimerMode,
   type TinyStartMinutes,
   type useBloom,
@@ -29,6 +33,19 @@ import { loadEvents } from '../store/companion';
 import type { GuideArticleId } from '../content/guide';
 import { groupSessionsByStudyDay } from '../store/sessionStats';
 import { daysBetween } from '../store/streak';
+import { FoundationsCard } from '../components/FoundationsCard';
+import {
+  isGoalDailyTarget,
+  targetActual,
+} from '../store/dailyTarget';
+import { dayKeyFor } from '../store/dayKey';
+import { goalPaceForStudyDay, goalUnit } from '../store/goals';
+import { medianSessionCredit } from '../store/goalLedger';
+import { sessionEffortLine } from '../insights/paceActual';
+import {
+  companionPromptForSurface,
+  resolveFocusSurface,
+} from '../store/surfaceCoordinator';
 
 const RING_R = 92;
 const RING_C = 2 * Math.PI * RING_R;
@@ -44,10 +61,12 @@ export function FocusScreen({
   bloom,
   companion,
   onOpenGuideArticle,
+  onOpenGoals,
 }: {
   bloom: ReturnType<typeof useBloom>;
   companion: Companion;
   onOpenGuideArticle: (id: GuideArticleId) => void;
+  onOpenGoals?: () => void;
 }) {
   const { state, now, mood, statusLabel, palSprite, activeTask, actions, mmss, clock } = bloom;
   const [showSettings, setShowSettings] = useState(false);
@@ -57,13 +76,23 @@ export function FocusScreen({
   const [woopOpen, setWoopOpen] = useState(false);
   const [targetDraft, setTargetDraft] = useState('');
   const [parkingDeferred, setParkingDeferred] = useState(false);
+  const [dayTargetIndex, setDayTargetIndex] = useState(0);
+  const [pendingTransition, setPendingTransition] = useState<{
+    title: string;
+    description: string;
+    confirmLabel: string;
+  } | null>(null);
+  const pendingTransitionAction = useRef<(() => void) | null>(null);
+  const keepTransitionRef = useRef<HTMLButtonElement>(null);
 
   // Post-session debrief (PLAN 2.1): watch the session log for a record
   // finalized while this screen is up. Seeding the ref with the log's current
   // tail means boot-time 'interrupted' sweeps never trigger a card — only a
   // session the user just ended (completed or abandoned) does.
-  const [debrief, setDebrief] = useState<SessionRecord | null>(null);
   const records = state.sessionRecords;
+  const [debrief, setDebrief] = useState<SessionRecord | null>(() =>
+    [...records].reverse().find((record) => record.goalCredit === 'pending') ?? null,
+  );
   const activeReturnSession = state.openFocus?.returnSnapshot?.returnedAt
     ? state.openFocus
     : null;
@@ -244,10 +273,47 @@ export function FocusScreen({
     setTargetDraft('');
   }
 
+  function requestTransition(intent: TimerTransitionIntent, action: () => void) {
+    const decision = timerTransitionPolicy(state, intent);
+    if (decision.kind === 'allow') {
+      action();
+      return;
+    }
+    if (decision.kind === 'discardFalseStart') {
+      actions.discardFalseStart();
+      action();
+      return;
+    }
+    pendingTransitionAction.current = action;
+    setPendingTransition(decision);
+  }
+
+  function cancelTransition() {
+    pendingTransitionAction.current = null;
+    setPendingTransition(null);
+  }
+
+  function confirmTransition() {
+    const action = pendingTransitionAction.current;
+    if (!action) return;
+    pendingTransitionAction.current = null;
+    setPendingTransition(null);
+    action();
+  }
+
   function answerTarget(recordId: string, targetOutcome: TargetOutcome) {
     actions.setTargetOutcome(recordId, targetOutcome);
     setDebrief((current) =>
       current?.id === recordId ? { ...current, targetOutcome } : current,
+    );
+  }
+
+  function resolveGoalCredit(recordId: string, amount: number | null) {
+    actions.resolveGoalCredit('session', recordId, amount != null, amount ?? undefined);
+    setDebrief((current) =>
+      current?.id === recordId
+        ? { ...current, goalCredit: amount != null ? 'credited' : 'skipped' }
+        : current,
     );
   }
 
@@ -286,8 +352,89 @@ export function FocusScreen({
   const filled =
     cyc === 0 && state.sessions > 0 && (state.justDone || state.mode !== 'focus') ? 4 : cyc;
 
+  const todayGoalTargets = useMemo(
+    () =>
+      (state.dayPlan?.targets ?? [])
+        .filter(
+          (target) =>
+            target.dayKey === state.today &&
+            isGoalDailyTarget(target) &&
+            state.goals.some((goal) => goal.id === target.goalId),
+        )
+        .sort((left, right) => {
+          const leftProgress = targetActual(left, state.goalLedger) / left.plannedAmount;
+          const rightProgress = targetActual(right, state.goalLedger) / right.plannedAmount;
+          return leftProgress - rightProgress || left.createdAt - right.createdAt;
+        }),
+    [state.dayPlan?.targets, state.goalLedger, state.goals, state.today],
+  );
+  const armedTargetIndex = todayGoalTargets.findIndex(
+    (target) => target.goalId === state.armedGoalId,
+  );
+  const shownTargetIndex =
+    armedTargetIndex >= 0
+      ? armedTargetIndex
+      : Math.min(dayTargetIndex, Math.max(0, todayGoalTargets.length - 1));
+  const shownTarget = todayGoalTargets[shownTargetIndex];
+  const shownTargetActual = shownTarget
+    ? targetActual(shownTarget, state.goalLedger)
+    : 0;
+  const shownTargetArmed = shownTarget?.goalId === state.armedGoalId;
+  const debriefTarget =
+    debrief?.goalId == null
+      ? undefined
+      : (state.dayPlan?.targets ?? []).find(
+          (target) =>
+            isGoalDailyTarget(target) &&
+            target.goalId === debrief.goalId &&
+            target.dayKey === dayKeyFor(debrief.endedAt, state.settings.dayStartHour),
+        );
+  const debriefGoal =
+    debrief?.goalId == null
+      ? undefined
+      : state.goals.find(
+          (goal) => goal.id === debrief.goalId && goal.done < goal.target,
+        );
+  const debriefGoalPace = debriefGoal
+    ? goalPaceForStudyDay(debriefGoal, state.today, now)
+    : null;
+  const debriefGoalSuggestedAmount = debriefGoal
+    ? Math.min(
+        debriefGoal.target - debriefGoal.done,
+        Math.max(1, Math.ceil(debriefGoalPace?.perDay ?? 1)),
+      )
+    : 0;
+  const debriefGoalEffortLine = debriefGoal
+    ? sessionEffortLine(
+        debriefGoalSuggestedAmount,
+        goalUnit(debriefGoal),
+        medianSessionCredit(state.goalLedger, debriefGoal.id, now),
+      )
+    : null;
+
   const lastRecord = records.length ? records[records.length - 1] : undefined;
   const showTinyOffer = state.justDone && isTiny && isTinyFirstRung(lastRecord);
+  const coordinatedCompanionPrompt = companionPromptForSurface(
+    companion.prompt,
+    companion.enabled,
+    companion.conf.quiet,
+  );
+  const surface = resolveFocusSurface({
+    returnTruth: Boolean(activeReturnSession),
+    transitionConfirm: Boolean(pendingTransition),
+    settings: showSettings,
+    resumeInterrupted: Boolean(interruptedReturnSession),
+    tinyComplete: showTinyOffer,
+    returnedParking:
+      hasBlockingReturnedParking &&
+      (!state.running || state.mode === 'short' || state.mode === 'long'),
+    debrief: Boolean(debrief && !state.running && !state.justDone),
+    weekly: Boolean(weekly && !state.running && !state.justDone),
+    ritual: Boolean(ritualOpen && freshWorkStart),
+    woop: Boolean(woopOpen && !state.running && !state.justDone),
+    ritualSuggestion: showRitualSuggestion,
+    companionPrompt: coordinatedCompanionPrompt,
+  });
   const workSessionOpen =
     Boolean(isFlow ? state.openFlow : state.openFocus) &&
     (state.mode === 'focus' || state.mode === 'tiny' || state.mode === 'flow') &&
@@ -337,8 +484,31 @@ export function FocusScreen({
     }
   }, [actions, breakGuideSuggestion]);
 
+  const nowChip = (
+    <div className="now-chip">
+      <span className="now-badge">{state.mode === 'short' || state.mode === 'long' ? '☕' : '✓'}</span>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div className="now-label">
+          {state.mode === 'short' || state.mode === 'long' ? 'Up next' : 'Now focusing on'}
+        </div>
+        <div className="now-task">
+          {(activeSessionTask ?? activeTask)?.t ?? 'all done — go play!'}
+        </div>
+      </div>
+      <div className="session-dots">
+        {Array.from({ length: 4 }, (_, i) => (
+          <span key={i} className={`sdot ${i < filled ? 'on' : 'off'}`} />
+        ))}
+      </div>
+    </div>
+  );
+
   return (
-    <main className="screen focus-bg" id="focus-screen" aria-labelledby="focus-heading">
+    <main
+      className={`screen focus-bg${freshWorkStart ? ' prestart-scroll' : ''}`}
+      id="focus-screen"
+      aria-labelledby="focus-heading"
+    >
       <div className="greeting-row">
         <div>
           <h1
@@ -377,7 +547,12 @@ export function FocusScreen({
               )}
             </div>
           )}
-          <button className="gear-btn" onClick={() => setShowSettings(true)} aria-label="Settings">
+          <button
+            className="gear-btn"
+            onClick={() => setShowSettings(true)}
+            aria-label="Settings"
+            disabled={surface.blocksTimerControls}
+          >
             &#9881;
           </button>
         </div>
@@ -394,13 +569,56 @@ export function FocusScreen({
               key={m}
               className="tab-btn"
               aria-pressed={state.mode === m}
-              onClick={() => (m === 'tiny' ? actions.pickTiny(tinyMinutes) : actions.pick(m))}
+              disabled={surface.blocksTimerControls}
+              onClick={() =>
+                requestTransition('mode', () =>
+                  m === 'tiny' ? actions.pickTiny(tinyMinutes) : actions.pick(m),
+                )
+              }
             >
               {MODE_LABEL[m]}
             </button>
           ))}
         </div>
       </div>
+
+      {state.settings.planner &&
+        state.mode === 'focus' &&
+        !state.running &&
+        !state.justDone &&
+        shownTarget && (
+          <div className="day-target-strip" aria-label="Today's goal target">
+            <button
+              type="button"
+              className="day-target-label"
+              onClick={onOpenGoals}
+              disabled={!onOpenGoals}
+            >
+              🌱 {shownTarget.snapshot.title} · {shownTargetActual} of {shownTarget.plannedAmount}{' '}
+              {shownTarget.snapshot.unit} · today {shownTargetActual}/{shownTarget.plannedAmount}
+            </button>
+            <button
+              type="button"
+              className="day-target-arm"
+              aria-pressed={shownTargetArmed}
+              onClick={() => actions.armGoal(shownTargetArmed ? null : (shownTarget.goalId ?? null))}
+            >
+              {shownTargetArmed ? 'armed ✓' : 'count next session'}
+            </button>
+            {todayGoalTargets.length > 1 && (
+              <button
+                type="button"
+                className="day-target-next"
+                aria-label="Show next daily target"
+                onClick={() =>
+                  setDayTargetIndex((shownTargetIndex + 1) % todayGoalTargets.length)
+                }
+              >
+                ›
+              </button>
+            )}
+          </div>
+        )}
 
       {isTiny && !state.running && !state.openFocus && !state.justDone && (
         <div className="tiny-picker" role="group" aria-label="Tiny start length">
@@ -413,7 +631,7 @@ export function FocusScreen({
                 aria-pressed={tinyMinutes === minutes}
                 onClick={() => {
                   setTinyMinutes(minutes);
-                  actions.pickTiny(minutes);
+                  requestTransition('mode', () => actions.pickTiny(minutes));
                 }}
               >
                 {minutes} min
@@ -470,14 +688,81 @@ export function FocusScreen({
         )}
       </div>
 
+      {freshWorkStart && (
+        <section className="prestart-stack" aria-label="Before this session">
+          {nowChip}
+
+          {companion.conf.intention && (
+            <label className="prestart-target">
+              <span>one doable thing for this session <span aria-hidden="true">·</span> optional</span>
+              <input
+                className="intention-input"
+                value={targetDraft}
+                maxLength={SESSION_TARGET_MAX}
+                onChange={(e) => {
+                  const next = e.target.value.slice(0, SESSION_TARGET_MAX);
+                  setTargetDraft(next);
+                }}
+                placeholder="name the first visible finish line"
+                aria-label="Session target"
+              />
+            </label>
+          )}
+
+          <div className="prestart-prep" aria-label="Optional preparation">
+            {showPlanner && !woopOpen && (
+              <IfThenPlanner
+                plans={state.ifThenPlans}
+                selectedId={planId}
+                onSelect={(id) => setChosenPlanId(id)}
+                onClear={() => setChosenPlanId(null)}
+                onCreate={(cueType, cueText, actionText) =>
+                  actions.addIfThenPlan(cueType, cueText, actionText)
+                }
+                onRemove={(id) => actions.removeIfThenPlan(id)}
+              />
+            )}
+            {state.mode === 'focus' && state.ritual.enabled && !woopOpen && (
+              <button
+                type="button"
+                className="prestart-ritual"
+                onClick={() => setRitualOpen(true)}
+              >
+                🌱 tiny environment reset <span>optional · skip anytime</span>
+              </button>
+            )}
+            {surface.owner === 'woop' && (
+              <WoopCard
+                plans={state.ifThenPlans}
+                selectedId={planId}
+                palSprite={palSprite}
+                onSelectPlan={(id) => setChosenPlanId(id)}
+                onClearPlan={() => setChosenPlanId(null)}
+                onCreatePlan={(cueType, cueText, actionText) =>
+                  actions.addIfThenPlan(cueType, cueText, actionText)
+                }
+                onRemovePlan={(id) => actions.removeIfThenPlan(id)}
+                onDismiss={() => setWoopOpen(false)}
+              />
+            )}
+          </div>
+        </section>
+      )}
+
       <div className="controls">
-        <button className="ctrl-round ctrl-reset" onClick={actions.reset} aria-label="Reset">
+        <button
+          className="ctrl-round ctrl-reset"
+          onClick={() => requestTransition('reset', actions.reset)}
+          aria-label="Reset"
+          disabled={surface.blocksTimerControls}
+        >
           &#8634;
         </button>
         <button
           className="ctrl-play"
           onClick={beginSession}
           aria-label={state.running ? 'Pause' : 'Start'}
+          disabled={surface.blocksTimerControls}
         >
           {state.running ? (
             <span className="pause-bars">
@@ -492,14 +777,19 @@ export function FocusScreen({
           <button
             className="ctrl-round ctrl-finish"
             onClick={actions.finishFlow}
-            disabled={state.remaining < 1 && !state.running}
+            disabled={surface.blocksTimerControls || (state.remaining < 1 && !state.running)}
             aria-label="Finish flow session"
             title="finish & bank this session"
           >
             &#10003;
           </button>
         ) : (
-          <button className="ctrl-round ctrl-skip" onClick={actions.skip} aria-label="Skip">
+          <button
+            className="ctrl-round ctrl-skip"
+            onClick={() => requestTransition('skip', actions.skip)}
+            aria-label="Skip"
+            disabled={surface.blocksTimerControls}
+          >
             &#187;
           </button>
         )}
@@ -510,11 +800,7 @@ export function FocusScreen({
         // Breaks are the parking lot's moment: the card stays up while a break
         // runs so the items can actually be done during it, and never gates
         // the timer — "start my break ▸" / "not now ♡" live on the card.
-        showReturned={
-          (!state.running || state.mode === 'short' || state.mode === 'long') &&
-          !showTinyOffer &&
-          !hasResumeCue
-        }
+        showReturned={surface.owner === 'returnedParking'}
         returned={returnedParking}
         palSprite={palSprite}
         breakIdle={
@@ -527,6 +813,26 @@ export function FocusScreen({
         onSnoozeReturned={() => setParkingDeferred(true)}
       />
 
+      {state.settings.foundations &&
+        (state.mode === 'short' || state.mode === 'long') && (
+          <FoundationsCard
+            compact
+            foundations={state.foundations}
+            records={state.sessionRecords}
+            today={state.today}
+            dayStartHour={state.settings.dayStartHour}
+            onToggleDay={actions.toggleFoundationDay}
+            onSetEnabled={actions.setFoundationEnabled}
+            onReorder={actions.reorderFoundation}
+            onRenameCustom={actions.renameCustomFoundation}
+            plans={state.ifThenPlans}
+            onCreatePlan={actions.addIfThenPlan}
+            onRemovePlan={actions.removeIfThenPlan}
+            onSetIfThen={actions.setFoundationIfThen}
+            onMarkRestartOffered={actions.markFoundationRestartOffered}
+          />
+        )}
+
       {breakGuideSuggestion && (
         <GuideSuggestion
           articleId={breakGuideSuggestion.articleId}
@@ -535,7 +841,8 @@ export function FocusScreen({
         />
       )}
 
-      {resumeSession && (
+      {resumeSession &&
+        (surface.owner === 'returnTruth' || surface.owner === 'resumeInterrupted') && (
         <ResumeCue
           palSprite={palSprite}
           session={resumeSession}
@@ -562,7 +869,7 @@ export function FocusScreen({
         />
       )}
 
-      {showTinyOffer && (
+      {surface.owner === 'tinyComplete' && (
         <div className="companion-pop tiny-rung-card" role="status" aria-label="Tiny start complete">
           <PixelPal sprite={palSprite} mode="idle" scale={3} size={64} className="pop-pal" />
           <div className="pop-body">
@@ -580,7 +887,7 @@ export function FocusScreen({
         </div>
       )}
 
-      {ritualOpen && freshWorkStart && (
+      {surface.owner === 'ritual' && (
         <RitualCard
           items={state.ritual.items}
           sprite={palSprite}
@@ -595,71 +902,34 @@ export function FocusScreen({
         />
       )}
 
-      {showPlanner && !woopOpen && (
-        <IfThenPlanner
-          plans={state.ifThenPlans}
-          selectedId={planId}
-          onSelect={(id) => setChosenPlanId(id)}
-          onClear={() => setChosenPlanId(null)}
-          onCreate={(cueType, cueText, actionText) =>
-            actions.addIfThenPlan(cueType, cueText, actionText)
-          }
-          onRemove={(id) => actions.removeIfThenPlan(id)}
-        />
-      )}
+      {!freshWorkStart && nowChip}
 
-      {woopOpen && !state.running && !state.justDone && (
-        <WoopCard
-          plans={state.ifThenPlans}
-          selectedId={planId}
-          palSprite={palSprite}
-          onSelectPlan={(id) => setChosenPlanId(id)}
-          onClearPlan={() => setChosenPlanId(null)}
-          onCreatePlan={(cueType, cueText, actionText) =>
-            actions.addIfThenPlan(cueType, cueText, actionText)
-          }
-          onRemovePlan={(id) => actions.removeIfThenPlan(id)}
-          onDismiss={() => setWoopOpen(false)}
-        />
-      )}
-
-      {freshWorkStart && companion.conf.intention && (
-        <input
-          className="intention-input"
-          value={targetDraft}
-          maxLength={SESSION_TARGET_MAX}
-          onChange={(e) => {
-            const next = e.target.value.slice(0, SESSION_TARGET_MAX);
-            setTargetDraft(next);
-          }}
-          placeholder="one specific doable thing (optional)"
-          aria-label="Session target"
-        />
-      )}
-
-      <div className="now-chip">
-        <span className="now-badge">{state.mode === 'short' || state.mode === 'long' ? '☕' : '✓'}</span>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div className="now-label">
-            {state.mode === 'short' || state.mode === 'long' ? 'Up next' : 'Now focusing on'}
-          </div>
-          <div className="now-task">
-            {(activeSessionTask ?? activeTask)?.t ?? 'all done — go play!'}
-          </div>
-        </div>
-        <div className="session-dots">
-          {Array.from({ length: 4 }, (_, i) => (
-            <span key={i} className={`sdot ${i < filled ? 'on' : 'off'}`} />
-          ))}
-        </div>
-      </div>
-
-      {debrief && !state.running && !state.justDone && !hasBlockingReturnedParking && !hasResumeCue && (
+      {debrief && surface.owner === 'debrief' && (
         <DebriefCard
           record={debrief}
           records={records}
           palSprite={palSprite}
           onTargetOutcome={(targetOutcome) => answerTarget(debrief.id, targetOutcome)}
+          goalTitle={
+            debriefGoal?.title
+          }
+          goalUnit={debriefGoal ? goalUnit(debriefGoal) : undefined}
+          goalRemaining={
+            debriefGoal ? debriefGoal.target - debriefGoal.done : undefined
+          }
+          goalPacePerDay={debriefGoalPace?.perDay}
+          goalEffortLine={debriefGoalEffortLine}
+          onResolveGoalCredit={(amount) => resolveGoalCredit(debrief.id, amount)}
+          dailyTargetEcho={
+            debriefTarget
+              ? {
+                  title: debriefTarget.snapshot.title,
+                  actual: targetActual(debriefTarget, state.goalLedger),
+                  planned: debriefTarget.plannedAmount,
+                  unit: debriefTarget.snapshot.unit,
+                }
+              : undefined
+          }
           onTinyRestart={(nextStep) => {
             setDebrief(null);
             setTinyMinutes(TINY_START_OPTIONS[0]);
@@ -671,17 +941,21 @@ export function FocusScreen({
           dayStartHour={state.settings.dayStartHour}
           onGuideSuggested={actions.markGuideArticleSuggested}
           onOpenGuideArticle={onOpenGuideArticle}
+          onRepair={(proposal) => setDebrief(actions.repairSession(proposal))}
           onDismiss={() => setDebrief(null)}
         />
       )}
 
       {/* The debrief takes precedence — one card at a time, never mid-session. */}
-      {weekly && !debrief && !state.running && !state.justDone && !hasBlockingReturnedParking && !hasResumeCue && (
+      {weekly && surface.owner === 'weekly' && (
         <WeeklyReview
           records={records}
           now={now}
           studyDay={state.today}
           dayStartHour={state.settings.dayStartHour}
+          foundations={state.foundations}
+          dayPlan={state.dayPlan}
+          goalLedger={state.goalLedger}
           palSprite={palSprite}
           currentCadence={{
             focusMin: Math.round(state.settings.durations.focus / 60),
@@ -698,7 +972,7 @@ export function FocusScreen({
         />
       )}
 
-      {showRitualSuggestion && (
+      {surface.owner === 'ritualSuggestion' && (
         <RitualSuggestion
           sprite={palSprite}
           onEnable={() => {
@@ -712,7 +986,7 @@ export function FocusScreen({
         />
       )}
 
-      {showSettings && (
+      {showSettings && surface.owner === 'settings' && (
         <SettingsSheet
           settings={state.settings}
           records={records}
@@ -722,9 +996,19 @@ export function FocusScreen({
           running={state.running}
           hasOpenSession={Boolean(state.openFocus || state.openFlow)}
           persistedState={persistedShapeFromState(state)}
-          onPatch={actions.patchSettings}
+          onPatch={(patch) => {
+            if (patch.flow === false) {
+              requestTransition('flowOff', () => actions.patchSettings(patch));
+            } else if (patch.durations) {
+              requestTransition('duration', () => actions.patchSettings(patch));
+            } else {
+              actions.patchSettings(patch);
+            }
+          }}
           onCacheCadence={actions.cachePersonalCadence}
-          onApplyCadence={actions.applyCadence}
+          onApplyCadence={(pair) =>
+            requestTransition('cadence', () => actions.applyCadence(pair))
+          }
           onPatchRitual={actions.patchRitual}
           onUpdateRitualItem={actions.updateRitualItem}
           onClearFocusData={actions.clearFocusData}
@@ -734,6 +1018,42 @@ export function FocusScreen({
             setShowSettings(false);
             setWeekly(true);
           }}
+        />
+      )}
+
+      {pendingTransition && surface.owner === 'transitionConfirm' && (
+        <Dialog
+          title={pendingTransition.title}
+          description={pendingTransition.description}
+          onRequestClose={cancelTransition}
+          closeLabel="Keep going"
+          initialFocusRef={keepTransitionRef}
+        >
+          <div className="dialog-actions">
+            <button
+              ref={keepTransitionRef}
+              type="button"
+              className="dialog-button"
+              onClick={cancelTransition}
+            >
+              keep going
+            </button>
+            <button
+              type="button"
+              className="dialog-button danger"
+              onClick={confirmTransition}
+            >
+              {pendingTransition.confirmLabel}
+            </button>
+          </div>
+        </Dialog>
+      )}
+
+      {surface.showCompanionPrompt && (
+        <CompanionPrompt
+          companion={companion}
+          palSprite={palSprite}
+          focusLabel={activeSessionTarget || activeSessionTask?.t || activeTask?.t || null}
         />
       )}
     </main>

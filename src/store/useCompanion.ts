@@ -23,7 +23,7 @@ export type CompanionPromptState =
       type: 'triage';
       min: number;
       shownAt: number;
-      src: 'checkin' | 'return';
+      src: 'checkin' | 'return' | 'repair';
       eventId: string;
     }
   | { type: 'onset'; min: number; shownAt: number; kind: DriftKind; eventId?: string }
@@ -37,7 +37,11 @@ export type CompanionPromptState =
 const TIP_AUTODISMISS_MS = 60_000;
 const PRE_SLUMP_AUTODISMISS_MS = 12000;
 
-/** Return snapshots are supported for countdown work; Flow remains opt-out. */
+/**
+ * Honest-return snapshots belong to countdown work. Flow deliberately stays
+ * excluded: it counts elapsed time upward, has no countdown gap to classify,
+ * and its separate openFlow record must remain banked across app visibility.
+ */
 export const tracksCompanionTabReturn = (mode: TimerMode): boolean =>
   mode === 'focus' || mode === 'tiny';
 
@@ -73,6 +77,10 @@ export function useCompanion(bloom: Bloom) {
   /** One warm line about the session that just finished, e.g. "2 focused · 1 drift". */
   const [summary, setSummary] = useState<string | null>(null);
   const sessionStartRef = useRef<number | null>(null);
+  // A button can be activated twice before React commits the prompt/state
+  // transition. Claim the exact prompt/snapshot object synchronously so one
+  // honest "I drifted" answer can append and link at most one event.
+  const claimedDriftDecisionsRef = useRef(new WeakSet<object>());
 
   // Latest values for interval/event handlers without re-subscribing.
   const ref = useRef({ state, conf, prompt, active, returnTrackingActive });
@@ -185,8 +193,8 @@ export function useCompanion(bloom: Bloom) {
   useEffect(() => {
     if (!focusRunning || (conf.on && !conf.quiet)) return;
     const p = ref.current.prompt;
-    if (p?.type !== 'checkin') return;
-    logSkip(p);
+    if (p?.type !== 'checkin' && p?.type !== 'preSlump') return;
+    if (p.type === 'checkin') logSkip(p);
     clearDismiss();
     setPrompt(null);
   }, [focusRunning, conf.on, conf.quiet, logSkip]);
@@ -194,7 +202,7 @@ export function useCompanion(bloom: Bloom) {
   /* ---------------- pre-slump gentle check ---------------- */
 
   useEffect(() => {
-    if (!focusRunning || !state.settings.preSlumpCheck) return;
+    if (!focusRunning || !conf.on || conf.quiet || !state.settings.preSlumpCheck) return;
 
     // History is sampled once at session start. Crossing the signal threshold
     // mid-session waits until the next session rather than creating a surprise.
@@ -244,7 +252,15 @@ export function useCompanion(bloom: Bloom) {
     maybeShow();
     const interval = setInterval(maybeShow, 1000);
     return () => clearInterval(interval);
-  }, [focusRunning, state.settings.preSlumpCheck, state.openFocus?.id, elapsed, bloom.actions]);
+  }, [
+    focusRunning,
+    conf.on,
+    conf.quiet,
+    state.settings.preSlumpCheck,
+    state.openFocus?.id,
+    elapsed,
+    bloom.actions,
+  ]);
 
   // Going away (hidden tab or blurred window) withdraws an unanswered
   // check-in as a skip — independent of the tabDetect toggle (PLAN 1.5a).
@@ -387,6 +403,8 @@ export function useCompanion(bloom: Bloom) {
       drifted: () => {
         const p = ref.current.prompt;
         if (p?.type !== 'checkin' && p?.type !== 'away') return;
+        if (claimedDriftDecisionsRef.current.has(p)) return;
+        claimedDriftDecisionsRef.current.add(p);
         const sessionId = p.type === 'checkin' ? p.sessionId ?? activeSessionId() : activeSessionId();
         const ev = appendDriftEvent({
           ts: Date.now(),
@@ -411,6 +429,8 @@ export function useCompanion(bloom: Bloom) {
       returnDrifted: () => {
         const snapshot = ref.current.state.openFocus?.returnSnapshot;
         if (!snapshot?.returnedAt) return;
+        if (claimedDriftDecisionsRef.current.has(snapshot)) return;
+        claimedDriftDecisionsRef.current.add(snapshot);
         const len = sessionLenMins();
         const gapSec = Math.max(0, (snapshot.returnedAt - snapshot.capturedAt) / 1000);
         const min = Math.floor(Math.min(len * 60, snapshot.elapsedSec + gapSec) / 60);

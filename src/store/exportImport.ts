@@ -21,6 +21,14 @@ import { isGuideArticleId, sanitizeGuideReadState } from './guide';
 import { sanitizeParkedThoughts } from './parking';
 import { sanitizeRitual } from './ritual';
 import { sanitizePersonalCadenceMemory } from '../insights/cadence';
+import { compactGoalLedger, sanitizeGoalLedger } from './goalLedger';
+import { sanitizeFoundations, type FoundationsState } from './foundations';
+import { sanitizeDayPlan } from './dailyTarget';
+import {
+  archiveSessionRecords,
+  sanitizeHistoryArchive,
+  type HistoryArchive,
+} from './historyArchive';
 
 export const BACKUP_FORMAT = 'bloom-backup';
 export const BACKUP_FORMAT_VERSION = 1;
@@ -140,8 +148,13 @@ function isCompanionEvent(value: unknown): value is CompanionEvent {
         Number.isFinite(value.estOnsetMin) &&
         value.estOnsetMin >= 0 &&
         value.estOnsetMin <= value.min)) &&
+    (value.estDurationMin === undefined ||
+      (typeof value.estDurationMin === 'number' &&
+        Number.isFinite(value.estDurationMin) &&
+        value.estDurationMin >= 1 &&
+        value.estDurationMin <= value.len)) &&
     kinds.includes(value.kind as string) &&
-    (value.src === 'checkin' || value.src === 'return')
+    (value.src === 'checkin' || value.src === 'return' || value.src === 'repair')
   );
 }
 
@@ -345,6 +358,7 @@ function isValidSettings(value: unknown): boolean {
     value.pal.length > 0 &&
     typeof value.flow === 'boolean' &&
     typeof value.planner === 'boolean' &&
+    typeof value.foundations === 'boolean' &&
     ['betterEarlier', 'betterLater', 'notSure'].includes(value.chronotype as string) &&
     typeof value.preSlumpCheck === 'boolean' &&
     integer(value.dayStartHour, 0, 23) &&
@@ -370,6 +384,8 @@ function validateImportedState(
     !integer(bloom.streak, 0) ||
     (bloom.lastFocusDay !== null && !isValidDue(bloom.lastFocusDay)) ||
     (bloom.restDayUsedOn !== null && !isValidDue(bloom.restDayUsedOn)) ||
+    (bloom.lastRolloverOfferDay !== null &&
+      !isValidDue(bloom.lastRolloverOfferDay)) ||
     typeof bloom.comeBack !== 'boolean' ||
     !isValidSettings(bloom.settings)
   ) {
@@ -405,6 +421,20 @@ function validateImportedState(
     !sameValue(sanitizePersonalCadenceMemory(raw.personalCadence), bloom.personalCadence) ||
     !sameValue(sanitizeParkedThoughts(raw.parking), bloom.parking) ||
     !sameValue(sanitizeGuideReadState(raw.guideRead), bloom.guideRead) ||
+    (raw.foundations !== undefined &&
+      !sameValue(
+        sanitizeFoundations(raw.foundations, {
+          validIfThenIds: bloom.ifThenPlans.map((plan) => plan.id),
+        }),
+        bloom.foundations,
+      )) ||
+    (raw.dayPlan !== undefined &&
+      !sameValue(sanitizeDayPlan(raw.dayPlan), bloom.dayPlan)) ||
+    (raw.historyArchive !== undefined &&
+      !sameValue(
+        sanitizeHistoryArchive(raw.historyArchive),
+        bloom.historyArchive,
+      )) ||
     (raw.openFocus != null && bloom.openFocus == null) ||
     (raw.openFlow != null && bloom.openFlow == null)
   ) {
@@ -423,12 +453,70 @@ function validateImportedState(
     ['sessions', Array.isArray(raw.sessionRecords) ? raw.sessionRecords : [], bloom.sessionRecords],
     ['saved plans', Array.isArray(raw.ifThenPlans) ? raw.ifThenPlans : [], bloom.ifThenPlans],
     ['parked thoughts', Array.isArray(raw.parking) ? raw.parking : [], bloom.parking],
+    [
+      'archived session hours',
+      isObject(raw.historyArchive) && Array.isArray(raw.historyArchive.hours)
+        ? raw.historyArchive.hours
+        : [],
+      bloom.historyArchive.hours,
+    ],
+    [
+      'archived completed tasks',
+      isObject(raw.historyArchive) && Array.isArray(raw.historyArchive.completedTasks)
+        ? raw.historyArchive.completedTasks
+        : [],
+      bloom.historyArchive.completedTasks,
+    ],
   ];
   for (const [label, before, after] of arrays) {
     if (before.length !== after.length) {
       throw new BackupError(`The backup contains invalid or unsupported ${label}.`, 'invalid');
     }
   }
+}
+
+function mergeFoundations(
+  current: FoundationsState,
+  incoming: FoundationsState,
+  validIfThenIds: string[],
+): FoundationsState {
+  const instances = new Map(current.instances.map((instance) => [instance.id, instance]));
+  for (const instance of incoming.instances) {
+    const prior = instances.get(instance.id);
+    if (!prior) {
+      instances.set(instance.id, instance);
+      continue;
+    }
+    const ranges = [...prior.ranges];
+    for (const range of instance.ranges) {
+      if (!ranges.some((item) => sameValue(item, range))) ranges.push(range);
+    }
+    instances.set(instance.id, { ...prior, ranges });
+  }
+  const entries = new Map(current.entries.map((entry) => [entry.id, entry]));
+  for (const entry of incoming.entries) {
+    const prior = entries.get(entry.id);
+    if (!prior || entry.recordedAt > prior.recordedAt) entries.set(entry.id, entry);
+  }
+  const archive = new Map(
+    current.archive.map((summary) => [
+      `${summary.instanceId}:${summary.monthKey}`,
+      summary,
+    ]),
+  );
+  for (const summary of incoming.archive) {
+    const key = `${summary.instanceId}:${summary.monthKey}`;
+    const prior = archive.get(key);
+    if (!prior || summary.doneDays > prior.doneDays) archive.set(key, summary);
+  }
+  return sanitizeFoundations(
+    {
+      instances: [...instances.values()],
+      entries: [...entries.values()],
+      archive: [...archive.values()],
+    },
+    { validIfThenIds },
+  );
 }
 
 function mergeStableRows<T>(
@@ -449,6 +537,54 @@ function mergeStableRows<T>(
       );
     }
     if (prior === undefined) merged.set(key, row);
+  }
+  return [...merged.values()];
+}
+
+/**
+ * Goal progress is a denormalized ledger cache, so two otherwise-identical
+ * goals must not conflict merely because their devices exported different
+ * `done` values. Metadata still conflicts; the unioned ledger re-derives
+ * progress below. Keep the earliest known completion instant when available.
+ */
+function mergeGoals(
+  current: PersistedShape['goals'],
+  incoming: PersistedShape['goals'],
+): PersistedShape['goals'] {
+  const merged = new Map(current.map((goal) => [goal.id, goal]));
+  for (const goal of incoming) {
+    const prior = merged.get(goal.id);
+    if (!prior) {
+      merged.set(goal.id, goal);
+      continue;
+    }
+    const { done: _priorDone, completedAt: priorCompletedAt, ...priorMetadata } = prior;
+    const { done: _goalDone, completedAt: goalCompletedAt, ...goalMetadata } = goal;
+    const compactMetadata = (metadata: Record<string, unknown>) =>
+      Object.fromEntries(
+        Object.entries(metadata).filter(([, value]) => value !== undefined),
+      );
+    if (
+      !sameValue(
+        compactMetadata(priorMetadata),
+        compactMetadata(goalMetadata),
+      )
+    ) {
+      throw new BackupError(
+        'The current data and backup contain different goals with the same id.',
+        'conflict',
+      );
+    }
+    const completionTimes = [priorCompletedAt, goalCompletedAt].filter(
+      (value): value is number => typeof value === 'number' && Number.isFinite(value),
+    );
+    merged.set(goal.id, {
+      ...prior,
+      done: 0,
+      ...(completionTimes.length > 0
+        ? { completedAt: Math.min(...completionTimes) }
+        : { completedAt: undefined }),
+    });
   }
   return [...merged.values()];
 }
@@ -483,6 +619,44 @@ function newestTimed<T extends { computedAt?: number | null }>(current: T, incom
   return (incoming.computedAt ?? -1) > (current.computedAt ?? -1) ? incoming : current;
 }
 
+function archiveOverflowIsEmpty(archive: HistoryArchive): boolean {
+  return Object.values(archive.overflow).every((value) => value === 0);
+}
+
+/**
+ * Detailed archive rows have deterministic natural ids. Divergent aggregates
+ * for the same hour cannot be safely added or maxed without knowing whether
+ * their source sessions overlap, so import stops on that collision.
+ */
+function mergeHistoryArchives(
+  current: HistoryArchive,
+  incoming: HistoryArchive,
+): HistoryArchive {
+  const hours = mergeStableRows(
+    current.hours,
+    incoming.hours,
+    (bucket) => `${bucket.calendarDay}:${bucket.hour}`,
+    'archived session-hour summaries',
+  );
+  const completedTasks = mergeStableRows(
+    current.completedTasks,
+    incoming.completedTasks,
+    (row) => row.id,
+    'archived task completions',
+  );
+  let overflow = current.overflow;
+  if (!sameValue(current.overflow, incoming.overflow)) {
+    if (archiveOverflowIsEmpty(current)) overflow = incoming.overflow;
+    else if (!archiveOverflowIsEmpty(incoming)) {
+      throw new BackupError(
+        'The current data and backup contain different compacted History totals.',
+        'conflict',
+      );
+    }
+  }
+  return sanitizeHistoryArchive({ hours, completedTasks, overflow });
+}
+
 /**
  * Deterministic local merge rules. Append-only/id-bearing slices union by
  * stable id and stop on a divergent collision. Device preferences remain
@@ -493,8 +667,17 @@ export function mergePersistedState(
   incoming: PersistedShape,
 ): PersistedShape {
   const tasks = mergeStableRows(current.tasks, incoming.tasks, (task) => String(task.id), 'tasks');
-  const goals = mergeStableRows(current.goals, incoming.goals, (goal) => String(goal.id), 'goals');
-  const sessionRecords = mergeStableRows(
+  const goals = mergeGoals(current.goals, incoming.goals);
+  const goalLedger = compactGoalLedger(
+    mergeStableRows(
+      current.goalLedger,
+      incoming.goalLedger,
+      (credit) => credit.id,
+      'goal progress',
+    ),
+  );
+  const derivedGoals = sanitizeGoalLedger(goalLedger, goals).goals;
+  let sessionRecords = mergeStableRows(
     current.sessionRecords,
     incoming.sessionRecords,
     (record) => record.id,
@@ -502,11 +685,17 @@ export function mergePersistedState(
   ).sort(
     (a, b) => a.endedAt - b.endedAt || a.startedAt - b.startedAt || a.id.localeCompare(b.id),
   );
+  let historyArchive = mergeHistoryArchives(
+    current.historyArchive,
+    incoming.historyArchive,
+  );
   if (sessionRecords.length > SESSION_LOG_CAP) {
-    throw new BackupError(
-      'The combined session history is too large for this Bloom version. Nothing was changed.',
-      'conflict',
+    const evictedCount = sessionRecords.length - SESSION_LOG_CAP;
+    historyArchive = archiveSessionRecords(
+      historyArchive,
+      sessionRecords.slice(0, evictedCount),
     );
+    sessionRecords = sessionRecords.slice(evictedCount);
   }
   const ifThenPlans = mergeStableRows(
     current.ifThenPlans,
@@ -514,6 +703,25 @@ export function mergePersistedState(
     (plan) => plan.id,
     'saved plans',
   );
+  const foundations = mergeFoundations(
+    current.foundations,
+    incoming.foundations,
+    ifThenPlans.map((plan) => plan.id),
+  );
+  const dayPlan = sanitizeDayPlan({
+    targets: mergeStableRows(
+      current.dayPlan.targets,
+      incoming.dayPlan.targets,
+      (target) => target.id,
+      'daily targets',
+    ),
+    archive: mergeStableRows(
+      current.dayPlan.archive,
+      incoming.dayPlan.archive,
+      (pair) => pair.weekKey,
+      'daily target summaries',
+    ),
+  });
   const parking = mergeStableRows(
     current.parking,
     incoming.parking,
@@ -561,12 +769,22 @@ export function mergePersistedState(
           ? incoming.activeTaskId
           : null,
     palXp,
-    goals,
+    goals: derivedGoals,
+    goalLedger,
+    foundations,
+    dayPlan,
+    lastRolloverOfferDay:
+      current.lastRolloverOfferDay && incoming.lastRolloverOfferDay
+        ? current.lastRolloverOfferDay > incoming.lastRolloverOfferDay
+          ? current.lastRolloverOfferDay
+          : incoming.lastRolloverOfferDay
+        : current.lastRolloverOfferDay ?? incoming.lastRolloverOfferDay,
     flow:
       current.flow.running || current.flow.acc > 0 || current.flow.startedAt != null
         ? current.flow
         : incoming.flow,
     sessionRecords,
+    historyArchive,
     openFocus: mergeNullableStable(current.openFocus, incoming.openFocus, 'open focus sessions'),
     openFlow: mergeNullableStable(current.openFlow, incoming.openFlow, 'open flow sessions'),
     lastWeeklyReviewWeek:

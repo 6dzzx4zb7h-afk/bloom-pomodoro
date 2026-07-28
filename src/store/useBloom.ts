@@ -21,13 +21,27 @@ import {
   type PersonalCadenceRecommendation,
 } from '../insights/cadence';
 import {
+  appendDriftEvent,
   clearEvents,
   DEFAULT_COMPANION,
+  loadEvents,
+  replaceCompanionLog,
   type Chronotype,
   type CompanionSettings,
 } from './companion';
+import type { SessionRepairProposal } from './sessionRepair';
 import { dayKeyFor, nextDayBoundaryAt, normalizeDayStartHour } from './dayKey';
-import { GOAL_TARGET_MAX, type Goal } from './goals';
+import {
+  GOAL_TARGET_MAX,
+  normalizeGoalUnit,
+  type Goal,
+} from './goals';
+import {
+  appendGoalCredit,
+  removeGoalCredits,
+  sanitizeGoalLedger,
+  type GoalCredit,
+} from './goalLedger';
 import {
   EMPTY_GUIDE_READ_STATE,
   markGuideArticleRead,
@@ -46,21 +60,61 @@ import {
   type IfThenPlan,
 } from './ifThen';
 import {
-  appendSessionRecord,
   captureTimerSnapshot,
   finalizeSession,
+  isValidSessionRecord,
   markTimerReturn,
   newOpenSession,
   resolveTimerReturn,
   sanitizeOpenSession,
   sanitizeSessionRecords,
+  sessionCountsTowardDay,
   setSessionTargetOutcome,
   sweepStaleOpenSession,
   type OpenSession,
+  type GoalCreditStatus,
   type ReturnResolution,
   type SessionRecord,
   type TargetOutcome,
 } from './sessions';
+import {
+  appendCompletedTaskArchiveRow,
+  appendSessionRecordWithArchive,
+  completedTaskArchiveRow,
+  emptyHistoryArchive,
+  removeCompletedTaskArchiveRow,
+  sanitizeHistoryArchive,
+  type HistoryArchive,
+} from './historyArchive';
+import {
+  EMPTY_FOUNDATIONS,
+  createFoundationInstance,
+  foundationEntryId,
+  foundationInstanceId,
+  isFoundationDayKey,
+  isManualFoundationType,
+  renameCustomFoundation as renameCustomFoundationState,
+  reorderFoundation as reorderFoundationState,
+  sanitizeFoundations,
+  setFoundationEnabled as setFoundationEnabledState,
+  toggleFoundationDay as toggleFoundationDayState,
+  type FoundationsState,
+  type ManualFoundationType,
+} from './foundations';
+import {
+  EMPTY_DAY_PLAN,
+  addGoalDailyTarget,
+  addTaskDailyTarget,
+  carryRolloverTarget,
+  compactDailyTargets,
+  dismissDailyTarget,
+  editDailyTarget,
+  liftLegacyDailyTarget,
+  rolloverOffers,
+  sanitizeDayPlan,
+  type DayPlanState,
+  type TaskDailyTarget,
+} from './dailyTarget';
 import { DEFAULT_RITUAL, sanitizeRitual, updateRitualItem, type RitualSettings } from './ritual';
 import { bumpStreakGentle, streakAlive, type StreakData } from './streak';
 import {
@@ -71,11 +125,36 @@ import {
   sanitizeParkedThoughts,
   type ParkedThought,
 } from './parking';
+import {
+  clearStorageFailure,
+  getStorageHealthSnapshot,
+  reportStorageFailure,
+  storageWritesBlocked,
+} from './storageHealth';
 
 /** 'flow' is the opt-in count-up stopwatch; the rest count down. */
 export type TimerMode = 'focus' | 'tiny' | 'short' | 'long' | 'flow';
 /** The countdown modes — the only ones with a configured length. */
 export type DurationMode = 'focus' | 'short' | 'long';
+export type TimerTransitionIntent =
+  | 'mode'
+  | 'reset'
+  | 'skip'
+  | 'activeTask'
+  | 'flowOff'
+  | 'cadence'
+  | 'duration'
+  | 'navigation';
+
+export type TimerTransitionDecision =
+  | { kind: 'allow' }
+  | { kind: 'discardFalseStart' }
+  | {
+      kind: 'confirm';
+      title: string;
+      description: string;
+      confirmLabel: string;
+    };
 
 /** Honest, deliberately small first rungs offered by Tiny Start (PLAN 3.3). */
 export const TINY_START_OPTIONS = [2, 5] as const;
@@ -96,6 +175,8 @@ export interface Task {
   goal: number;
   /** Planner goal this task counts toward, if linked (v20). */
   goalId?: number;
+  /** Resolution of the current manual-completion credit offer (v24). */
+  goalCredit?: GoalCreditStatus;
   /** Epoch ms when the task was last marked done; cleared on un-check (v19). */
   completedAt?: number;
 }
@@ -123,6 +204,13 @@ export interface Settings {
   flow: boolean;
   /** Goals & deadlines: the opt-in goal/deadline planner tab. */
   planner: boolean;
+  /** Small, opt-in daily foundation card (PLAN 10.7). */
+  foundations: boolean;
+  /**
+   * Goal credit is independent of enabling the planner. Automatic movement
+   * only happens after the user explicitly chooses `auto`.
+   */
+  goalCredit: 'off' | 'ask' | 'auto';
   /** Self-tag used as a light prior for time-of-day suggestions (PLAN 4.4). */
   chronotype: Chronotype;
   /** Optional data-timed breath/stretch cue (PLAN 4.5); off unless chosen. */
@@ -159,12 +247,24 @@ export interface BloomState {
   palXp: Record<string, number>;
   /** Deadline planner entries (only shown when settings.planner is on). */
   goals: Goal[];
+  /** Append-only source of truth for every goal progress movement (PLAN 10.1). */
+  goalLedger: GoalCredit[];
+  /** Binary manual foundation entries and their active ranges (PLAN 10.7). */
+  foundations: FoundationsState;
+  /** Optional goal/task targets for individual study days (PLAN 9.6 + 10.3). */
+  dayPlan: DayPlanState;
+  /** Study day on which rollover triage was most recently shown (PLAN 10.5). */
+  lastRolloverOfferDay: string | null;
+  /** Runtime-only goal override for the next session start (PLAN 10.2). */
+  armedGoalId: number | null;
   /** Flow stopwatch: epoch ms the current run started at; null when paused. */
   flowStart: number | null;
   /** Flow stopwatch: seconds banked across pauses. */
   flowAcc: number;
   /** Per-session log (capped ring buffer) — the raw data behind insights. */
   sessionRecords: SessionRecord[];
+  /** Compact summaries and removed completed-task rows older than live slices. */
+  historyArchive: HistoryArchive;
   /** The focus/tiny countdown currently underway, if any (finalized on end). */
   openFocus: OpenSession | null;
   /**
@@ -203,6 +303,8 @@ export const DEFAULT_SETTINGS: Settings = {
   companion: DEFAULT_COMPANION,
   flow: false,
   planner: false,
+  foundations: false,
+  goalCredit: 'off',
   chronotype: 'notSure',
   preSlumpCheck: false,
   dayStartHour: 0,
@@ -229,9 +331,15 @@ export const DEFAULT_STATE: BloomState = {
   activeTaskId: null,
   palXp: {},
   goals: [],
+  goalLedger: [],
+  foundations: EMPTY_FOUNDATIONS,
+  dayPlan: EMPTY_DAY_PLAN,
+  lastRolloverOfferDay: null,
+  armedGoalId: null,
   flowStart: null,
   flowAcc: 0,
   sessionRecords: [],
+  historyArchive: emptyHistoryArchive(),
   openFocus: null,
   openFlow: null,
   lastWeeklyReviewWeek: null,
@@ -260,7 +368,7 @@ export const BLOOM_STORAGE_KEY = 'bloom-state';
 const STORAGE_KEY = BLOOM_STORAGE_KEY;
 /** Older keys we still read from once, newest first. */
 const LEGACY_KEYS = ['bloom-state-v2', 'bloom-state-v1'];
-export const SCHEMA_VERSION = 23;
+export const SCHEMA_VERSION = 30;
 
 export interface PersistedShape {
   version: number;
@@ -274,10 +382,16 @@ export interface PersistedShape {
   activeTaskId: number | null;
   palXp: Record<string, number>;
   goals: Goal[];
+  goalLedger: GoalCredit[];
+  foundations: FoundationsState;
+  dayPlan: DayPlanState;
+  lastRolloverOfferDay: string | null;
   /** Flow stopwatch survives reloads — a stopwatch keeps counting while away. */
   flow: { startedAt: number | null; acc: number; running: boolean };
   /** Per-session records, newest last, capped in sessions.ts. */
   sessionRecords: SessionRecord[];
+  /** Compact history retained when live session/task rows leave their slices. */
+  historyArchive: HistoryArchive;
   /** Open-session slots — swept into `interrupted` records on boot (focus). */
   openFocus: OpenSession | null;
   openFlow: OpenSession | null;
@@ -439,79 +553,467 @@ const MIGRATIONS: Array<(blob: Record<string, unknown>) => Record<string, unknow
       dayStartHour: 0,
     },
   }),
+  // v23 -> v24: durable, exactly-once goal-credit offers (PLAN 8.12).
+  // Existing users remain fully manual. Optional task/session resolution
+  // markers are absent until linked work completes.
+  (blob) => ({
+    ...blob,
+    settings: {
+      ...(blob.settings && typeof blob.settings === 'object'
+        ? (blob.settings as Record<string, unknown>)
+        : {}),
+      goalCredit: 'off',
+    },
+  }),
+  // v24 -> v25: goal progress ledger + optional counting unit (PLAN 10.1).
+  // Seed one carryover row for every existing positive `done` cache so the
+  // new source-of-truth sum preserves progress exactly.
+  (blob) => {
+    const goals = Array.isArray(blob.goals) ? blob.goals : [];
+    const goalLedger = goals.flatMap((value) => {
+      if (!value || typeof value !== 'object') return [];
+      const goal = value as Record<string, unknown>;
+      if (
+        !Number.isSafeInteger(goal.id) ||
+        !Number.isSafeInteger(goal.done) ||
+        (goal.done as number) <= 0
+      ) {
+        return [];
+      }
+      const at =
+        typeof goal.createdAt === 'number' && Number.isFinite(goal.createdAt)
+          ? goal.createdAt
+          : 0;
+      return [{
+        id: `g-carry-${String(goal.id)}`,
+        goalId: goal.id,
+        delta: goal.done,
+        source: 'carryover',
+        dayKey: dayKeyFor(at),
+        at,
+      }];
+    });
+    return { ...blob, goalLedger };
+  },
+  // v25 -> v26: daily foundations (PLAN 10.7). The new feature is opt-in and
+  // the slice is optional on old blobs, so withDefaults supplies an empty
+  // model without inventing any entries or active periods.
+  (blob) => blob,
+  // v26 -> v27: the original optional single daily target becomes the
+  // multi-target day plan (PLAN 9.6 + 10.3). Lift the row without changing
+  // its frozen snapshot; normal load validation decides whether it is valid.
+  (blob) => ({
+    ...blob,
+    dayPlan: {
+      targets: liftLegacyDailyTarget(blob.dailyTarget),
+      archive: Array.isArray(blob.dailyTargetArchive)
+        ? blob.dailyTargetArchive
+      : [],
+    },
+  }),
+  // v27 -> v28: once-per-study-day rollover triage marker (PLAN 10.5).
+  // Existing day plans are unchanged; withDefaults supplies null until the
+  // first eligible card is actually shown.
+  (blob) => blob,
+  // v28 -> v29: repaired session metadata (PLAN 9.5). `edited` and
+  // `editedAt` are optional on SessionRecord, so old records remain exact and
+  // acquire no invented edit history.
+  (blob) => blob,
+  // v29 -> v30: compact History archive (PLAN 9.3). Existing records stay in
+  // the live log; only future evictions are summarized, so no historical
+  // session or task date is inferred during migration.
+  (blob) => ({ ...blob, historyArchive: emptyHistoryArchive() }),
 ];
 
-function withDefaults(blob: Record<string, unknown>): PersistedShape {
+type ValidationNote = (reason: string) => void;
+
+function finite(value: unknown, min = 0): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= min;
+}
+
+function integer(value: unknown, min = 0, max = Number.MAX_SAFE_INTEGER): value is number {
+  return Number.isSafeInteger(value) && (value as number) >= min && (value as number) <= max;
+}
+
+function validDayKey(value: unknown): value is string {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const [year, month, day] = value.split('-').map(Number);
+  const date = new Date(year, month - 1, day);
+  return (
+    date.getFullYear() === year &&
+    date.getMonth() === month - 1 &&
+    date.getDate() === day
+  );
+}
+
+function sanitizeTasks(raw: unknown, note?: ValidationNote): Task[] {
+  if (raw === undefined) return DEFAULT_TASKS;
+  if (!Array.isArray(raw)) {
+    note?.('Tasks were not stored as a list.');
+    return DEFAULT_TASKS;
+  }
+  const tasks = raw.filter((value): value is Task => {
+    if (!value || typeof value !== 'object') return false;
+    const task = value as Record<string, unknown>;
+    return (
+      integer(task.id) &&
+      typeof task.t === 'string' &&
+      task.t.trim().length > 0 &&
+      task.t.length <= 500 &&
+      typeof task.done === 'boolean' &&
+      integer(task.pomos) &&
+      integer(task.goal, 1, 6) &&
+      (task.goalId === undefined || integer(task.goalId)) &&
+      (task.goalCredit === undefined ||
+        task.goalCredit === 'pending' ||
+        task.goalCredit === 'applied' ||
+        task.goalCredit === 'skipped') &&
+      (task.completedAt === undefined || finite(task.completedAt))
+    );
+  });
+  if (tasks.length !== raw.length) note?.('Malformed tasks were set aside.');
+  return tasks;
+}
+
+function sanitizeGoals(raw: unknown, note?: ValidationNote): Goal[] {
+  if (raw === undefined) return [];
+  if (!Array.isArray(raw)) {
+    note?.('Goals were not stored as a list.');
+    return [];
+  }
+  const goals: Goal[] = [];
+  for (const value of raw) {
+    if (!value || typeof value !== 'object') continue;
+    const goal = value as Record<string, unknown>;
+    if (
+      !integer(goal.id) ||
+      typeof goal.title !== 'string' ||
+      goal.title.trim().length === 0 ||
+      goal.title.length > 500 ||
+      !validDayKey(goal.due) ||
+      !integer(goal.target, 1, GOAL_TARGET_MAX) ||
+      !integer(goal.done, 0, goal.target as number) ||
+      (goal.unit !== undefined && typeof goal.unit !== 'string') ||
+      (goal.createdAt !== undefined && !finite(goal.createdAt)) ||
+      (goal.completedAt !== undefined && !finite(goal.completedAt))
+    ) {
+      continue;
+    }
+    goals.push({
+      ...(goal as unknown as Goal),
+      // Very old planner blobs omitted this field. Zero is an honest
+      // timestamp-unknown sentinel; never invent the migration instant.
+      createdAt: finite(goal.createdAt) ? goal.createdAt : 0,
+      unit: normalizeGoalUnit(goal.unit),
+      completedAt:
+        goal.done === goal.target && finite(goal.completedAt)
+          ? goal.completedAt
+          : undefined,
+    });
+  }
+  if (goals.length !== raw.length) note?.('Malformed goals were set aside.');
+  return goals;
+}
+
+function sanitizePalXp(raw: unknown, note?: ValidationNote): Record<string, number> {
+  if (raw === undefined) return {};
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    note?.('Friend progress was not stored as an object.');
+    return {};
+  }
+  const xp: Record<string, number> = {};
+  for (const [name, value] of Object.entries(raw)) {
+    if (name && finite(value)) xp[name] = value;
+    else note?.('Malformed friend progress was set aside.');
+  }
+  return xp;
+}
+
+function withDefaults(blob: Record<string, unknown>, note?: ValidationNote): PersistedShape {
   const b = blob ?? {};
-  const bSettings = (b.settings as Partial<Settings> | undefined) ?? {};
+  const bSettings =
+    b.settings && typeof b.settings === 'object' && !Array.isArray(b.settings)
+      ? (b.settings as Partial<Settings>)
+      : {};
+  if (b.settings !== undefined && bSettings !== b.settings) {
+    note?.('Settings were not stored as an object.');
+  }
   // Legacy v1 stored durations at the top level, not under `settings`.
-  const legacyDurations = (b.durations as Partial<Durations> | undefined) ?? {};
+  const legacyDurations =
+    b.durations && typeof b.durations === 'object'
+      ? (b.durations as Partial<Durations>)
+      : {};
   const validBg: BgSound[] = ['off', 'calm', 'coffee', 'white'];
   const validChronotypes: Chronotype[] = ['betterEarlier', 'betterLater', 'notSure'];
+  const validGoalCredit = ['off', 'ask', 'auto'] as const;
+  const invalidSetting = (
+    key: keyof Settings,
+    valid: (value: unknown) => boolean,
+  ) => {
+    if (bSettings[key] !== undefined && !valid(bSettings[key])) {
+      note?.(`The ${String(key)} setting was invalid.`);
+    }
+  };
+  invalidSetting('name', (value) => typeof value === 'string');
+  invalidSetting('sound', (value) => typeof value === 'boolean');
+  invalidSetting('bgSound', (value) => validBg.includes(value as BgSound));
+  invalidSetting('autoStart', (value) => typeof value === 'boolean');
+  invalidSetting('night', (value) => typeof value === 'boolean');
+  invalidSetting('pal', (value) => typeof value === 'string' && value.length > 0);
+  invalidSetting('flow', (value) => typeof value === 'boolean');
+  invalidSetting('planner', (value) => typeof value === 'boolean');
+  invalidSetting('foundations', (value) => typeof value === 'boolean');
+  invalidSetting('goalCredit', (value) =>
+    validGoalCredit.includes(value as (typeof validGoalCredit)[number]));
+  invalidSetting('chronotype', (value) =>
+    validChronotypes.includes(value as Chronotype));
+  invalidSetting('preSlumpCheck', (value) => typeof value === 'boolean');
+  invalidSetting('dayStartHour', (value) => integer(value, 0, 23));
+  const rawDurations = {
+    ...legacyDurations,
+    ...(bSettings.durations && typeof bSettings.durations === 'object'
+      ? bSettings.durations
+      : {}),
+  };
+  if (
+    bSettings.durations !== undefined &&
+    (!bSettings.durations || typeof bSettings.durations !== 'object')
+  ) {
+    note?.('Timer durations were not stored as an object.');
+  }
+  const duration = (mode: DurationMode): number => {
+    const value = rawDurations[mode];
+    if (value === undefined) return DEFAULT_SETTINGS.durations[mode];
+    if (!finite(value, 1)) {
+      note?.(`The ${mode} duration was invalid.`);
+      return DEFAULT_SETTINGS.durations[mode];
+    }
+    return value;
+  };
+  const rawCompanion: Partial<CompanionSettings> =
+    bSettings.companion &&
+    typeof bSettings.companion === 'object' &&
+    !Array.isArray(bSettings.companion)
+      ? bSettings.companion
+      : {};
+  if (
+    bSettings.companion !== undefined &&
+    (!bSettings.companion ||
+      typeof bSettings.companion !== 'object' ||
+      Array.isArray(bSettings.companion))
+  ) {
+    note?.('Companion settings were not stored as an object.');
+  }
+  const companion: CompanionSettings = {
+    on:
+      typeof rawCompanion.on === 'boolean'
+        ? rawCompanion.on
+        : DEFAULT_COMPANION.on,
+    checkinMins: integer(rawCompanion.checkinMins, 1)
+      ? rawCompanion.checkinMins
+      : DEFAULT_COMPANION.checkinMins,
+    tabDetect:
+      typeof rawCompanion.tabDetect === 'boolean'
+        ? rawCompanion.tabDetect
+        : DEFAULT_COMPANION.tabDetect,
+    awaySecs: integer(rawCompanion.awaySecs, 1)
+      ? rawCompanion.awaySecs
+      : DEFAULT_COMPANION.awaySecs,
+    quiet:
+      typeof rawCompanion.quiet === 'boolean'
+        ? rawCompanion.quiet
+        : DEFAULT_COMPANION.quiet,
+    intention:
+      typeof rawCompanion.intention === 'boolean'
+        ? rawCompanion.intention
+        : DEFAULT_COMPANION.intention,
+  };
+  if (
+    bSettings.companion !== undefined &&
+    JSON.stringify(companion) !== JSON.stringify({ ...DEFAULT_COMPANION, ...rawCompanion })
+  ) {
+    note?.('Companion settings were normalized.');
+  }
   const settings: Settings = {
     ...DEFAULT_SETTINGS,
-    ...bSettings,
     name: typeof bSettings.name === 'string' ? bSettings.name : DEFAULT_SETTINGS.name,
+    sound: typeof bSettings.sound === 'boolean' ? bSettings.sound : DEFAULT_SETTINGS.sound,
     bgSound: validBg.includes(bSettings.bgSound as BgSound)
       ? (bSettings.bgSound as BgSound)
       : DEFAULT_SETTINGS.bgSound,
+    autoStart:
+      typeof bSettings.autoStart === 'boolean'
+        ? bSettings.autoStart
+        : DEFAULT_SETTINGS.autoStart,
+    night: typeof bSettings.night === 'boolean' ? bSettings.night : DEFAULT_SETTINGS.night,
+    pal:
+      typeof bSettings.pal === 'string' && bSettings.pal.length > 0
+        ? bSettings.pal
+        : DEFAULT_SETTINGS.pal,
+    flow: typeof bSettings.flow === 'boolean' ? bSettings.flow : DEFAULT_SETTINGS.flow,
+    planner:
+      typeof bSettings.planner === 'boolean'
+        ? bSettings.planner
+        : DEFAULT_SETTINGS.planner,
+    foundations:
+      typeof bSettings.foundations === 'boolean'
+        ? bSettings.foundations
+        : DEFAULT_SETTINGS.foundations,
     chronotype: validChronotypes.includes(bSettings.chronotype as Chronotype)
       ? (bSettings.chronotype as Chronotype)
       : DEFAULT_SETTINGS.chronotype,
+    goalCredit: validGoalCredit.includes(
+      bSettings.goalCredit as (typeof validGoalCredit)[number],
+    )
+      ? (bSettings.goalCredit as Settings['goalCredit'])
+      : DEFAULT_SETTINGS.goalCredit,
     preSlumpCheck:
       typeof bSettings.preSlumpCheck === 'boolean'
         ? bSettings.preSlumpCheck
         : DEFAULT_SETTINGS.preSlumpCheck,
     dayStartHour: normalizeDayStartHour(bSettings.dayStartHour),
     durations: {
-      ...DEFAULT_SETTINGS.durations,
-      ...legacyDurations,
-      ...(bSettings.durations ?? {}),
+      focus: duration('focus'),
+      short: duration('short'),
+      long: duration('long'),
     },
-    companion: { ...DEFAULT_COMPANION, ...(bSettings.companion ?? {}) },
+    companion,
   };
-  const goals = (Array.isArray(b.goals) ? (b.goals as Goal[]) : []).filter(
-    (g) =>
-      g &&
-      typeof g.id === 'number' &&
-      typeof g.title === 'string' &&
-      typeof g.due === 'string' &&
-      typeof g.target === 'number' &&
-      typeof g.done === 'number',
-  );
+  const sanitizedGoals = sanitizeGoals(b.goals, note);
+  const sanitizedLedger = sanitizeGoalLedger(b.goalLedger, sanitizedGoals);
+  const goals = sanitizedLedger.goals;
+  const goalLedger = sanitizedLedger.ledger;
+  if (
+    b.goalLedger !== undefined &&
+    (!Array.isArray(b.goalLedger) || b.goalLedger.length !== goalLedger.length)
+  ) {
+    note?.('Malformed goal progress rows were set aside.');
+  }
+  const goalIds = new Set(goals.map((goal) => goal.id));
+  const tasks = sanitizeTasks(b.tasks, note).map((task) => {
+    if (task.goalId === undefined || goalIds.has(task.goalId)) return task;
+    note?.('A dangling task goal link was cleared.');
+    return { ...task, goalId: undefined };
+  });
   const rawFlow = (b.flow as Partial<PersistedShape['flow']> | undefined) ?? {};
   const flow = {
     startedAt: typeof rawFlow.startedAt === 'number' ? rawFlow.startedAt : null,
     acc: typeof rawFlow.acc === 'number' && Number.isFinite(rawFlow.acc) ? Math.max(0, rawFlow.acc) : 0,
     running: rawFlow.running === true,
   };
+  const sessionRecords = sanitizeSessionRecords(b.sessionRecords);
+  const historyArchive = sanitizeHistoryArchive(b.historyArchive);
+  const openFocus = keepOpenSession(b.openFocus, 'focus');
+  const openFlow = keepOpenSession(b.openFlow, 'flow');
+  const ifThenPlans = sanitizeIfThenPlans(b.ifThenPlans);
+  const foundations = sanitizeFoundations(b.foundations, {
+    validIfThenIds: ifThenPlans.map((plan) => plan.id),
+    todayKey: dayKeyFor(Date.now(), settings.dayStartHour),
+  });
+  const dayPlan = sanitizeDayPlan(b.dayPlan);
+  const ritual = sanitizeRitual(b.ritual);
+  const preSlump = sanitizePreSlumpCaps(b.preSlump);
+  const personalCadence = sanitizePersonalCadenceMemory(b.personalCadence);
+  const parking = sanitizeParkedThoughts(b.parking);
+  const guideRead = sanitizeGuideReadState(b.guideRead);
+  if (b.flow !== undefined && (!b.flow || typeof b.flow !== 'object')) {
+    note?.('Flow state was malformed.');
+  }
+  if (b.sessions !== undefined && !integer(b.sessions)) {
+    note?.('The session counter was invalid.');
+  }
+  if (b.streak !== undefined && !integer(b.streak)) {
+    note?.('The streak counter was invalid.');
+  }
+  if (b.lastFocusDay !== undefined && b.lastFocusDay !== null && !validDayKey(b.lastFocusDay)) {
+    note?.('The last focus day was invalid.');
+  }
+  if (b.restDayUsedOn !== undefined && b.restDayUsedOn !== null && !validDayKey(b.restDayUsedOn)) {
+    note?.('The rest-day marker was invalid.');
+  }
+  if (b.comeBack !== undefined && typeof b.comeBack !== 'boolean') {
+    note?.('The welcome-back marker was invalid.');
+  }
+  if (
+    b.activeTaskId !== undefined &&
+    b.activeTaskId !== null &&
+    (!integer(b.activeTaskId) ||
+      !tasks.some((task) => task.id === b.activeTaskId && !task.done))
+  ) {
+    note?.('The active-task link was invalid.');
+  }
+  if (
+    b.lastWoopOfferAt !== undefined &&
+    b.lastWoopOfferAt !== null &&
+    !finite(b.lastWoopOfferAt)
+  ) {
+    note?.('The last offer timestamp was invalid.');
+  }
+  if (
+    Array.isArray(b.sessionRecords) &&
+    sessionRecords.length !== b.sessionRecords.length
+  ) {
+    note?.('Malformed session records were set aside.');
+  } else if (b.sessionRecords !== undefined && !Array.isArray(b.sessionRecords)) {
+    note?.('Session records were not stored as a list.');
+  }
+  if (b.openFocus !== undefined && b.openFocus !== null && openFocus === null) {
+    note?.('The open focus session was malformed.');
+  }
+  if (b.openFlow !== undefined && b.openFlow !== null && openFlow === null) {
+    note?.('The open flow session was malformed.');
+  }
+  if (
+    Array.isArray(b.ifThenPlans) &&
+    ifThenPlans.length !== b.ifThenPlans.length
+  ) {
+    note?.('Malformed saved plans were set aside.');
+  }
+  if (Array.isArray(b.parking) && parking.length !== b.parking.length) {
+    note?.('Malformed parked thoughts were set aside.');
+  }
+  for (const key of ['ritual', 'preSlump', 'personalCadence', 'guideRead', 'foundations', 'dayPlan', 'historyArchive'] as const) {
+    if (b[key] !== undefined && (!b[key] || typeof b[key] !== 'object')) {
+      note?.(`${key} was malformed.`);
+    }
+  }
   return {
     version: SCHEMA_VERSION,
-    sessions: typeof b.sessions === 'number' && Number.isFinite(b.sessions) ? (b.sessions as number) : 0,
-    streak: typeof b.streak === 'number' && Number.isFinite(b.streak) ? (b.streak as number) : 0,
-    lastFocusDay: typeof b.lastFocusDay === 'string' ? (b.lastFocusDay as string) : null,
-    restDayUsedOn: typeof b.restDayUsedOn === 'string' ? (b.restDayUsedOn as string) : null,
+    sessions: integer(b.sessions) ? b.sessions : 0,
+    streak: integer(b.streak) ? b.streak : 0,
+    lastFocusDay: validDayKey(b.lastFocusDay) ? b.lastFocusDay : null,
+    restDayUsedOn: validDayKey(b.restDayUsedOn) ? b.restDayUsedOn : null,
     comeBack: b.comeBack === true,
-    tasks: Array.isArray(b.tasks) ? (b.tasks as Task[]) : DEFAULT_TASKS,
-    activeTaskId: typeof b.activeTaskId === 'number' ? (b.activeTaskId as number) : null,
-    palXp: b.palXp && typeof b.palXp === 'object' ? (b.palXp as Record<string, number>) : {},
+    tasks,
+    activeTaskId:
+      integer(b.activeTaskId) && tasks.some((task) => task.id === b.activeTaskId && !task.done)
+        ? b.activeTaskId
+        : null,
+    palXp: sanitizePalXp(b.palXp, note),
     goals,
+    goalLedger,
+    foundations,
+    dayPlan,
+    lastRolloverOfferDay: validDayKey(b.lastRolloverOfferDay)
+      ? b.lastRolloverOfferDay
+      : null,
     flow,
-    sessionRecords: sanitizeSessionRecords(b.sessionRecords),
-    openFocus: keepOpenSession(b.openFocus, 'focus'),
-    openFlow: keepOpenSession(b.openFlow, 'flow'),
+    sessionRecords,
+    historyArchive,
+    openFocus,
+    openFlow,
     lastWeeklyReviewWeek:
       typeof b.lastWeeklyReviewWeek === 'string' ? (b.lastWeeklyReviewWeek as string) : null,
-    ifThenPlans: sanitizeIfThenPlans(b.ifThenPlans),
-    ritual: sanitizeRitual(b.ritual),
+    ifThenPlans,
+    ritual,
     lastWoopOfferAt:
       typeof b.lastWoopOfferAt === 'number' && Number.isFinite(b.lastWoopOfferAt)
         ? b.lastWoopOfferAt
         : null,
-    preSlump: sanitizePreSlumpCaps(b.preSlump),
-    personalCadence: sanitizePersonalCadenceMemory(b.personalCadence),
-    parking: sanitizeParkedThoughts(b.parking),
-    guideRead: sanitizeGuideReadState(b.guideRead),
+    preSlump,
+    personalCadence,
+    parking,
+    guideRead,
     settings,
   };
 }
@@ -537,27 +1039,70 @@ function keepOpenSession(raw: unknown, slot: 'focus' | 'flow'): OpenSession | nu
   return open && fitsSlot ? open : null;
 }
 
-export function migratePersistedBlob(blob: Record<string, unknown>): PersistedShape {
+export function migratePersistedBlob(
+  blob: Record<string, unknown>,
+  note?: ValidationNote,
+): PersistedShape {
   let cur = blob && typeof blob === 'object' ? { ...blob } : {};
-  let v = typeof cur.version === 'number' ? cur.version : 0;
+  let v = Number.isSafeInteger(cur.version) ? (cur.version as number) : 0;
+  if (v < 0 || v > SCHEMA_VERSION) throw new Error('unsupported Bloom storage version');
   for (; v < SCHEMA_VERSION; v++) {
     const step = MIGRATIONS[v];
     if (step) cur = step(cur);
   }
-  return withDefaults(cur);
+  return withDefaults(cur, note);
 }
 
 export function readPersisted(): PersistedShape | null {
   // A corrupt newest blob must not hide a valid legacy backup. Parse each
   // candidate independently and keep walking when one is unreadable.
+  let sawFailure = false;
   for (const key of [STORAGE_KEY, ...LEGACY_KEYS]) {
+    let raw: string | null = null;
     try {
-      const raw = localStorage.getItem(key);
-      if (raw) return migratePersistedBlob(JSON.parse(raw));
-    } catch {
-      /* try the next compatible key */
+      raw = localStorage.getItem(key);
+      if (!raw) continue;
+      const parsed: unknown = JSON.parse(raw);
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        throw new Error('the saved Bloom copy is not an object');
+      }
+      const sourceVersion = Number.isSafeInteger(
+        (parsed as Record<string, unknown>).version,
+      )
+        ? ((parsed as Record<string, unknown>).version as number)
+        : 0;
+      const reasons = new Set<string>();
+      const persisted = migratePersistedBlob(
+        parsed as Record<string, unknown>,
+        sourceVersion === SCHEMA_VERSION
+          ? (reason) => reasons.add(reason)
+          : undefined,
+      );
+      if (reasons.size) {
+        sawFailure = true;
+        reportStorageFailure({
+          area: 'bloom-state',
+          key,
+          kind: 'validation',
+          reason: [...reasons].join(' '),
+          raw,
+        });
+      } else if (!sawFailure) {
+        clearStorageFailure('bloom-state');
+      }
+      return persisted;
+    } catch (error) {
+      sawFailure = true;
+      reportStorageFailure({
+        area: 'bloom-state',
+        key,
+        kind: 'read',
+        reason: error instanceof Error ? error.message : 'The saved Bloom copy could not be read.',
+        raw,
+      });
     }
   }
+  if (!sawFailure) clearStorageFailure('bloom-state');
   return null;
 }
 
@@ -573,7 +1118,11 @@ export function loadState(): BloomState {
   // finalize it as interrupted and offer a one-tap re-entry cue.
   const pendingReturn = Boolean(p.openFocus?.returnSnapshot?.returnedAt);
   const swept = p.openFocus && !pendingReturn ? sweepStaleOpenSession(p.openFocus) : null;
-  const sessionRecords = swept ? appendSessionRecord(p.sessionRecords, swept) : p.sessionRecords;
+  const sweptHistory = swept
+    ? appendSessionRecordWithArchive(p.sessionRecords, p.historyArchive, swept)
+    : null;
+  const sessionRecords = sweptHistory?.records ?? p.sessionRecords;
+  const historyArchive = sweptHistory?.archive ?? p.historyArchive;
   const parking = swept
     ? revealParkedThoughts(p.parking, swept.id, swept.endedAt)
     : p.parking;
@@ -594,8 +1143,13 @@ export function loadState(): BloomState {
     activeTaskId: p.activeTaskId,
     palXp: p.palXp,
     goals: p.goals,
+    goalLedger: p.goalLedger,
+    foundations: p.foundations,
+    dayPlan: p.dayPlan,
+    lastRolloverOfferDay: p.lastRolloverOfferDay,
     flowAcc: p.flow.acc,
     sessionRecords,
+    historyArchive,
     openFocus: pendingReturn ? p.openFocus : null,
     openFlow: p.openFlow,
     lastWeeklyReviewWeek: p.lastWeeklyReviewWeek,
@@ -657,10 +1211,18 @@ function initializeDay(s: BloomState, now: number): BloomState {
     { streak: s.streak, lastFocusDay: s.lastFocusDay, restDayUsedOn: s.restDayUsedOn },
     today,
   );
+  const taskActual = (target: TaskDailyTarget) =>
+    s.sessionRecords.filter(
+      (record) =>
+        record.taskId === target.taskId &&
+        sessionCountsTowardDay(record) &&
+        dayKeyFor(record.endedAt, s.settings.dayStartHour) === target.dayKey,
+    ).length;
   return {
     ...s,
     today,
     now,
+    dayPlan: compactDailyTargets(s.dayPlan, s.goalLedger, today, taskActual),
     comeBack: alive ? s.comeBack : s.comeBack || s.streak > 0,
   };
 }
@@ -684,8 +1246,13 @@ export function persistedShapeFromState(s: BloomState): PersistedShape {
     activeTaskId: s.activeTaskId,
     palXp: s.palXp,
     goals: s.goals,
+    goalLedger: s.goalLedger,
+    foundations: s.foundations,
+    dayPlan: s.dayPlan,
+    lastRolloverOfferDay: s.lastRolloverOfferDay,
     flow: { startedAt: s.flowStart, acc: s.flowAcc, running: s.running && s.mode === 'flow' },
     sessionRecords: s.sessionRecords,
+    historyArchive: s.historyArchive,
     openFocus: s.openFocus,
     openFlow: s.openFlow,
     lastWeeklyReviewWeek: s.lastWeeklyReviewWeek,
@@ -700,27 +1267,80 @@ export function persistedShapeFromState(s: BloomState): PersistedShape {
   };
 }
 
-function persist(s: BloomState) {
+function persist(s: BloomState, force = false): boolean {
   const data = persistedShapeFromState(s);
+  if (!force && storageWritesBlocked('bloom-state')) return false;
+  let prior: string | null = null;
   try {
+    prior = localStorage.getItem(STORAGE_KEY);
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-  } catch {
-    /* storage unavailable — run in-memory */
+    clearStorageFailure('bloom-state');
+    return true;
+  } catch (error) {
+    reportStorageFailure({
+      area: 'bloom-state',
+      key: STORAGE_KEY,
+      kind: 'write',
+      reason: error instanceof Error ? error.message : 'Bloom could not save this change.',
+      raw: prior,
+    });
+    return false;
   }
 }
 
 /** Count a finished work session into the configured study day (PLAN 5.4/9.2). */
 function bumpStreak(
   s: BloomState,
-  at = Date.now(),
+  record: SessionRecord,
 ): Pick<BloomState, 'streak' | 'lastFocusDay' | 'restDayUsedOn' | 'comeBack'> {
+  if (!sessionCountsTowardDay(record)) {
+    return {
+      streak: s.streak,
+      lastFocusDay: s.lastFocusDay,
+      restDayUsedOn: s.restDayUsedOn,
+      comeBack: s.comeBack,
+    };
+  }
   const bumped = bumpStreakGentle(
     { streak: s.streak, lastFocusDay: s.lastFocusDay, restDayUsedOn: s.restDayUsedOn },
-    dayKeyFor(at, s.settings.dayStartHour),
+    dayKeyFor(record.endedAt, s.settings.dayStartHour),
   );
   // Any finished work session settles the welcome-back state: the user is
   // simply here again, and the count is growing.
   return { ...bumped, comeBack: false };
+}
+
+function beginGoalCredit(
+  ledger: GoalCredit[],
+  goals: Goal[],
+  goalId: number | undefined,
+  preference: Settings['goalCredit'],
+  source: 'manual' | 'session',
+  dayStartHour: number,
+  at = Date.now(),
+  sessionId?: string,
+): { ledger: GoalCredit[]; goals: Goal[]; status?: GoalCreditStatus } {
+  if (
+    goalId == null ||
+    preference === 'off' ||
+    !goals.some((goal) => goal.id === goalId && goal.done < goal.target)
+  ) {
+    return { ledger, goals };
+  }
+  if (preference === 'ask') return { ledger, goals, status: 'pending' };
+  const credited = appendGoalCredit(ledger, goals, {
+    goalId,
+    requestedDelta: 1,
+    source,
+    at,
+    dayStartHour,
+    sessionId,
+  });
+  return {
+    ledger: credited.ledger,
+    goals: credited.goals,
+    status: credited.appliedDelta !== 0 ? 'credited' : undefined,
+  };
 }
 
 function streakFromRawRecords(
@@ -814,6 +1434,90 @@ function focusElapsedMin(s: BloomState, now = Date.now()): number {
   return Math.max(0, (plannedSec - remaining) / 60);
 }
 
+export const FALSE_START_GRACE_SEC = 15;
+
+/**
+ * One transition matrix for every UI control that can touch timer identity.
+ * `allow` means the reducer already preserves the open record (task changes,
+ * next-session duration edits, navigation, or banking Flow). Focus/Tiny
+ * false starts are the sole discard path and never become behavior evidence.
+ */
+export function timerTransitionPolicy(
+  state: BloomState,
+  intent: TimerTransitionIntent,
+  now = Date.now(),
+): TimerTransitionDecision {
+  if (intent === 'activeTask' || intent === 'cadence' || intent === 'duration') {
+    return { kind: 'allow' };
+  }
+  if (intent === 'navigation') {
+    return state.openFocus?.returnSnapshot
+      ? {
+          kind: 'confirm',
+          title: 'Settle this return first?',
+          description: 'Keep this moment open, or end the session before leaving.',
+          confirmLabel: 'end & leave',
+        }
+      : { kind: 'allow' };
+  }
+
+  const destructiveFocusIntent =
+    intent === 'mode' || intent === 'reset' || intent === 'skip';
+  if (state.openFocus && (state.mode === 'focus' || state.mode === 'tiny') && destructiveFocusIntent) {
+    if (state.openFocus.returnSnapshot) {
+      return {
+        kind: 'confirm',
+        title: 'End this open session?',
+        description: 'Your return check is still open. Keep going, or end this session.',
+        confirmLabel: 'end session',
+      };
+    }
+    const elapsedSec = focusElapsedMin(state, now) * 60;
+    if (elapsedSec <= FALSE_START_GRACE_SEC) return { kind: 'discardFalseStart' };
+    const elapsedLabel =
+      elapsedSec < 60 ? 'under a minute' : `${Math.max(1, Math.round(elapsedSec / 60))} min`;
+    if (intent === 'reset') {
+      return {
+        kind: 'confirm',
+        title: 'Reset this session?',
+        description: `You’re ${elapsedLabel} in. Resetting ends this session and records it as ended early.`,
+        confirmLabel: 'end & reset',
+      };
+    }
+    if (intent === 'skip') {
+      return {
+        kind: 'confirm',
+        title: 'Skip this session?',
+        description: `You’re ${elapsedLabel} in. Skipping ends this session and records it as ended early.`,
+        confirmLabel: 'end & skip',
+      };
+    }
+    return {
+      kind: 'confirm',
+      title: 'End this session?',
+      description: `You’re ${elapsedLabel} into this ${state.mode} — end it and continue?`,
+      confirmLabel: 'end & continue',
+    };
+  }
+
+  if (
+    state.openFlow &&
+    (intent === 'reset' || intent === 'flowOff')
+  ) {
+    const elapsedSec = flowElapsed(state, now);
+    const elapsedLabel =
+      elapsedSec < 60 ? 'under a minute' : `${Math.max(1, Math.round(elapsedSec / 60))} min`;
+    return {
+      kind: 'confirm',
+      title: 'End this Flow session?',
+      description: `This stopwatch has ${elapsedLabel} banked. Keep it, or end it without session credit.`,
+      confirmLabel: 'end flow',
+    };
+  }
+
+  return { kind: 'allow' };
+}
+
 /**
  * Tiny sessions earn the same XP unit as focus sessions, scaled by minutes.
  * Keep two decimals so even the smallest allowed rung against a 90-minute
@@ -887,6 +1591,7 @@ export type Action =
   | { type: 'rollOverDay'; at: number }
   | { type: 'toggle'; ifThenPlanId?: string; targetText?: string }
   | { type: 'reset' }
+  | { type: 'discardFalseStart' }
   | { type: 'pick'; mode: TimerMode; tinyMinutes?: TinyStartMinutes }
   | { type: 'skip' }
   | { type: 'complete' }
@@ -895,15 +1600,37 @@ export type Action =
   | { type: 'finishFlow' }
   | { type: 'clearDone' }
   | { type: 'toggleTask'; id: number }
+  | { type: 'setTaskGoal'; id: number; goalId?: number }
+  | {
+      type: 'resolveGoalCredit';
+      source: 'task' | 'session';
+      id: number | string;
+      apply: boolean;
+      /** PLAN 10.2 debrief amount; task credits keep their one-part default. */
+      amount?: number;
+    }
   | { type: 'addTask'; text: string; goal: number; goalId?: number }
   | { type: 'removeTask'; id: number }
   | { type: 'restoreTask'; task: Task; index: number; wasActive: boolean }
   | { type: 'setActiveTask'; id: number }
-  | { type: 'addGoal'; title: string; due: string; target: number }
-  | { type: 'updateGoal'; id: number; patch: Partial<Pick<Goal, 'title' | 'due' | 'target'>> }
+  | { type: 'addGoal'; title: string; due: string; target: number; unit?: string }
+  | { type: 'updateGoal'; id: number; patch: Partial<Pick<Goal, 'title' | 'due' | 'target' | 'unit'>> }
   | { type: 'removeGoal'; id: number }
-  | { type: 'restoreGoal'; goal: Goal; index: number; linkedTaskIds: number[] }
+  | {
+      type: 'restoreGoal';
+      goal: Goal;
+      index: number;
+      linkedTaskIds: number[];
+      goalCredits?: GoalCredit[];
+    }
   | { type: 'logGoal'; id: number; delta: number }
+  | { type: 'addGoalDailyTarget'; goalId: number; plannedAmount: number; targetAt: number }
+  | { type: 'addTaskDailyTarget'; taskId: number; plannedAmount: number; targetAt: number }
+  | { type: 'editDailyTarget'; id: string; plannedAmount: number }
+  | { type: 'dismissDailyTarget'; id: string }
+  | { type: 'armGoal'; goalId: number | null }
+  | { type: 'markRolloverOffered'; dayKey: string }
+  | { type: 'resolveRollover'; id: string; choice: 'carry' | 'rest' }
   | { type: 'clearFocusData' }
   | { type: 'linkDrift'; eventId: string; sessionId: string }
   | { type: 'markWeeklyReview'; week: string }
@@ -919,6 +1646,7 @@ export type Action =
   | { type: 'cachePersonalCadence'; recommendation: PersonalCadenceRecommendation; at: number }
   | { type: 'applyCadence'; pair: CadencePair }
   | { type: 'setTargetOutcome'; sessionId: string; targetOutcome: TargetOutcome }
+  | { type: 'repairSession'; record: SessionRecord }
   | { type: 'parkThought'; text: string }
   | { type: 'sendParkedToTasks'; id: string }
   | { type: 'dismissParked'; id: string }
@@ -935,6 +1663,18 @@ export type Action =
   | { type: 'setNextAction'; sessionId: string; text: string }
   | { type: 'resumeInterrupted'; sessionId: string }
   | { type: 'dismissResumeCue'; sessionId: string }
+  | { type: 'toggleFoundationDay'; instanceId: string; at: number; targetAt?: number }
+  | {
+      type: 'setFoundationEnabled';
+      foundationType: ManualFoundationType;
+      enabled: boolean;
+      customName?: string;
+      at: number;
+    }
+  | { type: 'reorderFoundation'; instanceId: string; direction: -1 | 1 }
+  | { type: 'renameCustomFoundation'; name: string }
+  | { type: 'setFoundationIfThen'; instanceId: string; ifThenId?: string }
+  | { type: 'markFoundationRestartOffered'; instanceId: string; dayKey: string }
   | { type: 'patchSettings'; patch: Partial<Settings>; at?: number };
 
 export function reducer(s: BloomState, a: Action): BloomState {
@@ -978,9 +1718,14 @@ export function reducer(s: BloomState, a: Action): BloomState {
         // First press of a fresh stopwatch opens its session record; a
         // resume just keeps the existing one.
         const flowTask = resolveActiveTask(s.tasks, s.activeTaskId);
+        const armedGoalId =
+          s.armedGoalId != null &&
+          s.goals.some((goal) => goal.id === s.armedGoalId && goal.done < goal.target)
+            ? s.armedGoalId
+            : flowTask?.goalId;
         const openFlow =
           s.openFlow ?? {
-            ...newOpenSession('flow', null, flowTask?.id, undefined, undefined, flowTask?.goalId),
+            ...newOpenSession('flow', null, flowTask?.id, undefined, undefined, armedGoalId),
             targetText: a.targetText,
           };
         return { ...s, running: true, flowStart: Date.now(), remaining: Math.floor(s.flowAcc), justDone: false, openFlow };
@@ -1011,6 +1756,11 @@ export function reducer(s: BloomState, a: Action): BloomState {
         } else {
           const task = resolveActiveTask(s.tasks, s.activeTaskId);
           const taskId = task?.id;
+          const goalId =
+            s.armedGoalId != null &&
+            s.goals.some((goal) => goal.id === s.armedGoalId && goal.done < goal.target)
+              ? s.armedGoalId
+              : task?.goalId;
           // The plan picked in the pre-session planner (PLAN 3.2): stamp it on
           // the fresh record, bump its usage, and remember it for the active
           // task so the planner preselects it next time.
@@ -1019,7 +1769,7 @@ export function reducer(s: BloomState, a: Action): BloomState {
             : undefined;
           const plannedMin = s.mode === 'tiny' ? rem / 60 : dur.focus / 60;
           openFocus = {
-            ...newOpenSession(s.mode, plannedMin, taskId, plan?.id, undefined, task?.goalId),
+            ...newOpenSession(s.mode, plannedMin, taskId, plan?.id, undefined, goalId),
             endsAt,
             targetText: a.targetText,
             // The start target is already a concrete action. It is editable
@@ -1036,17 +1786,51 @@ export function reducer(s: BloomState, a: Action): BloomState {
       }
       return { ...s, running: true, endsAt, remaining: rem, justDone: false, openFocus, ifThenPlans };
     }
+    case 'discardFalseStart': {
+      if (
+        !s.openFocus ||
+        (s.mode !== 'focus' && s.mode !== 'tiny') ||
+        focusElapsedMin(s) * 60 > FALSE_START_GRACE_SEC
+      ) {
+        return s;
+      }
+      const remaining =
+        s.mode === 'tiny'
+          ? tinyResetMinutes(s.openFocus.plannedMin, s.remaining) * 60
+          : dur.focus;
+      return {
+        ...s,
+        running: false,
+        endsAt: null,
+        remaining,
+        justDone: false,
+        openFocus: null,
+        parking: revealParkedThoughts(s.parking, s.openFocus.id),
+      };
+    }
     case 'reset': {
       if (s.mode === 'flow') {
         // Zeroing a started stopwatch abandons its session record.
-        const sessionRecords = s.openFlow
-          ? appendSessionRecord(
+        const appended = s.openFlow
+          ? appendSessionRecordWithArchive(
               s.sessionRecords,
+              s.historyArchive,
               finalizeSession(s.openFlow, 'abandoned', flowElapsed(s) / 60),
             )
-          : s.sessionRecords;
+          : null;
         const parking = revealParkedThoughts(s.parking, s.openFlow?.id);
-        return { ...s, running: false, flowStart: null, flowAcc: 0, remaining: 0, justDone: false, sessionRecords, openFlow: null, parking };
+        return {
+          ...s,
+          running: false,
+          flowStart: null,
+          flowAcc: 0,
+          remaining: 0,
+          justDone: false,
+          sessionRecords: appended?.records ?? s.sessionRecords,
+          historyArchive: appended?.archive ?? s.historyArchive,
+          openFlow: null,
+          parking,
+        };
       }
       // Resetting a started focus/tiny countdown abandons its session record.
       const tinyResetMin = tinyResetMinutes(s.openFocus?.plannedMin, s.remaining);
@@ -1054,14 +1838,25 @@ export function reducer(s: BloomState, a: Action): BloomState {
         s.mode === 'tiny'
           ? tinyResetMin * 60
           : dur[s.mode];
-      const sessionRecords = s.openFocus
-        ? appendSessionRecord(
+      const appended = s.openFocus
+        ? appendSessionRecordWithArchive(
             s.sessionRecords,
+            s.historyArchive,
             finalizeSession(s.openFocus, 'abandoned', focusElapsedMin(s)),
           )
-        : s.sessionRecords;
+        : null;
       const parking = revealParkedThoughts(s.parking, s.openFocus?.id);
-      return { ...s, running: false, endsAt: null, justDone: false, remaining: resetSec, sessionRecords, openFocus: null, parking };
+      return {
+        ...s,
+        running: false,
+        endsAt: null,
+        justDone: false,
+        remaining: resetSec,
+        sessionRecords: appended?.records ?? s.sessionRecords,
+        historyArchive: appended?.archive ?? s.historyArchive,
+        openFocus: null,
+        parking,
+      };
     }
     case 'pick': {
       // Never wipe a live stopwatch by re-tapping its tab.
@@ -1069,14 +1864,18 @@ export function reducer(s: BloomState, a: Action): BloomState {
       // Walking away from a started focus/tiny countdown abandons that session
       // (re-picking its tab resets it, which is the same thing for the record).
       let sessionRecords = s.sessionRecords;
+      let historyArchive = s.historyArchive;
       let openFocus = s.openFocus;
       let parking = s.parking;
       if ((s.mode === 'focus' || s.mode === 'tiny') && openFocus) {
         const endedSessionId = openFocus.id;
-        sessionRecords = appendSessionRecord(
+        const appended = appendSessionRecordWithArchive(
           sessionRecords,
+          historyArchive,
           finalizeSession(openFocus, 'abandoned', focusElapsedMin(s)),
         );
+        sessionRecords = appended.records;
+        historyArchive = appended.archive;
         openFocus = null;
         parking = revealParkedThoughts(parking, endedSessionId);
       }
@@ -1086,7 +1885,7 @@ export function reducer(s: BloomState, a: Action): BloomState {
         parking = revealAllParkedThoughts(parking);
       }
       if (a.mode === 'flow') {
-        return { ...s, sessionRecords, openFocus, parking, mode: 'flow', running: false, endsAt: null, justDone: false, remaining: Math.floor(s.flowAcc) };
+        return { ...s, sessionRecords, historyArchive, openFocus, parking, mode: 'flow', running: false, endsAt: null, justDone: false, remaining: Math.floor(s.flowAcc) };
       }
       // Leaving flow banks the elapsed time; the stopwatch waits, paused —
       // its open record waits with it.
@@ -1098,7 +1897,7 @@ export function reducer(s: BloomState, a: Action): BloomState {
         a.mode === 'tiny'
           ? (a.tinyMinutes ?? TINY_START_OPTIONS[0]) * 60
           : dur[a.mode];
-      return { ...base, sessionRecords, openFocus, parking, mode: a.mode, running: false, endsAt: null, justDone: false, remaining };
+      return { ...base, sessionRecords, historyArchive, openFocus, parking, mode: a.mode, running: false, endsAt: null, justDone: false, remaining };
     }
     case 'skip': {
       if (s.mode === 'flow') return s; // flow has finish, not skip
@@ -1108,11 +1907,26 @@ export function reducer(s: BloomState, a: Action): BloomState {
     case 'finishFlow': {
       if (s.mode !== 'flow' || !s.openFlow) return s;
       const elapsed = flowElapsed(s);
+      const record = finalizeSession(s.openFlow, 'completed', elapsed / 60);
+      const credit = beginGoalCredit(
+        s.goalLedger,
+        s.goals,
+        s.openFlow.goalId,
+        s.settings.goalCredit,
+        'session',
+        s.settings.dayStartHour,
+        record.endedAt,
+        record.id,
+      );
       // The user chose to end it, so the record is 'completed' either way —
       // even a stretch too short to bank XP is a real session that happened.
-      const sessionRecords = appendSessionRecord(
+      const appended = appendSessionRecordWithArchive(
         s.sessionRecords,
-        finalizeSession(s.openFlow, 'completed', elapsed / 60),
+        s.historyArchive,
+        {
+          ...record,
+          goalCredit: credit.status,
+        },
       );
       const parking = revealParkedThoughts(s.parking, s.openFlow?.id);
       // Nearest focus-length wins: half a session or more banks the first
@@ -1128,13 +1942,16 @@ export function reducer(s: BloomState, a: Action): BloomState {
           flowAcc: 0,
           remaining: 0,
           justDone: false,
-          ...bumpStreak(s),
-          sessionRecords,
+          ...bumpStreak(s, record),
+          sessionRecords: appended.records,
+          historyArchive: appended.archive,
+          goals: credit.goals,
+          goalLedger: credit.ledger,
           openFlow: null,
           parking,
         };
       }
-      const streakPatch = bumpStreak(s);
+      const streakPatch = bumpStreak(s, record);
       // Credit pomodoros one by one so they cascade across tasks exactly like
       // finished focus sessions do. Begin with the task stamped at Flow start,
       // even if the global selection changed while the stopwatch was open.
@@ -1168,8 +1985,11 @@ export function reducer(s: BloomState, a: Action): BloomState {
         ...streakPatch,
         tasks,
         activeTaskId,
+        goals: credit.goals,
+        goalLedger: credit.ledger,
         palXp: { ...s.palXp, [s.settings.pal]: (s.palXp[s.settings.pal] ?? 0) + credited },
-        sessionRecords,
+        sessionRecords: appended.records,
+        historyArchive: appended.archive,
         openFlow: null,
         parking,
       };
@@ -1184,7 +2004,17 @@ export function reducer(s: BloomState, a: Action): BloomState {
       const endsAt = Date.now() + remaining * 1000;
       const task = resolveActiveTask(s.tasks, s.activeTaskId);
       const openFocus = {
-        ...newOpenSession('tiny', TINY_EXTENSION_MIN, task?.id, undefined, undefined, task?.goalId),
+        ...newOpenSession(
+          'tiny',
+          TINY_EXTENSION_MIN,
+          task?.id,
+          undefined,
+          undefined,
+          s.armedGoalId != null &&
+            s.goals.some((goal) => goal.id === s.armedGoalId && goal.done < goal.target)
+            ? s.armedGoalId
+            : task?.goalId,
+        ),
         endsAt,
         targetText: lastRecord.targetText,
       };
@@ -1208,8 +2038,16 @@ export function reducer(s: BloomState, a: Action): BloomState {
       const wasTiny = s.mode === 'tiny';
       const wasWork = wasFocus || wasTiny;
       const sessions = s.sessions + (wasFocus ? 1 : 0);
-      const streakPatch = wasWork
-        ? bumpStreak(s)
+      const completedRecord =
+        wasWork && s.openFocus
+          ? finalizeSession(
+              s.openFocus,
+              'completed',
+              s.openFocus.plannedMin ?? dur.focus / 60,
+            )
+          : null;
+      const streakPatch = completedRecord
+        ? bumpStreak(s, completedRecord)
         : {
             streak: s.streak,
             lastFocusDay: s.lastFocusDay,
@@ -1256,13 +2094,31 @@ export function reducer(s: BloomState, a: Action): BloomState {
             }
           : s.palXp;
       // The countdown ran its full course: finalize the session record.
-      const sessionRecords =
-        wasWork && s.openFocus
-          ? appendSessionRecord(
-              s.sessionRecords,
-              finalizeSession(s.openFocus, 'completed', s.openFocus.plannedMin ?? dur.focus / 60),
-            )
-          : s.sessionRecords;
+      let goals = s.goals;
+      let goalLedger = s.goalLedger;
+      let sessionRecords = s.sessionRecords;
+      let historyArchive = s.historyArchive;
+      if (completedRecord) {
+        const record = completedRecord;
+        const credit = beginGoalCredit(
+          goalLedger,
+          goals,
+          record.goalId,
+          s.settings.goalCredit,
+          'session',
+          s.settings.dayStartHour,
+          record.endedAt,
+          record.id,
+        );
+        goals = credit.goals;
+        goalLedger = credit.ledger;
+        const appended = appendSessionRecordWithArchive(s.sessionRecords, s.historyArchive, {
+          ...record,
+          goalCredit: credit.status,
+        });
+        sessionRecords = appended.records;
+        historyArchive = appended.archive;
+      }
       const parking = wasWork
         ? revealParkedThoughts(s.parking, s.openFocus?.id)
         : s.parking;
@@ -1276,8 +2132,11 @@ export function reducer(s: BloomState, a: Action): BloomState {
         ...streakPatch,
         tasks,
         activeTaskId,
+        goals,
+        goalLedger,
         palXp,
         sessionRecords,
+        historyArchive,
         openFocus: wasWork ? null : s.openFocus,
         parking,
       };
@@ -1313,7 +2172,20 @@ export function reducer(s: BloomState, a: Action): BloomState {
         ? resolveActiveTask(s.tasks, s.activeTaskId)
         : undefined;
       const openFocus = run && next === 'focus'
-        ? { ...newOpenSession('focus', rem / 60, task?.id, undefined, now, task?.goalId), endsAt }
+        ? {
+            ...newOpenSession(
+              'focus',
+              rem / 60,
+              task?.id,
+              undefined,
+              now,
+              s.armedGoalId != null &&
+                s.goals.some((goal) => goal.id === s.armedGoalId && goal.done < goal.target)
+                ? s.armedGoalId
+                : task?.goalId,
+            ),
+            endsAt,
+          }
         : s.openFocus;
       return {
         ...s,
@@ -1326,14 +2198,107 @@ export function reducer(s: BloomState, a: Action): BloomState {
       };
     }
     case 'toggleTask': {
-      const tasks = s.tasks.map((t) =>
-        t.id === a.id
-          ? { ...t, done: !t.done, completedAt: t.done ? undefined : Date.now() }
-          : t,
+      const current = s.tasks.find((task) => task.id === a.id);
+      if (!current) return s;
+      let goals = s.goals;
+      let goalLedger = s.goalLedger;
+      let goalCredit: GoalCreditStatus | undefined;
+      if (!current.done) {
+        const credit = beginGoalCredit(
+          goalLedger,
+          goals,
+          current.goalId,
+          s.settings.goalCredit,
+          'manual',
+          s.settings.dayStartHour,
+        );
+        goals = credit.goals;
+        goalLedger = credit.ledger;
+        goalCredit = credit.status;
+      }
+      const tasks = s.tasks.map((task) =>
+        task.id === a.id
+          ? {
+              ...task,
+              done: !task.done,
+              completedAt: task.done ? undefined : Date.now(),
+              goalCredit: task.done ? undefined : goalCredit,
+            }
+          : task,
       );
       // If the active task was just checked off, hand focus to the next open one.
       const activeTaskId = resolveActiveTask(tasks, s.activeTaskId)?.id ?? null;
-      return { ...s, tasks, activeTaskId };
+      return { ...s, tasks, activeTaskId, goals, goalLedger };
+    }
+    case 'setTaskGoal': {
+      const goalId =
+        a.goalId != null && s.goals.some((goal) => goal.id === a.goalId)
+          ? a.goalId
+          : undefined;
+      return {
+        ...s,
+        tasks: s.tasks.map((task) =>
+          task.id === a.id && !task.done ? { ...task, goalId } : task,
+        ),
+      };
+    }
+    case 'resolveGoalCredit': {
+      if (a.source === 'task') {
+        const taskId = typeof a.id === 'number' ? a.id : Number.NaN;
+        const task = s.tasks.find(
+          (item) => item.id === taskId && item.goalCredit === 'pending',
+        );
+        if (!task) return s;
+        const credit = a.apply && task.goalId != null
+          ? appendGoalCredit(s.goalLedger, s.goals, {
+              goalId: task.goalId,
+              requestedDelta: 1,
+              source: 'manual',
+              dayStartHour: s.settings.dayStartHour,
+            })
+          : { ledger: s.goalLedger, goals: s.goals, appliedDelta: 0 };
+        return {
+          ...s,
+          goals: credit.goals,
+          goalLedger: credit.ledger,
+          tasks: s.tasks.map((item) =>
+            item.id === task.id
+              ? {
+                  ...item,
+                  goalCredit: credit.appliedDelta !== 0 ? 'credited' : 'skipped',
+                }
+              : item,
+          ),
+        };
+      }
+      const sessionId = typeof a.id === 'string' ? a.id : '';
+      const record = s.sessionRecords.find(
+        (item) => item.id === sessionId && item.goalCredit === 'pending',
+      );
+      if (!record) return s;
+      const credit = a.apply && record.goalId != null
+        ? appendGoalCredit(s.goalLedger, s.goals, {
+            goalId: record.goalId,
+            requestedDelta: a.amount ?? 1,
+            source: 'session',
+            at: record.endedAt,
+            dayStartHour: s.settings.dayStartHour,
+            sessionId: record.id,
+          })
+        : { ledger: s.goalLedger, goals: s.goals, appliedDelta: 0 };
+      return {
+        ...s,
+        goals: credit.goals,
+        goalLedger: credit.ledger,
+        sessionRecords: s.sessionRecords.map((item) =>
+          item.id === record.id
+            ? {
+                ...item,
+                goalCredit: credit.appliedDelta !== 0 ? 'credited' : 'skipped',
+              }
+            : item,
+        ),
+      };
     }
     case 'addTask': {
       const text = a.text.trim();
@@ -1348,19 +2313,42 @@ export function reducer(s: BloomState, a: Action): BloomState {
       return { ...s, tasks, activeTaskId: s.activeTaskId ?? id };
     }
     case 'removeTask': {
+      const removed = s.tasks.find((task) => task.id === a.id);
       const tasks = s.tasks.filter((t) => t.id !== a.id);
       const activeTaskId =
         s.activeTaskId === a.id ? (tasks.find((t) => !t.done)?.id ?? null) : s.activeTaskId;
-      return { ...s, tasks, activeTaskId };
+      const archiveRow =
+        removed?.done && removed.completedAt !== undefined
+          ? completedTaskArchiveRow({
+              taskId: removed.id,
+              title: removed.t,
+              completedAt: removed.completedAt,
+            })
+          : null;
+      const historyArchive = archiveRow
+        ? appendCompletedTaskArchiveRow(s.historyArchive, archiveRow)
+        : s.historyArchive;
+      return { ...s, tasks, activeTaskId, historyArchive };
     }
     case 'restoreTask': {
       if (s.tasks.some((task) => task.id === a.task.id)) return s;
       const tasks = [...s.tasks];
       tasks.splice(Math.max(0, Math.min(a.index, tasks.length)), 0, { ...a.task });
+      const archiveRow =
+        a.task.done && a.task.completedAt !== undefined
+          ? completedTaskArchiveRow({
+              taskId: a.task.id,
+              title: a.task.t,
+              completedAt: a.task.completedAt,
+            })
+          : null;
       return {
         ...s,
         tasks,
         activeTaskId: a.wasActive && !a.task.done ? a.task.id : s.activeTaskId,
+        historyArchive: archiveRow
+          ? removeCompletedTaskArchiveRow(s.historyArchive, archiveRow.id)
+          : s.historyArchive,
       };
     }
     case 'setActiveTask': {
@@ -1375,7 +2363,15 @@ export function reducer(s: BloomState, a: Action): BloomState {
       const id = s.goals.reduce((m, g) => Math.max(m, g.id), 0) + 1;
       return {
         ...s,
-        goals: [...s.goals, { id, title, due: a.due, target, done: 0, createdAt: Date.now() }],
+        goals: [...s.goals, {
+          id,
+          title,
+          due: a.due,
+          target,
+          done: 0,
+          unit: normalizeGoalUnit(a.unit),
+          createdAt: Date.now(),
+        }],
       };
     }
     case 'linkDrift': {
@@ -1401,7 +2397,26 @@ export function reducer(s: BloomState, a: Action): BloomState {
       return {
         ...s,
         goals: s.goals.filter((g) => g.id !== a.id),
-        tasks: s.tasks.map((t) => (t.goalId === a.id ? { ...t, goalId: undefined } : t)),
+        goalLedger: removeGoalCredits(s.goalLedger, a.id),
+        armedGoalId: s.armedGoalId === a.id ? null : s.armedGoalId,
+        tasks: s.tasks.map((t) =>
+          t.goalId === a.id
+            ? {
+                ...t,
+                goalId: undefined,
+                goalCredit: t.goalCredit === 'pending' ? 'skipped' : t.goalCredit,
+              }
+            : t,
+        ),
+        sessionRecords: s.sessionRecords.map((record) =>
+          record.goalId === a.id && record.goalCredit === 'pending'
+            ? { ...record, goalCredit: 'skipped' }
+            : record,
+        ),
+        openFocus:
+          s.openFocus?.goalId === a.id ? { ...s.openFocus, goalId: undefined } : s.openFocus,
+        openFlow:
+          s.openFlow?.goalId === a.id ? { ...s.openFlow, goalId: undefined } : s.openFlow,
       };
     case 'restoreGoal': {
       if (s.goals.some((goal) => goal.id === a.goal.id)) return s;
@@ -1411,6 +2426,7 @@ export function reducer(s: BloomState, a: Action): BloomState {
       return {
         ...s,
         goals,
+        goalLedger: [...s.goalLedger, ...(a.goalCredits ?? [])],
         tasks: s.tasks.map((task) =>
           linkedTaskIds.has(task.id) ? { ...task, goalId: a.goal.id } : task,
         ),
@@ -1427,6 +2443,8 @@ export function reducer(s: BloomState, a: Action): BloomState {
           a.patch.due !== undefined && /^\d{4}-\d{2}-\d{2}$/.test(a.patch.due)
             ? a.patch.due
             : g.due;
+        const unit =
+          a.patch.unit !== undefined ? normalizeGoalUnit(a.patch.unit) : g.unit;
         const target =
           a.patch.target !== undefined
             ? Math.max(1, Math.min(GOAL_TARGET_MAX, Math.round(a.patch.target) || 1))
@@ -1439,6 +2457,7 @@ export function reducer(s: BloomState, a: Action): BloomState {
           ...g,
           title,
           due,
+          unit,
           target,
           done,
           completedAt: done >= target ? (g.completedAt ?? Date.now()) : undefined,
@@ -1459,7 +2478,18 @@ export function reducer(s: BloomState, a: Action): BloomState {
     case 'updateIfThenPlan':
       return { ...s, ifThenPlans: updateIfThenPlan(s.ifThenPlans, a.id, a.patch) };
     case 'removeIfThenPlan':
-      return { ...s, ifThenPlans: removeIfThenPlan(s.ifThenPlans, a.id) };
+      return {
+        ...s,
+        ifThenPlans: removeIfThenPlan(s.ifThenPlans, a.id),
+        foundations: {
+          ...s.foundations,
+          instances: s.foundations.instances.map((instance) =>
+            instance.ifThenId === a.id
+              ? { ...instance, ifThenId: undefined }
+              : instance,
+          ),
+        },
+      };
     case 'useIfThenPlan':
       return { ...s, ifThenPlans: markIfThenPlanUsed(s.ifThenPlans, a.id) };
     case 'patchRitual':
@@ -1517,6 +2547,19 @@ export function reducer(s: BloomState, a: Action): BloomState {
       return {
         ...s,
         sessionRecords: [],
+        historyArchive: {
+          ...s.historyArchive,
+          hours: [],
+          overflow: {
+            ...s.historyArchive.overflow,
+            hourBucketCount: 0,
+            focusMinutes: 0,
+            sessionCount: 0,
+            completedSessionCount: 0,
+            driftCount: 0,
+            recoveryCount: 0,
+          },
+        },
         lastWeeklyReviewWeek: null,
         personalCadence: {
           ...s.personalCadence,
@@ -1572,6 +2615,44 @@ export function reducer(s: BloomState, a: Action): BloomState {
           a.targetOutcome,
         ),
       };
+    case 'repairSession': {
+      const current = s.sessionRecords.find((record) => record.id === a.record.id);
+      if (
+        !current ||
+        !isValidSessionRecord(a.record) ||
+        a.record.startedAt !== current.startedAt ||
+        a.record.mode !== current.mode ||
+        a.record.plannedMin !== current.plannedMin ||
+        a.record.taskId !== current.taskId ||
+        a.record.goalId !== current.goalId ||
+        a.record.goalCredit !== current.goalCredit ||
+        a.record.edited !== true
+      ) return s;
+      const overlaps = s.sessionRecords.some(
+        (record) =>
+          record.id !== current.id &&
+          record.startedAt < a.record.endedAt &&
+          record.endedAt > a.record.startedAt,
+      );
+      if (overlaps) return s;
+      return {
+        ...s,
+        sessionRecords: s.sessionRecords.map((record) =>
+          record.id === current.id
+            ? {
+                ...record,
+                endedAt: a.record.endedAt,
+                actualMin: a.record.actualMin,
+                outcome: a.record.outcome,
+                driftEventIds: [...a.record.driftEventIds],
+                resumeCuePending: a.record.resumeCuePending,
+                edited: true,
+                editedAt: a.record.editedAt,
+              }
+            : record,
+        ),
+      };
+    }
     case 'parkThought': {
       const open = s.mode === 'flow' ? s.openFlow : s.openFocus;
       const isWorkMode = s.mode === 'focus' || s.mode === 'tiny' || s.mode === 'flow';
@@ -1732,14 +2813,190 @@ export function reducer(s: BloomState, a: Action): BloomState {
       return changed ? { ...s, sessionRecords } : s;
     }
     case 'logGoal': {
-      const goals = s.goals.map((g) => {
-        if (g.id !== a.id) return g;
-        const done = Math.max(0, Math.min(g.target, g.done + a.delta));
-        // Stamp the moment the last part lands; un-logging one clears it.
-        const completedAt = done >= g.target ? (g.completedAt ?? Date.now()) : undefined;
-        return { ...g, done, completedAt };
+      const result = appendGoalCredit(s.goalLedger, s.goals, {
+        goalId: a.id,
+        requestedDelta: a.delta,
+        source: 'manual',
+        dayStartHour: s.settings.dayStartHour,
       });
-      return { ...s, goals };
+      return result.appliedDelta === 0
+        ? s
+        : { ...s, goals: result.goals, goalLedger: result.ledger };
+    }
+    case 'addGoalDailyTarget': {
+      const goal = s.goals.find((item) => item.id === a.goalId);
+      if (!goal) return s;
+      const dayPlan = addGoalDailyTarget(s.dayPlan, {
+        goal,
+        plannedAmount: a.plannedAmount,
+        targetAt: a.targetAt,
+        dayStartHour: s.settings.dayStartHour,
+      });
+      return dayPlan === s.dayPlan ? s : { ...s, dayPlan };
+    }
+    case 'addTaskDailyTarget': {
+      const task = s.tasks.find((item) => item.id === a.taskId);
+      if (!task) return s;
+      const dayPlan = addTaskDailyTarget(s.dayPlan, {
+        task: { id: task.id, t: task.t, unit: 'sessions' },
+        plannedAmount: a.plannedAmount,
+        targetAt: a.targetAt,
+        dayStartHour: s.settings.dayStartHour,
+      });
+      return dayPlan === s.dayPlan ? s : { ...s, dayPlan };
+    }
+    case 'editDailyTarget': {
+      const taskActual = (target: TaskDailyTarget) =>
+        s.sessionRecords.filter(
+          (record) =>
+            record.taskId === target.taskId &&
+            sessionCountsTowardDay(record) &&
+            dayKeyFor(record.endedAt, s.settings.dayStartHour) === target.dayKey,
+        ).length;
+      const dayPlan = editDailyTarget(s.dayPlan, {
+        id: a.id,
+        plannedAmount: a.plannedAmount,
+        ledger: s.goalLedger,
+        dayStartHour: s.settings.dayStartHour,
+        taskActual,
+      });
+      return dayPlan === s.dayPlan ? s : { ...s, dayPlan };
+    }
+    case 'dismissDailyTarget': {
+      const dayPlan = dismissDailyTarget(s.dayPlan, a.id);
+      return dayPlan === s.dayPlan ? s : { ...s, dayPlan };
+    }
+    case 'armGoal': {
+      const goalId =
+        a.goalId != null &&
+        s.goals.some((goal) => goal.id === a.goalId && goal.done < goal.target)
+          ? a.goalId
+          : null;
+      return goalId === s.armedGoalId ? s : { ...s, armedGoalId: goalId };
+    }
+    case 'markRolloverOffered':
+      return a.dayKey === s.today && s.lastRolloverOfferDay !== a.dayKey
+        ? { ...s, lastRolloverOfferDay: a.dayKey }
+        : s;
+    case 'resolveRollover': {
+      if (a.choice === 'rest') return s;
+      const taskActual = (target: TaskDailyTarget) =>
+        s.sessionRecords.filter(
+          (record) =>
+            record.taskId === target.taskId &&
+            sessionCountsTowardDay(record) &&
+            dayKeyFor(record.endedAt, s.settings.dayStartHour) === target.dayKey,
+        ).length;
+      const offer = rolloverOffers(s.dayPlan, {
+        todayKey: s.today,
+        ledger: s.goalLedger,
+        goals: s.goals,
+        taskActual,
+      }).find((item) => item.target.id === a.id);
+      if (!offer) return s;
+      const dayPlan = carryRolloverTarget(s.dayPlan, {
+        offer,
+        todayKey: s.today,
+        goals: s.goals,
+      });
+      return dayPlan === s.dayPlan ? s : { ...s, dayPlan };
+    }
+    case 'toggleFoundationDay': {
+      const targetAt = a.targetAt ?? a.at;
+      const targetDayKey = dayKeyFor(targetAt, s.settings.dayStartHour);
+      const entryId = foundationEntryId(a.instanceId, targetDayKey);
+      const hadEntry = s.foundations.entries.some((entry) => entry.id === entryId);
+      const foundations = toggleFoundationDayState(
+        s.foundations,
+        a.instanceId,
+        targetAt,
+        a.at,
+        s.settings.dayStartHour,
+      );
+      if (foundations === s.foundations) return s;
+      const addedEntry =
+        !hadEntry && foundations.entries.some((entry) => entry.id === entryId);
+      const ifThenId = addedEntry
+        ? s.foundations.instances.find((instance) => instance.id === a.instanceId)?.ifThenId
+        : undefined;
+      return {
+        ...s,
+        foundations,
+        ifThenPlans:
+          ifThenId && s.ifThenPlans.some((plan) => plan.id === ifThenId)
+            ? markIfThenPlanUsed(s.ifThenPlans, ifThenId, a.at)
+            : s.ifThenPlans,
+      };
+    }
+    case 'setFoundationEnabled': {
+      const instanceId = foundationInstanceId(a.foundationType);
+      let foundations = s.foundations;
+      if (!foundations.instances.some((instance) => instance.id === instanceId)) {
+        if (!a.enabled) return s;
+        const nextOrder =
+          foundations.instances.reduce(
+            (highest, instance) => Math.max(highest, instance.order),
+            -1,
+          ) + 1;
+        const instance = createFoundationInstance({
+          type: a.foundationType,
+          customName: a.customName,
+          order: nextOrder,
+          at: a.at,
+          dayStartHour: s.settings.dayStartHour,
+        });
+        if (!instance) return s;
+        foundations = { ...foundations, instances: [...foundations.instances, instance] };
+      } else {
+        foundations = setFoundationEnabledState(
+          foundations,
+          instanceId,
+          a.enabled,
+          a.at,
+          s.settings.dayStartHour,
+        );
+      }
+      return foundations === s.foundations ? s : { ...s, foundations };
+    }
+    case 'reorderFoundation': {
+      const foundations = reorderFoundationState(
+        s.foundations,
+        a.instanceId,
+        a.direction,
+      );
+      return foundations === s.foundations ? s : { ...s, foundations };
+    }
+    case 'renameCustomFoundation': {
+      const foundations = renameCustomFoundationState(s.foundations, a.name);
+      return foundations === s.foundations ? s : { ...s, foundations };
+    }
+    case 'setFoundationIfThen': {
+      if (a.ifThenId && !s.ifThenPlans.some((plan) => plan.id === a.ifThenId)) return s;
+      let changed = false;
+      const instances = s.foundations.instances.map((instance) => {
+        if (
+          instance.id !== a.instanceId ||
+          !isManualFoundationType(instance.type) ||
+          instance.ifThenId === a.ifThenId
+        ) return instance;
+        changed = true;
+        return { ...instance, ifThenId: a.ifThenId };
+      });
+      return changed ? { ...s, foundations: { ...s.foundations, instances } } : s;
+    }
+    case 'markFoundationRestartOffered': {
+      if (!isFoundationDayKey(a.dayKey)) return s;
+      let changed = false;
+      const instances = s.foundations.instances.map((instance) => {
+        if (
+          instance.id !== a.instanceId ||
+          !isManualFoundationType(instance.type) ||
+          instance.lastRestartOfferDayKey === a.dayKey
+        ) return instance;
+        changed = true;
+        return { ...instance, lastRestartOfferDayKey: a.dayKey };
+      });
+      return changed ? { ...s, foundations: { ...s.foundations, instances } } : s;
     }
     case 'patchSettings': {
       const nextDayStartHour =
@@ -1753,38 +3010,69 @@ export function reducer(s: BloomState, a: Action): BloomState {
         durations: { ...s.settings.durations, ...(a.patch.durations || {}) },
         companion: { ...s.settings.companion, ...(a.patch.companion || {}) },
       };
+      let foundations = s.foundations;
+      if (
+        a.patch.foundations === true &&
+        !foundations.instances.some((instance) => instance.type === 'focused-work')
+      ) {
+        const focusedWork = createFoundationInstance({
+          type: 'focused-work',
+          order: 0,
+          at: a.at ?? Date.now(),
+          dayStartHour: settings.dayStartHour,
+        });
+        if (focusedWork) {
+          foundations = {
+            ...foundations,
+            instances: [
+              ...foundations.instances.map((instance) => ({
+                ...instance,
+                order: instance.order + 1,
+              })),
+              focusedWork,
+            ],
+          };
+        }
+      }
       const dayBoundaryChanged = nextDayStartHour !== s.settings.dayStartHour;
       const current = dayBoundaryChanged
         ? initializeDay(
             {
               ...s,
               settings,
+              foundations,
               ...rederiveStreakForBoundary(s, nextDayStartHour),
             },
             a.at ?? Date.now(),
           )
-        : { ...s, settings };
+        : { ...s, settings, foundations };
       // Switching the flow timer off while standing in it: land back on a
       // fresh focus timer instead of a tab that no longer exists. The zeroed
       // stopwatch's session record is finalized as abandoned.
-      if (a.patch.flow === false && current.mode === 'flow') {
-        const sessionRecords = current.openFlow
-          ? appendSessionRecord(
+      if (a.patch.flow === false && (current.mode === 'flow' || current.openFlow)) {
+        const appended = current.openFlow
+          ? appendSessionRecordWithArchive(
               current.sessionRecords,
+              current.historyArchive,
               finalizeSession(current.openFlow, 'abandoned', flowElapsed(current) / 60),
             )
-          : current.sessionRecords;
+          : null;
         return {
           ...current,
           settings,
-          mode: 'focus',
-          running: false,
-          endsAt: null,
-          justDone: false,
-          remaining: settings.durations.focus,
+          ...(current.mode === 'flow'
+            ? {
+                mode: 'focus' as const,
+                running: false,
+                endsAt: null,
+                justDone: false,
+                remaining: settings.durations.focus,
+              }
+            : {}),
           flowStart: null,
           flowAcc: 0,
-          sessionRecords,
+          sessionRecords: appended?.records ?? current.sessionRecords,
+          historyArchive: appended?.archive ?? current.historyArchive,
           openFlow: null,
           parking: revealParkedThoughts(current.parking, current.openFlow?.id),
         };
@@ -1821,7 +3109,7 @@ export function useBloom() {
   // per-second tick only touches `remaining`, which is not persisted.
   useEffect(() => {
     persist(state);
-  }, [state.sessions, state.streak, state.lastFocusDay, state.restDayUsedOn, state.comeBack, state.tasks, state.activeTaskId, state.palXp, state.goals, state.flowStart, state.flowAcc, state.running, state.mode, state.sessionRecords, state.openFocus, state.openFlow, state.lastWeeklyReviewWeek, state.ifThenPlans, state.ritual, state.lastWoopOfferAt, state.preSlump, state.personalCadence, state.parking, state.guideRead, state.settings]);
+  }, [state.sessions, state.streak, state.lastFocusDay, state.restDayUsedOn, state.comeBack, state.tasks, state.activeTaskId, state.palXp, state.goals, state.goalLedger, state.foundations, state.dayPlan, state.lastRolloverOfferDay, state.flowStart, state.flowAcc, state.running, state.mode, state.sessionRecords, state.openFocus, state.openFlow, state.lastWeeklyReviewWeek, state.ifThenPlans, state.ritual, state.lastWoopOfferAt, state.preSlump, state.personalCadence, state.parking, state.guideRead, state.settings]);
 
   // Wall-clock tick: recompute remaining ~4x/sec and let the same reducer
   // decision own a day rollover while a timer is active.
@@ -1943,11 +3231,20 @@ export function useBloom() {
         dispatch({ type: 'toggle', ifThenPlanId, targetText: target });
       },
       reset: () => dispatch({ type: 'reset' }),
+      discardFalseStart: () => dispatch({ type: 'discardFalseStart' }),
       pick: (m: TimerMode) => dispatch({ type: 'pick', mode: m }),
       pickTiny: (minutes: TinyStartMinutes) =>
         dispatch({ type: 'pick', mode: 'tiny', tinyMinutes: minutes }),
       skip: () => dispatch({ type: 'skip' }),
       toggleTask: (id: number) => dispatch({ type: 'toggleTask', id }),
+      setTaskGoal: (id: number, goalId?: number) =>
+        dispatch({ type: 'setTaskGoal', id, goalId }),
+      resolveGoalCredit: (
+        source: 'task' | 'session',
+        id: number | string,
+        apply: boolean,
+        amount?: number,
+      ) => dispatch({ type: 'resolveGoalCredit', source, id, apply, amount }),
       addTask: (text: string, goal = 1, goalId?: number) =>
         dispatch({ type: 'addTask', text, goal, goalId }),
       removeTask: (id: number) => dispatch({ type: 'removeTask', id }),
@@ -1960,14 +3257,30 @@ export function useBloom() {
         dispatch({ type: 'extendTiny' });
       },
       declineTiny: () => dispatch({ type: 'declineTiny' }),
-      addGoal: (title: string, due: string, target: number) =>
-        dispatch({ type: 'addGoal', title, due, target }),
-      updateGoal: (id: number, patch: Partial<Pick<Goal, 'title' | 'due' | 'target'>>) =>
+      addGoal: (title: string, due: string, target: number, unit?: string) =>
+        dispatch({ type: 'addGoal', title, due, target, unit }),
+      updateGoal: (id: number, patch: Partial<Pick<Goal, 'title' | 'due' | 'target' | 'unit'>>) =>
         dispatch({ type: 'updateGoal', id, patch }),
       removeGoal: (id: number) => dispatch({ type: 'removeGoal', id }),
-      restoreGoal: (goal: Goal, index: number, linkedTaskIds: number[] = []) =>
-        dispatch({ type: 'restoreGoal', goal, index, linkedTaskIds }),
+      restoreGoal: (
+        goal: Goal,
+        index: number,
+        linkedTaskIds: number[] = [],
+        goalCredits: GoalCredit[] = [],
+      ) => dispatch({ type: 'restoreGoal', goal, index, linkedTaskIds, goalCredits }),
       logGoal: (id: number, delta: number) => dispatch({ type: 'logGoal', id, delta }),
+      addGoalDailyTarget: (goalId: number, plannedAmount: number, targetAt: number) =>
+        dispatch({ type: 'addGoalDailyTarget', goalId, plannedAmount, targetAt }),
+      addTaskDailyTarget: (taskId: number, plannedAmount: number, targetAt = Date.now()) =>
+        dispatch({ type: 'addTaskDailyTarget', taskId, plannedAmount, targetAt }),
+      editDailyTarget: (id: string, plannedAmount: number) =>
+        dispatch({ type: 'editDailyTarget', id, plannedAmount }),
+      dismissDailyTarget: (id: string) => dispatch({ type: 'dismissDailyTarget', id }),
+      armGoal: (goalId: number | null) => dispatch({ type: 'armGoal', goalId }),
+      markRolloverOffered: (dayKey: string) =>
+        dispatch({ type: 'markRolloverOffered', dayKey }),
+      resolveRollover: (id: string, choice: 'carry' | 'rest') =>
+        dispatch({ type: 'resolveRollover', id, choice }),
       clearFocusData: () => {
         // The companion log has its own localStorage key. Keep the public
         // action cohesive: one user confirmation clears that key and one
@@ -1999,6 +3312,45 @@ export function useBloom() {
       applyCadence: (pair: CadencePair) => dispatch({ type: 'applyCadence', pair }),
       setTargetOutcome: (sessionId: string, targetOutcome: TargetOutcome) =>
         dispatch({ type: 'setTargetOutcome', sessionId, targetOutcome }),
+      repairSession: (proposal: SessionRepairProposal): SessionRecord => {
+        const editedAt = Date.now();
+        let driftEventId: string | undefined;
+        if (proposal.retroactiveDrift) {
+          const onsetMin = Math.max(
+            0,
+            (proposal.retroactiveDrift.onsetAt - proposal.record.startedAt) / 60_000,
+          );
+          const len = Math.max(
+            1,
+            proposal.record.plannedMin ?? proposal.record.actualMin,
+            Math.ceil(onsetMin),
+          );
+          driftEventId = appendDriftEvent({
+            sessionId: proposal.record.id,
+            ts: Math.max(editedAt, proposal.retroactiveDrift.onsetAt),
+            shownAt: proposal.retroactiveDrift.onsetAt,
+            min: Math.min(len, onsetMin),
+            estOnsetMin: Math.min(len, onsetMin),
+            estDurationMin: Math.min(
+              len,
+              Math.max(1, proposal.retroactiveDrift.durationMin),
+            ),
+            len,
+            src: 'repair',
+          }).id;
+        }
+        const record: SessionRecord = {
+          ...proposal.record,
+          driftEventIds:
+            driftEventId && !proposal.record.driftEventIds.includes(driftEventId)
+              ? [...proposal.record.driftEventIds, driftEventId]
+              : [...proposal.record.driftEventIds],
+          edited: true,
+          editedAt,
+        };
+        dispatch({ type: 'repairSession', record });
+        return record;
+      },
       parkThought: (text: string) => dispatch({ type: 'parkThought', text }),
       sendParkedToTasks: (id: string) => dispatch({ type: 'sendParkedToTasks', id }),
       dismissParked: (id: string) => dispatch({ type: 'dismissParked', id }),
@@ -2017,12 +3369,71 @@ export function useBloom() {
         dispatch({ type: 'resumeInterrupted', sessionId }),
       dismissResumeCue: (sessionId: string) =>
         dispatch({ type: 'dismissResumeCue', sessionId }),
+      toggleFoundationDay: (instanceId: string, targetAt?: number) =>
+        dispatch({ type: 'toggleFoundationDay', instanceId, at: Date.now(), targetAt }),
+      setFoundationEnabled: (
+        foundationType: ManualFoundationType,
+        enabled: boolean,
+        customName?: string,
+      ) => dispatch({
+        type: 'setFoundationEnabled',
+        foundationType,
+        enabled,
+        customName,
+        at: Date.now(),
+      }),
+      reorderFoundation: (instanceId: string, direction: -1 | 1) =>
+        dispatch({ type: 'reorderFoundation', instanceId, direction }),
+      renameCustomFoundation: (name: string) =>
+        dispatch({ type: 'renameCustomFoundation', name }),
+      setFoundationIfThen: (instanceId: string, ifThenId?: string) =>
+        dispatch({ type: 'setFoundationIfThen', instanceId, ifThenId }),
+      markFoundationRestartOffered: (instanceId: string, dayKey: string) =>
+        dispatch({ type: 'markFoundationRestartOffered', instanceId, dayKey }),
       patchSettings: (patch: Partial<Settings>) =>
         dispatch({ type: 'patchSettings', patch, at: Date.now() }),
       reloadPersistedState: () => dispatch({ type: 'replaceState', state: loadState() }),
     }),
     [],
   );
+
+  const retryStorage = useCallback(() => {
+    const before = getStorageHealthSnapshot();
+    if (before.failures.some((failure) => failure.area === 'bloom-state')) {
+      const persisted = readPersisted();
+      if (
+        persisted &&
+        !getStorageHealthSnapshot().failures.some(
+          (failure) => failure.area === 'bloom-state',
+        )
+      ) {
+        dispatch({ type: 'replaceState', state: loadState() });
+      } else if (
+        before.failures.every(
+          (failure) =>
+            failure.area !== 'bloom-state' || failure.kind === 'write',
+        )
+      ) {
+        persist(state);
+      }
+    }
+    if (before.failures.some((failure) => failure.area === 'companion-log')) {
+      const events = loadEvents();
+      if (!storageWritesBlocked('companion-log')) replaceCompanionLog(events);
+    }
+  }, [state]);
+
+  const recoverStorage = useCallback(() => {
+    const failures = getStorageHealthSnapshot().failures;
+    if (failures.some((failure) => failure.area === 'bloom-state')) {
+      persist(state, true);
+    }
+    if (failures.some((failure) => failure.area === 'companion-log')) {
+      // loadEvents keeps every usable row in memory while preserving the raw
+      // corrupt payload in the downloadable recovery bundle.
+      replaceCompanionLog(loadEvents());
+    }
+  }, [state]);
 
   const mmss = useCallback((sec: number) => {
     const m = Math.floor(sec / 60);
@@ -2070,6 +3481,11 @@ export function useBloom() {
     palSprite,
     activeTask,
     actions,
+    storageRecovery: {
+      retry: retryStorage,
+      recover: recoverStorage,
+      recoveredBloom: persistedShapeFromState(state),
+    },
     mmss,
     clock,
   };

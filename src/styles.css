@@ -20,9 +20,9 @@
 :root {
   /* text */
   --plum: #6e5577;
-  --soft: #a98fb4;
-  --soft2: #ad93bf;
-  --soft3: #b69ec6;
+  --soft: #725a7d;
+  --soft2: #765e82;
+  --soft3: #755f80;
   /* pinks */
   --pink: #ff9cc2;
   --pink-2: #ffb0d4;
@@ -130,6 +130,216 @@ button {
   clip: rect(0, 0, 0, 0);
   white-space: nowrap;
   border: 0;
+}
+
+/* Daily foundations (PLAN 10.8): compact, neutral, and fully touch-sized. */
+.foundations-card {
+  margin: 0 18px 14px;
+  padding: 14px;
+  border: 1px solid rgba(91, 119, 90, 0.22);
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.78);
+  box-shadow: 0 8px 22px rgba(63, 79, 62, 0.07);
+}
+.foundations-card-compact { margin-top: 12px; }
+.foundations-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.foundations-head h2 { margin: 0; font-size: 15px; color: var(--ink); }
+.foundations-head p { margin: 4px 0 0; font-size: 12px; color: var(--muted); }
+.foundations-tend {
+  min-width: 48px;
+  min-height: 44px;
+  border: 0;
+  border-radius: 14px;
+  background: rgba(111, 145, 105, 0.12);
+  color: var(--ink);
+  font: inherit;
+  font-weight: 700;
+}
+.foundation-chips {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(112px, 1fr));
+  gap: 8px;
+  margin-top: 10px;
+}
+.foundation-chip {
+  min-height: 48px;
+  padding: 8px 10px;
+  border: 1px solid rgba(91, 119, 90, 0.24);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.72);
+  color: var(--ink);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+}
+button.foundation-chip { cursor: pointer; }
+.foundation-chip.manual {
+  display: flex;
+  align-items: stretch;
+  padding: 0;
+  overflow: hidden;
+}
+.foundation-toggle,
+.foundation-detail-toggle {
+  min-height: 48px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+}
+.foundation-toggle {
+  min-width: 48px;
+  padding: 6px;
+  cursor: pointer;
+}
+.foundation-detail-toggle {
+  flex: 1;
+  padding: 6px 9px 6px 2px;
+  text-align: left;
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-color: rgba(91, 119, 90, 0.28);
+  text-underline-offset: 3px;
+}
+.foundation-detail-toggle span,
+.foundation-detail-toggle small { display: block; }
+.foundation-detail-toggle small {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 10px;
+  text-decoration: none;
+}
+.foundation-chip.done {
+  border-color: rgba(87, 132, 83, 0.48);
+  background: rgba(198, 225, 185, 0.42);
+}
+.foundation-chip.derived {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+.foundation-chip small {
+  display: block;
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.25;
+}
+.foundation-detail {
+  margin-top: 10px;
+  padding: 10px;
+  border-radius: 14px;
+  background: rgba(111, 145, 105, 0.07);
+}
+.foundation-dot-row {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  overflow-x: auto;
+  padding: 2px 0 6px;
+  scrollbar-width: thin;
+}
+.foundation-dot {
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 22px;
+  min-height: 28px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: rgba(69, 92, 68, 0.82);
+  font-size: 15px;
+}
+button.foundation-dot {
+  flex-basis: 44px;
+  min-width: 44px;
+  min-height: 44px;
+  background: rgba(255, 255, 255, 0.82);
+  box-shadow: inset 0 0 0 1px rgba(91, 119, 90, 0.22);
+  cursor: pointer;
+}
+.foundation-dot.outside { color: rgba(91, 119, 90, 0.28); }
+.foundation-detail p,
+.foundation-late-note {
+  margin: 5px 0 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.4;
+}
+.foundation-late-note { display: block; }
+.foundation-restart {
+  margin-top: 10px;
+  padding: 10px;
+  border-radius: 14px;
+  background: rgba(231, 220, 180, 0.24);
+}
+.foundation-restart p { margin: 0 0 8px; color: var(--ink); font-size: 12px; line-height: 1.4; }
+.foundation-restart button,
+.foundation-anchor,
+.foundation-anchor-flow > button {
+  min-height: 44px;
+  border: 0;
+  border-radius: 12px;
+  background: rgba(111, 145, 105, 0.13);
+  color: var(--ink);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+}
+.foundation-restart button { margin-right: 6px; padding: 7px 10px; }
+.foundation-restart .foundation-restart-skip { background: transparent; font-weight: 600; }
+.foundation-anchor {
+  justify-self: start;
+  margin-top: 3px;
+  padding: 6px 10px;
+}
+.foundation-anchor-flow { display: grid; gap: 8px; }
+.foundation-anchor-flow > button { justify-self: start; padding: 6px 10px; }
+.foundations-picker { width: min(430px, calc(100vw - 28px)); }
+.foundation-picker-list { display: grid; gap: 9px; }
+.foundation-picker-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 9px;
+  border-radius: 14px;
+  background: rgba(111, 145, 105, 0.08);
+}
+.foundation-picker-copy { display: grid; flex: 1; gap: 3px; }
+.foundation-picker-copy small { color: var(--muted); line-height: 1.3; }
+.foundation-picker-copy input {
+  min-height: 44px;
+  margin-top: 4px;
+  padding: 0 10px;
+  border: 1px solid rgba(91, 119, 90, 0.28);
+  border-radius: 10px;
+  background: var(--surface, #fff);
+  color: var(--ink);
+  font: inherit;
+}
+.foundation-picker-actions { display: flex; align-items: center; gap: 6px; }
+.foundation-order { display: flex; gap: 3px; }
+.foundation-order button {
+  width: 44px;
+  min-height: 44px;
+  border: 0;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.72);
+  color: var(--ink);
+}
+.foundation-cap-note { margin: 12px 0; color: var(--muted); font-size: 12px; }
+
+@media (max-width: 380px), (max-height: 680px) {
+  .foundations-card { margin-inline: 12px; padding: 11px; }
+  .foundation-chips { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .foundation-picker-row { align-items: flex-start; flex-direction: column; }
+  .foundation-picker-actions { align-self: stretch; justify-content: space-between; }
 }
 
 /* ---------- app shell (responsive) ---------- */
@@ -674,6 +884,36 @@ button {
 .dialog-primary {
   background: linear-gradient(150deg, #ffb0d4, #c79fe6);
   color: #fff;
+}
+
+.session-repair-form {
+  display: grid;
+  gap: 12px;
+}
+.session-repair-form > label,
+.session-repair-form fieldset {
+  display: grid;
+  gap: 5px;
+  margin: 0;
+}
+.session-repair-form input,
+.session-repair-form select {
+  min-height: 44px;
+}
+.session-repair-scope {
+  margin: 0;
+  color: var(--text-faint);
+  font: 600 12px/1.45 var(--font-body);
+}
+.session-repair-check {
+  grid-template-columns: auto 1fr;
+  align-items: center;
+}
+.session-repair-check input {
+  min-height: auto;
+}
+.session-repair-error {
+  margin: 0;
 }
 .dialog-danger {
   background: #fff0f5;
@@ -1271,6 +1511,41 @@ button {
 }
 .task-row.active {
   border-color: var(--pink-2);
+}
+.task-goal-tools {
+  display: flex;
+  flex: 0 1 150px;
+  min-width: 0;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 5px;
+}
+.task-goal-tools .goal-link {
+  width: 100%;
+  max-width: 150px;
+}
+.task-goal-credit {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 4px;
+  color: var(--soft2);
+  font: 600 10px/1.3 var(--font-display);
+  text-align: right;
+}
+.task-goal-credit button {
+  border: 0;
+  border-radius: 8px;
+  padding: 3px 6px;
+  background: #f8e8f3;
+  color: var(--pink-3);
+  font: 700 10px var(--font-display);
+  cursor: pointer;
+}
+.task-credit-note {
+  color: var(--soft2);
+  font: 600 10px/1.3 var(--font-display);
+  text-align: right;
 }
 .focus-flag {
   display: inline-block;
@@ -1928,6 +2203,242 @@ button {
 .coll-foot-sub {
   font: 600 11px var(--font-body);
   color: var(--soft3);
+}
+
+/* ---------- history ---------- */
+.history-screen {
+  padding-inline: 16px;
+  overflow: hidden;
+}
+.history-head {
+  flex: none;
+  padding: 8px 4px 12px;
+}
+.history-head h1,
+.history-head p,
+.history-empty h2,
+.history-empty p,
+.history-session-card p {
+  margin: 0;
+}
+.history-estimate-label {
+  color: var(--soft3);
+  font: 700 10px/1.35 var(--font-display);
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+.history-repair-btn,
+.debrief-repair-btn {
+  min-height: 44px;
+  margin-top: 7px;
+  border: 1px solid rgba(183, 159, 227, 0.42);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.72);
+  color: var(--plum);
+  cursor: pointer;
+  font: 700 11px var(--font-display);
+}
+.history-repair-btn {
+  padding: 7px 10px;
+}
+.debrief-repair-btn {
+  padding: 8px 12px;
+}
+.history-head h1 {
+  font: 700 26px var(--font-display);
+  color: var(--plum);
+}
+.history-head > p:last-child {
+  margin-top: 4px;
+  color: var(--text-faint);
+  font: 600 12.5px/1.45 var(--font-body);
+}
+.history-eyebrow {
+  color: var(--soft3);
+  font: 700 10px var(--font-display);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.history-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 0 4px 24px;
+  scrollbar-gutter: stable;
+}
+.history-days,
+.history-day-totals,
+.history-reflection-chips,
+.history-session-list,
+.history-task-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.history-days {
+  display: grid;
+  gap: 10px;
+}
+.history-day {
+  overflow: hidden;
+  border: 1px solid rgba(183, 159, 227, 0.3);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.82);
+  box-shadow: 0 8px 20px -16px rgba(62, 43, 87, 0.7);
+}
+.history-day summary {
+  position: relative;
+  display: block;
+  cursor: pointer;
+  padding: 14px 16px;
+  min-height: 44px;
+}
+.history-day summary::-webkit-details-marker {
+  display: none;
+}
+.history-day summary:focus-visible,
+.history-more-btn:focus-visible {
+  outline: 3px solid var(--nav-accent);
+  outline-offset: 2px;
+}
+.history-day-heading {
+  display: block;
+  padding-right: 54px;
+  color: var(--plum);
+  font: 700 15px var(--font-display);
+}
+.history-day-totals {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px 10px;
+  margin-top: 7px;
+  color: var(--text-faint);
+  font: 600 11px/1.4 var(--font-body);
+}
+.history-reflection-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin: 8px 48px 0 0;
+}
+.history-reflection-chips li {
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: rgba(235, 225, 250, 0.72);
+  color: var(--plum);
+  font: 700 10px/1.3 var(--font-display);
+}
+.history-expand-hint {
+  position: absolute;
+  top: 15px;
+  right: 16px;
+  color: var(--soft3);
+  font: 700 10px var(--font-display);
+}
+.history-day details[open] .history-expand-hint::after {
+  content: " −";
+}
+.history-day details:not([open]) .history-expand-hint::after {
+  content: " +";
+}
+.history-day-details {
+  display: grid;
+  gap: 14px;
+  padding: 0 16px 16px;
+  border-top: 1px solid rgba(183, 159, 227, 0.2);
+}
+.history-day-details section:first-child {
+  padding-top: 14px;
+}
+.history-day-details h3 {
+  margin: 0 0 7px;
+  color: var(--plum);
+  font: 700 12px var(--font-display);
+}
+.history-session-list,
+.history-task-list {
+  display: grid;
+  gap: 7px;
+}
+.history-session-card,
+.history-task-list li {
+  border-radius: 12px;
+  background: rgba(242, 235, 252, 0.62);
+  color: var(--text);
+}
+.history-session-card {
+  padding: 10px 12px;
+}
+.history-card-title,
+.history-task-list li {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+.history-card-title strong {
+  color: var(--plum);
+  font: 700 12px var(--font-display);
+}
+.history-card-title time,
+.history-task-list time {
+  flex: none;
+  color: var(--text-faint);
+  font: 600 10.5px var(--font-body);
+}
+.history-session-card p {
+  margin-top: 4px;
+  font: 600 11.5px/1.4 var(--font-body);
+}
+.history-task-list li {
+  padding: 10px 12px;
+  font: 600 12px/1.4 var(--font-body);
+}
+.history-empty {
+  margin: auto 4px;
+  padding: 24px;
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.78);
+  text-align: center;
+}
+.history-empty h2 {
+  color: var(--plum);
+  font: 700 18px var(--font-display);
+}
+.history-empty p,
+.history-retention-note {
+  margin-top: 6px;
+  color: var(--text-faint);
+  font: 600 12px/1.5 var(--font-body);
+}
+.history-more-btn {
+  display: block;
+  min-height: 44px;
+  margin: 12px auto 0;
+  padding: 9px 18px;
+  border: 1px solid rgba(183, 159, 227, 0.42);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.84);
+  color: var(--plum);
+  cursor: pointer;
+  font: 700 12px var(--font-display);
+}
+.history-retention-note {
+  margin-inline: auto;
+  max-width: 42ch;
+  text-align: center;
+}
+.night .history-day,
+.night .history-empty,
+.night .history-more-btn {
+  background: rgba(35, 27, 70, 0.88);
+  border-color: rgba(183, 159, 227, 0.38);
+}
+.night .history-session-card,
+.night .history-task-list li,
+.night .history-reflection-chips li {
+  background: rgba(22, 16, 49, 0.55);
 }
 
 /* ---------- bottom tab bar ---------- */
@@ -2632,10 +3143,72 @@ button {
   margin-top: 8px;
 }
 
-/* Optional session target: an airy line under the controls, faint echo while
-   the session runs. It also feeds Companion's intention when that mode is on. */
+/* PLAN 8.18: the fresh-session path reads in one direction — chosen task,
+   optional target and prep, then the Start control. Only that idle state
+   scrolls on short screens; a running timer keeps its established layout. */
+.prestart-scroll {
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  padding-bottom: 18px;
+}
+.prestart-stack {
+  width: min(360px, calc(100% - 28px));
+  margin: 10px auto 0;
+  padding: 10px 12px;
+  border: 1px solid rgba(199, 159, 230, 0.34);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.42);
+  flex: none;
+}
+.prestart-stack .now-chip {
+  width: 100%;
+  margin: 0;
+  background: rgba(255, 255, 255, 0.76);
+}
+.prestart-target {
+  display: block;
+  margin-top: 9px;
+  color: var(--soft3);
+  font: 600 11px var(--font-body);
+  text-align: center;
+}
+.prestart-target > span {
+  display: block;
+  margin-bottom: 5px;
+}
+.prestart-prep {
+  margin-top: 4px;
+}
+.prestart-prep .ifthen-ask,
+.prestart-prep .ifthen-bar,
+.prestart-prep .ifthen-panel {
+  margin-top: 7px;
+}
+.prestart-ritual {
+  display: block;
+  width: min(300px, 100%);
+  min-height: 44px;
+  margin: 7px auto 0;
+  padding: 7px 10px;
+  border: 1px dashed rgba(199, 159, 230, 0.55);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.5);
+  color: var(--soft);
+  font: 700 11.5px var(--font-body);
+  cursor: pointer;
+}
+.prestart-ritual span {
+  display: block;
+  margin-top: 2px;
+  color: var(--soft3);
+  font-size: 10px;
+  font-weight: 600;
+}
+
+/* Optional session target: a quiet line before Start, faint echo while the
+   session runs. It also feeds Companion's intention when that mode is on. */
 .intention-input {
-  margin: 12px auto 0;
+  margin: 0 auto;
   width: min(280px, calc(100% - 44px));
   display: block;
   border: 2px dashed rgba(199, 159, 230, 0.5);
@@ -2663,6 +3236,23 @@ button {
   overflow: hidden;
   text-overflow: ellipsis;
   padding: 0 30px;
+}
+
+@media (max-width: 360px), (max-height: 700px) {
+  .prestart-stack {
+    width: calc(100% - 20px);
+    margin-top: 7px;
+    padding: 8px 9px;
+  }
+  .prestart-stack .now-chip {
+    padding: 8px 10px;
+  }
+  .prestart-scroll .ring-wrap {
+    margin-top: 9px;
+  }
+  .prestart-scroll .controls {
+    margin-top: 10px;
+  }
 }
 
 /* Pre-session if–then planner (PLAN 3.2): one airy optional line above the
@@ -3163,6 +3753,175 @@ button {
   box-shadow: 0 8px 18px -12px rgba(183, 159, 227, 0.7);
   flex: none;
 }
+.day-plan-card {
+  align-items: stretch;
+}
+.day-plan-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 8px;
+}
+.day-plan-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(70px, 1fr) 56px auto auto;
+  align-items: center;
+  gap: 8px;
+}
+.day-plan-copy {
+  display: grid;
+  min-width: 0;
+  font: 600 11px var(--font-body);
+  color: var(--soft2);
+}
+.day-plan-copy strong {
+  overflow: hidden;
+  color: var(--plum);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.day-plan-edit input,
+.day-plan-form input {
+  width: 100%;
+  min-height: 34px;
+  box-sizing: border-box;
+  border: 1px solid #e2d6ed;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.88);
+  color: var(--plum);
+  font: 700 12px var(--font-body);
+  padding: 6px 8px;
+}
+.day-plan-form {
+  display: grid;
+  grid-template-columns: minmax(86px, 0.7fr) minmax(140px, 1.3fr) auto auto;
+  align-items: end;
+  gap: 8px;
+  margin-top: 10px;
+}
+.day-plan-form label {
+  display: grid;
+  gap: 3px;
+  color: var(--soft2);
+  font: 700 10.5px var(--font-body);
+}
+.day-plan-effort {
+  grid-column: 1 / -1;
+  color: var(--soft2);
+  font: 600 12px/1.4 var(--font-body);
+}
+.goal-outlook-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 8px;
+}
+.day-plan-open {
+  margin-top: 10px;
+}
+.day-target-strip {
+  margin: 10px 22px 0;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 10px;
+  border: 1px solid rgba(199, 159, 230, 0.35);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.64);
+  box-shadow: 0 7px 16px -13px rgba(80, 46, 88, 0.8);
+}
+.day-target-label,
+.day-target-arm,
+.day-target-next {
+  border: 0;
+  background: transparent;
+  color: var(--plum);
+  font: 700 11px var(--font-body);
+}
+.day-target-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.day-target-label:disabled {
+  opacity: 1;
+}
+.day-target-arm {
+  flex: none;
+  min-height: 32px;
+  padding: 4px 8px;
+  border-radius: 9px;
+  background: #f3e9fa;
+  color: var(--purple);
+}
+.day-target-arm[aria-pressed='true'] {
+  background: #e2f4e8;
+  color: #326745;
+}
+.day-target-next {
+  min-width: 32px;
+  min-height: 32px;
+  padding: 0;
+  font-size: 22px;
+}
+.rollover-card {
+  margin-top: 10px;
+  padding: 12px;
+  border: 1px solid rgba(199, 159, 230, 0.4);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.72);
+  color: var(--plum);
+}
+.rollover-card h3,
+.rollover-card p {
+  margin: 0;
+}
+.rollover-card h3 {
+  font: 700 14px var(--font-display);
+}
+.rollover-card p {
+  margin-top: 4px;
+  font: 600 13px/1.45 var(--font-body);
+  color: var(--soft2);
+}
+.rollover-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 10px;
+}
+.rollover-actions button {
+  min-height: 40px;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 10px;
+  background: #f3e9fa;
+  color: var(--purple);
+  font: 700 12px var(--font-body);
+}
+.rollover-cap {
+  margin-top: 7px;
+  color: var(--soft3);
+  font: 600 11px var(--font-body);
+}
+@media (max-width: 560px) {
+  .day-plan-row {
+    grid-template-columns: minmax(0, 1fr) 56px auto auto;
+  }
+  .day-plan-row .goal-track {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+  .day-plan-form {
+    grid-template-columns: 1fr 1.4fr;
+  }
+  .day-target-strip {
+    margin-inline: 18px;
+  }
+}
 .goal-top {
   display: flex;
   align-items: flex-start;
@@ -3598,6 +4357,15 @@ body.night {
   background: rgba(46, 37, 87, 0.55);
   border-color: rgba(120, 100, 180, 0.45);
 }
+.night .prestart-stack {
+  border-color: rgba(231, 218, 255, 0.34);
+  background: rgba(35, 27, 63, 0.48);
+}
+.night .prestart-ritual {
+  border-color: rgba(231, 218, 255, 0.45);
+  background: rgba(31, 24, 55, 0.66);
+  color: var(--plum);
+}
 .night .intention-input:focus {
   background: rgba(46, 37, 87, 0.8);
 }
@@ -3710,6 +4478,12 @@ body.night {
     min-height: 44px;
   }
 
+  .nav-btn {
+    flex: 1;
+    min-width: 0;
+    padding-inline: 4px;
+  }
+
   .add-form {
     display: grid;
     grid-template-columns: 44px minmax(0, 1fr) 56px;
@@ -3773,6 +4547,13 @@ body.night {
     margin-left: auto;
     margin-right: auto;
   }
+  .history-head,
+  .history-scroll {
+    width: 100%;
+    max-width: 620px;
+    margin-left: auto;
+    margin-right: auto;
+  }
   .now-chip {
     margin-top: auto;
     margin-bottom: 18px;
@@ -3780,5 +4561,437 @@ body.night {
   .navbar {
     justify-content: center;
     gap: 64px;
+  }
+}
+
+.storage-recovery-notice {
+  position: absolute;
+  z-index: 80;
+  top: max(12px, env(safe-area-inset-top));
+  left: 12px;
+  right: 12px;
+  padding: 14px;
+  border: 2px solid #855c32;
+  border-radius: 16px;
+  background: rgba(255, 250, 235, 0.98);
+  color: #3f2d20;
+  box-shadow: 0 8px 28px rgba(63, 45, 32, 0.22);
+}
+
+.storage-recovery-notice h2,
+.storage-recovery-notice p {
+  margin: 0;
+}
+
+.storage-recovery-notice h2 {
+  font-size: 16px;
+}
+
+.storage-recovery-notice p {
+  margin-top: 6px;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.storage-recovery-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.storage-recovery-actions button {
+  min-height: 44px;
+  padding: 8px 12px;
+  border: 1px solid currentColor;
+  border-radius: 12px;
+  background: #fff;
+  color: inherit;
+  font: inherit;
+  font-weight: 700;
+}
+
+.storage-recovery-detail {
+  opacity: 0.85;
+}
+
+@media (prefers-contrast: more) {
+  .storage-recovery-notice {
+    border-color: #000;
+    background: #fff;
+    color: #000;
+    box-shadow: none;
+  }
+}
+
+/* PLAN 8.8 code-side baseline: every ordinary app control owns a complete
+   44px target. Icon artwork stays small; its hit box does the accessibility
+   work. Dialogs portal inside .phone, so the same inventory covers them. */
+.phone button,
+.phone input:not([type='hidden']),
+.phone select,
+.phone textarea,
+.phone [role='button'],
+.phone [role='checkbox'],
+.phone [role='switch'],
+.phone [role='tab'] {
+  min-height: 44px;
+  touch-action: manipulation;
+}
+.phone button,
+.phone [role='button'],
+.phone [role='checkbox'],
+.phone [role='switch'],
+.phone [role='tab'] {
+  min-width: 44px;
+}
+
+/* Moving sky is decoration, never the only backing for essential timer copy. */
+.greeting-row,
+.readout {
+  background: rgba(255, 255, 255, 0.84);
+  border: 1px solid rgba(84, 59, 96, 0.18);
+  backdrop-filter: blur(10px);
+}
+.greeting-row {
+  margin: 0 12px;
+  padding: 7px 10px;
+  border-radius: 16px;
+}
+.readout {
+  width: max-content;
+  min-width: 174px;
+  margin: 6px auto 0;
+  padding: 5px 14px 7px;
+  border-radius: 16px;
+}
+.prestart-stack {
+  background: rgba(255, 255, 255, 0.86);
+}
+.status-label,
+.streak-unit,
+.tiny-picker-label,
+.prestart-target,
+.prestart-ritual,
+.ifthen-ask,
+.ifthen-sub,
+.parking-open,
+.set-sub,
+.set-note,
+.goal-pace,
+.patterns-sub,
+.patterns-line,
+.patterns-tip,
+.patterns-note,
+.onboard-label {
+  font-size: 13px;
+  line-height: 1.4;
+}
+.night .greeting-row,
+.night .readout {
+  background: rgba(24, 18, 48, 0.9);
+  border-color: rgba(236, 228, 247, 0.38);
+}
+.night .prestart-stack {
+  background: rgba(24, 18, 48, 0.88);
+}
+
+/* Notches and home indicators never overlap scrollable screen content. */
+.screen {
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+}
+.navbar {
+  padding-left: max(14px, env(safe-area-inset-left));
+  padding-right: max(14px, env(safe-area-inset-right));
+}
+.sheet {
+  padding-left: max(20px, env(safe-area-inset-left));
+  padding-right: max(20px, env(safe-area-inset-right));
+}
+.onboard {
+  justify-content: safe center;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  scroll-padding-bottom: 42vh;
+  padding-top: max(18px, env(safe-area-inset-top));
+  padding-bottom: max(40px, env(safe-area-inset-bottom));
+}
+
+/* The labelled goal form is two visual rows at common phone widths: the
+   name gets the first row, then date/unit/amount/add share the second. */
+@media (max-width: 480px) and (min-width: 381px) {
+  .goal-add {
+    display: grid;
+    grid-template-columns: 124px minmax(64px, 1fr) 56px 44px;
+    grid-template-rows: auto auto;
+    align-items: end;
+    gap: 6px;
+  }
+  .goal-add > .add-plus { display: none; }
+  .goal-add > .goal-name-field {
+    grid-column: 1 / -1;
+    grid-row: 1;
+  }
+  .goal-add > .form-field:nth-of-type(2) { grid-column: 1; grid-row: 2; }
+  .goal-add > .form-field:nth-of-type(3) { grid-column: 2; grid-row: 2; }
+  .goal-add > .form-field:nth-of-type(4) { grid-column: 3; grid-row: 2; }
+  .goal-add > .goal-go { grid-column: 4; grid-row: 2; }
+  .goal-add .goal-date,
+  .goal-add .goal-parts,
+  .goal-add .add-input {
+    width: 100%;
+    min-width: 0;
+  }
+}
+
+/* At 320 CSS px (and at 200% zoom, which produces a similarly narrow CSS
+   viewport) controls reflow vertically instead of creating a second axis. */
+@media (max-width: 380px) {
+  .goal-add {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    align-items: end;
+    gap: 7px;
+  }
+  .goal-add > .add-plus { display: none; }
+  .goal-add > .goal-name-field,
+  .goal-add > .form-field:nth-of-type(2),
+  .goal-add > .goal-go {
+    grid-column: 1 / -1;
+  }
+  .goal-add > .form-field:nth-of-type(3) { grid-column: 1; }
+  .goal-add > .form-field:nth-of-type(4) { grid-column: 2; }
+  .goal-add .goal-date,
+  .goal-add .goal-parts,
+  .goal-add .add-input,
+  .goal-add .goal-go {
+    width: 100%;
+    min-width: 0;
+  }
+  .dialog-backdrop { padding-inline: 8px; }
+  .dialog { padding-inline: 12px; }
+}
+
+/* Short phones shrink the decorative timer before any control or instruction
+   is hidden. The pre-session stack remains scrollable when it needs more. */
+@media (max-height: 620px) {
+  .focus-bg { overflow-y: auto; overscroll-behavior-y: contain; }
+  .greeting-row { padding-block: 4px; }
+  .tabs { height: 44px; margin-top: 5px; }
+  .tiny-picker { margin-top: 3px; }
+  .ring-wrap { width: 164px; height: 164px; margin-top: 5px; }
+  .ring-disc { inset: 21px; }
+  .ring-shadow { bottom: 35px; width: 82px; }
+  .ring-animal { scale: 0.78; }
+  .readout { margin-top: 3px; padding-block: 3px 5px; }
+  .readout-time { font-size: 42px; }
+  .controls { gap: 16px; margin-top: 6px; }
+  .ctrl-round { width: 44px; height: 44px; }
+  .ctrl-play { width: 60px; height: 60px; }
+  .now-chip { margin: auto 12px 8px; padding-block: 7px; }
+}
+@media (max-height: 500px) and (orientation: landscape) {
+  .ring-wrap { width: 132px; height: 132px; }
+  .ring-disc { inset: 17px; }
+  .ring-shadow { bottom: 27px; }
+  .ring-animal { scale: 0.62; }
+  .readout-time { font-size: 36px; }
+  .now-chip { margin-bottom: 4px; }
+}
+
+/* PLAN 8.9: honor both contrast preference APIs. State remains visible via
+   text/icons and borders, not pastel color alone. */
+@media (prefers-contrast: more) {
+  .phone {
+    --plum: #261b2b;
+    --soft: #392b40;
+    --soft2: #392b40;
+    --soft3: #392b40;
+    --text-faint: #261b2b;
+    --tab-inactive: #261b2b;
+  }
+  .phone.night {
+    --plum: #fff;
+    --soft: #fff;
+    --soft2: #fff;
+    --soft3: #fff;
+    --text-faint: #fff;
+    --tab-inactive: #fff;
+  }
+  .greeting-row,
+  .readout,
+  .tabs,
+  .now-chip,
+  .prestart-stack,
+  .patterns-card,
+  .goal-card,
+  .task-row,
+  .sheet,
+  .dialog,
+  .companion-pop,
+  .ritual-card {
+    background: #fff;
+    border: 2px solid #261b2b;
+    box-shadow: none;
+    backdrop-filter: none;
+  }
+  .night .greeting-row,
+  .night .readout,
+  .night .tabs,
+  .night .now-chip,
+  .night .prestart-stack,
+  .night .patterns-card,
+  .night .goal-card,
+  .night .task-row,
+  .night .sheet,
+  .night .dialog,
+  .night .companion-pop,
+  .night .ritual-card {
+    background: #120d24;
+    border-color: #fff;
+  }
+  .phone :focus-visible {
+    outline: 3px solid var(--focus-ring);
+    outline-offset: 3px;
+  }
+  .phone [aria-pressed='true'],
+  .phone [aria-checked='true'],
+  .phone [aria-current='page'] {
+    box-shadow: inset 0 0 0 2px currentColor;
+  }
+}
+
+@media (forced-colors: active) {
+  body,
+  .phone,
+  .screen,
+  .sheet,
+  .dialog,
+  .greeting-row,
+  .readout,
+  .tabs,
+  .now-chip,
+  .prestart-stack,
+  .patterns-card,
+  .goal-card,
+  .task-row,
+  .companion-pop,
+  .ritual-card {
+    color: CanvasText;
+    background: Canvas;
+    border-color: CanvasText;
+    box-shadow: none;
+    backdrop-filter: none;
+  }
+  .day-sky,
+  .night-sky,
+  .sky-layer {
+    display: none;
+  }
+  .phone button,
+  .phone input,
+  .phone select,
+  .phone textarea,
+  .phone [role='button'],
+  .phone [role='checkbox'],
+  .phone [role='switch'],
+  .phone [role='tab'] {
+    color: ButtonText;
+    background: ButtonFace;
+    border: 1px solid ButtonText;
+  }
+  .phone :focus-visible {
+    outline: 3px solid Highlight;
+    outline-offset: 3px;
+  }
+  .phone [aria-pressed='true'],
+  .phone [aria-checked='true'],
+  .phone [aria-current='page'] {
+    color: HighlightText;
+    background: Highlight;
+    box-shadow: inset 0 0 0 2px HighlightText;
+  }
+  .goal-fill,
+  .prog-fill,
+  .streak-dot,
+  .cherry.on,
+  .sdot.on {
+    forced-color-adjust: none;
+    background: Highlight;
+  }
+}
+
+/* Prop-driven PLAN 10.2 integration unit; DebriefCard chooses when it exists. */
+.debrief-goal-credit {
+  margin-top: 8px;
+  padding: 10px;
+  border: 1px solid rgba(118, 94, 130, 0.28);
+  border-radius: 13px;
+  background: rgba(255, 255, 255, 0.72);
+}
+.debrief-goal-credit-title {
+  color: var(--plum);
+  font: 700 13px var(--font-display);
+}
+.debrief-goal-credit-stepper {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 7px;
+}
+.debrief-goal-credit-stepper button,
+.debrief-goal-credit-actions button {
+  min-width: 44px;
+  min-height: 44px;
+  border: 1px solid rgba(118, 94, 130, 0.28);
+  border-radius: 11px;
+  background: #fff;
+  color: var(--plum);
+  font: 700 13px var(--font-display);
+}
+.debrief-goal-credit-stepper input {
+  width: 58px;
+  min-height: 44px;
+  border: 1px solid rgba(118, 94, 130, 0.32);
+  border-radius: 10px;
+  background: #fff;
+  color: var(--plum);
+  font: 700 16px var(--font-display);
+  text-align: center;
+}
+.debrief-goal-credit-unit,
+.debrief-goal-credit-note,
+.debrief-goal-credit-effort {
+  color: var(--soft2);
+  font: 700 13px/1.4 var(--font-body);
+}
+.debrief-goal-credit-note,
+.debrief-goal-credit-effort { margin-top: 6px; }
+.debrief-goal-credit-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 8px;
+}
+.debrief-goal-credit-actions button { padding: 7px 10px; }
+.night .debrief-goal-credit {
+  background: rgba(24, 18, 48, 0.86);
+  border-color: rgba(236, 228, 247, 0.38);
+}
+.night .debrief-goal-credit-stepper button,
+.night .debrief-goal-credit-actions button,
+.night .debrief-goal-credit-stepper input {
+  background: #2e2557;
+  border-color: #8f82b1;
+}
+@media (forced-colors: active) {
+  .debrief-goal-credit,
+  .debrief-goal-credit-stepper button,
+  .debrief-goal-credit-actions button,
+  .debrief-goal-credit-stepper input {
+    color: CanvasText;
+    background: Canvas;
+    border-color: CanvasText;
   }
 }

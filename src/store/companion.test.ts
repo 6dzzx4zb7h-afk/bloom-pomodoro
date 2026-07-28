@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { WHY_EVIDENCE_ANCHORS, EVIDENCE_EXPLAINERS } from '../insights/why';
 import {
   appendDriftEvent,
+  COMPANION_LOG_VERSION,
   companionEventsForAnalytics,
   computeAttentionPlan,
   computeInsights,
@@ -126,7 +127,8 @@ describe('companion drift persistence', () => {
         sessionId: 'session-1',
       }),
     ]);
-    expect(JSON.parse(localStorage.getItem('bloom-companion-v1')!).version).toBe(2);
+    expect(JSON.parse(localStorage.getItem('bloom-companion-v1')!).version)
+      .toBe(COMPANION_LOG_VERSION);
   });
 
   it('keeps an unclassified answer as a real drift if triage never happens', () => {
@@ -152,6 +154,29 @@ describe('companion drift persistence', () => {
     );
 
     expect(loadEvents()).toEqual([old]);
+  });
+
+  it('round-trips the duration of a retroactive repair estimate', () => {
+    const stored = appendDriftEvent({
+      ts: NOW,
+      shownAt: NOW - 20 * 60_000,
+      min: 5,
+      estOnsetMin: 5,
+      estDurationMin: 20,
+      len: 25,
+      src: 'repair',
+      sessionId: 'session-repair',
+    });
+
+    expect(loadEvents()).toEqual([
+      expect.objectContaining({
+        id: stored.id,
+        src: 'repair',
+        estDurationMin: 20,
+      }),
+    ]);
+    expect(JSON.parse(localStorage.getItem('bloom-companion-v1')!).version)
+      .toBe(COMPANION_LOG_VERSION);
   });
 });
 

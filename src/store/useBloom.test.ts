@@ -2,15 +2,20 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   DEFAULT_STATE,
+  FALSE_START_GRACE_SEC,
   completionNotice,
   flowCreditsForElapsed,
   loadState,
   readPersisted,
+  SCHEMA_VERSION,
   rederiveStreakForBoundary,
   reducer,
+  timerTransitionPolicy,
   type BloomState,
 } from './useBloom';
-import { finalizeSession, newOpenSession } from './sessions';
+import { SESSION_LOG_CAP, finalizeSession, newOpenSession } from './sessions';
+import { createFoundationInstance } from './foundations';
+import { emptyHistoryArchive, historyArchiveDaySummaries } from './historyArchive';
 
 class MemoryStorage implements Storage {
   private values = new Map<string, string>();
@@ -63,6 +68,11 @@ function makeState(patch: Partial<BloomState> = {}): BloomState {
     palXp: { ...DEFAULT_STATE.palXp },
     goals: DEFAULT_STATE.goals.map((goal) => ({ ...goal })),
     sessionRecords: [...DEFAULT_STATE.sessionRecords],
+    historyArchive: {
+      hours: [...DEFAULT_STATE.historyArchive.hours],
+      completedTasks: [...DEFAULT_STATE.historyArchive.completedTasks],
+      overflow: { ...DEFAULT_STATE.historyArchive.overflow },
+    },
     ifThenPlans: [...DEFAULT_STATE.ifThenPlans],
     parking: [...DEFAULT_STATE.parking],
     guideRead: {
@@ -96,6 +106,43 @@ describe('timer lifecycle invariants', () => {
   });
 
   afterEach(() => vi.useRealTimers());
+
+  it('atomically archives the oldest record when a finalized session crosses the live cap', () => {
+    const endedAt = Date.now() - 60_000;
+    const records = Array.from({ length: SESSION_LOG_CAP }, (_, index) =>
+      finalizeSession(
+        newOpenSession('focus', 25, undefined, undefined, endedAt - 25 * 60_000 - index),
+        'completed',
+        25,
+        endedAt + index,
+      ),
+    );
+    const openFocus = {
+      ...newOpenSession('focus', 25, undefined, undefined, Date.now() - 5 * 60_000),
+      endsAt: Date.now() + 20 * 60_000,
+      remainingSec: 20 * 60,
+      running: true,
+    };
+    const state = makeState({
+      mode: 'focus',
+      running: true,
+      endsAt: openFocus.endsAt,
+      remaining: 20 * 60,
+      sessionRecords: records,
+      historyArchive: emptyHistoryArchive(),
+      openFocus,
+    });
+
+    const reset = reducer(state, { type: 'reset' });
+
+    expect(reset.sessionRecords).toHaveLength(SESSION_LOG_CAP);
+    expect(reset.sessionRecords[0]?.id).toBe(records[1]?.id);
+    expect(historyArchiveDaySummaries(reset.historyArchive)[0]).toMatchObject({
+      sessionCount: 1,
+      completedSessionCount: 1,
+      focusMinutes: 25,
+    });
+  });
 
   it('opens a recorded focus session when auto-start advances from a break', () => {
     const state = makeState({
@@ -518,6 +565,117 @@ describe('timer lifecycle invariants', () => {
   });
 });
 
+describe('timer transition policy (PLAN 8.14)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-16T09:00:00'));
+  });
+
+  afterEach(() => vi.useRealTimers());
+
+  function runningFocus(elapsedSec: number): BloomState {
+    const openFocus = {
+      ...newOpenSession('focus', 25, 1, undefined, Date.now() - elapsedSec * 1000),
+      endsAt: Date.now() + (25 * 60 - elapsedSec) * 1000,
+    };
+    return makeState({
+      running: true,
+      endsAt: openFocus.endsAt,
+      remaining: 25 * 60 - elapsedSec,
+      openFocus,
+      tasks: [{ ...TEST_TASK_ONE }],
+      activeTaskId: 1,
+    });
+  }
+
+  it('documents allow, grace-discard, and confirmation decisions across the control matrix', () => {
+    const falseStart = runningFocus(FALSE_START_GRACE_SEC);
+    expect(timerTransitionPolicy(falseStart, 'mode')).toEqual({
+      kind: 'discardFalseStart',
+    });
+    expect(timerTransitionPolicy(falseStart, 'reset')).toEqual({
+      kind: 'discardFalseStart',
+    });
+    expect(timerTransitionPolicy(falseStart, 'skip')).toEqual({
+      kind: 'discardFalseStart',
+    });
+    expect(timerTransitionPolicy(falseStart, 'activeTask')).toEqual({ kind: 'allow' });
+    expect(timerTransitionPolicy(falseStart, 'cadence')).toEqual({ kind: 'allow' });
+    expect(timerTransitionPolicy(falseStart, 'duration')).toEqual({ kind: 'allow' });
+
+    const established = runningFocus(12 * 60);
+    expect(timerTransitionPolicy(established, 'mode')).toMatchObject({
+      kind: 'confirm',
+      description: 'You’re 12 min into this focus — end it and continue?',
+    });
+    expect(timerTransitionPolicy(established, 'reset')).toMatchObject({ kind: 'confirm' });
+    expect(timerTransitionPolicy(established, 'skip')).toMatchObject({ kind: 'confirm' });
+  });
+
+  it('discards a false start without a record and rejects a late direct discard', () => {
+    const falseStart = runningFocus(10);
+    const discarded = reducer(falseStart, { type: 'discardFalseStart' });
+    expect(discarded.openFocus).toBeNull();
+    expect(discarded.sessionRecords).toEqual([]);
+    expect(discarded.remaining).toBe(25 * 60);
+
+    const established = runningFocus(16);
+    expect(reducer(established, { type: 'discardFalseStart' })).toBe(established);
+  });
+
+  it('banks mode exits from Flow but confirms reset/off and never orphans a banked stopwatch', () => {
+    const openFlow = newOpenSession('flow', null, 1, undefined, Date.now() - 120_000);
+    const flow = makeState({
+      mode: 'flow',
+      running: true,
+      flowStart: Date.now() - 120_000,
+      openFlow,
+      settings: { ...DEFAULT_STATE.settings, flow: true },
+    });
+    expect(timerTransitionPolicy(flow, 'mode')).toEqual({ kind: 'allow' });
+    expect(timerTransitionPolicy(flow, 'reset')).toMatchObject({ kind: 'confirm' });
+    expect(timerTransitionPolicy(flow, 'flowOff')).toMatchObject({ kind: 'confirm' });
+
+    const banked = reducer(flow, { type: 'pick', mode: 'focus' });
+    expect(banked.openFlow?.id).toBe(openFlow.id);
+    expect(banked.flowAcc).toBeCloseTo(120);
+
+    const disabled = reducer(banked, {
+      type: 'patchSettings',
+      patch: { flow: false },
+    });
+    expect(disabled.openFlow).toBeNull();
+    expect(disabled.flowAcc).toBe(0);
+    expect(disabled.sessionRecords.filter((record) => record.id === openFlow.id))
+      .toHaveLength(1);
+  });
+
+  it('blocks navigation that would replace an unresolved return while ordinary navigation is safe', () => {
+    const ordinary = runningFocus(60);
+    expect(timerTransitionPolicy(ordinary, 'navigation')).toEqual({ kind: 'allow' });
+    const unresolved = {
+      ...ordinary,
+      openFocus: {
+        ...ordinary.openFocus!,
+        returnSnapshot: {
+          capturedAt: Date.now() - 60_000,
+          returnedAt: Date.now(),
+          elapsedSec: 60,
+          remainingSec: ordinary.remaining,
+          mode: 'focus' as const,
+          round: ordinary.sessions,
+          running: true,
+          sessionId: ordinary.openFocus!.id,
+        },
+      },
+    };
+    expect(timerTransitionPolicy(unresolved, 'navigation')).toMatchObject({
+      kind: 'confirm',
+      title: 'Settle this return first?',
+    });
+  });
+});
+
 describe('completionNotice', () => {
   it('tells a completed break to return when ready instead of taking another break', () => {
     expect(completionNotice('short')).toEqual({
@@ -599,12 +757,12 @@ describe('persisted-state recovery', () => {
     const persisted = readPersisted();
 
     expect(persisted).toMatchObject({
-      version: 23,
+      version: SCHEMA_VERSION,
       sessions: 7,
       streak: 5,
       tasks: [task],
       guideRead: { readAt: {}, suggestions: [] },
-      settings: { name: 'Mira', dayStartHour: 0 },
+      settings: { name: 'Mira', dayStartHour: 0, goalCredit: 'off' },
     });
   });
 
@@ -694,7 +852,17 @@ describe('goal links and completion stamps (v19/v20 quick wins)', () => {
   });
 
   it('stamps completedAt on a goal only when the last part lands', () => {
-    const state = makeState({ goals: [{ ...goal, done: 10 }] });
+    const state = makeState({
+      goals: [{ ...goal, done: 10 }],
+      goalLedger: [{
+        id: 'g-existing',
+        goalId: 3,
+        delta: 10,
+        source: 'carryover',
+        dayKey: '1970-01-01',
+        at: 1,
+      }],
+    });
 
     const partway = reducer(state, { type: 'logGoal', id: 3, delta: 1 });
     expect(partway.goals[0].completedAt).toBeUndefined();
@@ -736,6 +904,147 @@ describe('goal links and completion stamps (v19/v20 quick wins)', () => {
     expect(record.outcome).toBe('completed');
   });
 
+  it('offers one durable goal part for a linked session and resolves it exactly once', () => {
+    const linked = {
+      ...TEST_TASK_ONE,
+      goalId: goal.id,
+    };
+    const started = reducer(
+      makeState({
+        goals: [goal],
+        tasks: [linked],
+        activeTaskId: linked.id,
+        settings: { ...DEFAULT_STATE.settings, goalCredit: 'ask' },
+      }),
+      { type: 'toggle' },
+    );
+    const finished = reducer({ ...started, remaining: 0 }, { type: 'complete' });
+    const record = finished.sessionRecords[finished.sessionRecords.length - 1];
+
+    expect(record).toMatchObject({ goalId: goal.id, goalCredit: 'pending' });
+    expect(finished.goals[0].done).toBe(0);
+
+    const credited = reducer(finished, {
+      type: 'resolveGoalCredit',
+      source: 'session',
+      id: record.id,
+      apply: true,
+    });
+    expect(credited.goals[0].done).toBe(1);
+    expect(credited.goalLedger).toEqual([
+      expect.objectContaining({
+        goalId: goal.id,
+        delta: 1,
+        source: 'session',
+        sessionId: record.id,
+      }),
+    ]);
+    expect(credited.sessionRecords[credited.sessionRecords.length - 1]?.goalCredit)
+      .toBe('credited');
+
+    const repeated = reducer(credited, {
+      type: 'resolveGoalCredit',
+      source: 'session',
+      id: record.id,
+      apply: true,
+    });
+    expect(repeated).toBe(credited);
+    expect(repeated.goals[0].done).toBe(1);
+  });
+
+  it('keeps manual task credit off by default, supports skip, and applies auto only after opt-in', () => {
+    const task = { ...TEST_TASK_TWO, goalId: goal.id };
+    const manual = reducer(
+      makeState({ goals: [goal], tasks: [task], activeTaskId: task.id }),
+      { type: 'toggleTask', id: task.id },
+    );
+    expect(manual.goals[0].done).toBe(0);
+    expect(manual.tasks[0].goalCredit).toBeUndefined();
+
+    const offered = reducer(
+      makeState({
+        goals: [goal],
+        tasks: [task],
+        activeTaskId: task.id,
+        settings: { ...DEFAULT_STATE.settings, goalCredit: 'ask' },
+      }),
+      { type: 'toggleTask', id: task.id },
+    );
+    expect(offered.tasks[0].goalCredit).toBe('pending');
+    const skipped = reducer(offered, {
+      type: 'resolveGoalCredit',
+      source: 'task',
+      id: task.id,
+      apply: false,
+    });
+    expect(skipped.goals[0].done).toBe(0);
+    expect(skipped.tasks[0].goalCredit).toBe('skipped');
+
+    const automatic = reducer(
+      makeState({
+        goals: [goal],
+        tasks: [task],
+        activeTaskId: task.id,
+        settings: { ...DEFAULT_STATE.settings, goalCredit: 'auto' },
+      }),
+      { type: 'toggleTask', id: task.id },
+    );
+    expect(automatic.goals[0].done).toBe(1);
+    expect(automatic.tasks[0].goalCredit).toBe('credited');
+    expect(automatic.goalLedger).toEqual([
+      expect.objectContaining({ goalId: goal.id, delta: 1, source: 'manual' }),
+    ]);
+  });
+
+  it('edits and unlinks a task goal without redirecting completed work', () => {
+    const anotherGoal = { ...goal, id: 4, title: 'second goal' };
+    const state = makeState({
+      goals: [goal, anotherGoal],
+      tasks: [{ ...TEST_TASK_ONE, goalId: goal.id }],
+    });
+    const relinked = reducer(state, {
+      type: 'setTaskGoal',
+      id: TEST_TASK_ONE.id,
+      goalId: anotherGoal.id,
+    });
+    expect(relinked.tasks[0].goalId).toBe(anotherGoal.id);
+
+    const unlinked = reducer(relinked, {
+      type: 'setTaskGoal',
+      id: TEST_TASK_ONE.id,
+    });
+    expect(unlinked.tasks[0].goalId).toBeUndefined();
+
+    const done = reducer(relinked, { type: 'toggleTask', id: TEST_TASK_ONE.id });
+    const ignored = reducer(done, {
+      type: 'setTaskGoal',
+      id: TEST_TASK_ONE.id,
+      goalId: goal.id,
+    });
+    expect(ignored).toBeDefined();
+    expect(ignored.tasks[0].goalId).toBe(anotherGoal.id);
+  });
+
+  it('settles pending credit when its linked goal is deleted', () => {
+    const state = makeState({
+      goals: [goal],
+      tasks: [{
+        ...TEST_TASK_ONE,
+        goalId: goal.id,
+        done: true,
+        goalCredit: 'pending',
+      }],
+      sessionRecords: [{
+        ...finalizeSession(newOpenSession('focus', 25, TEST_TASK_ONE.id, undefined, undefined, goal.id), 'completed', 25),
+        goalCredit: 'pending',
+      }],
+    });
+    const removed = reducer(state, { type: 'removeGoal', id: goal.id });
+    expect(removed.tasks[0]).toMatchObject({ goalCredit: 'skipped' });
+    expect(removed.tasks[0].goalId).toBeUndefined();
+    expect(removed.sessionRecords[0].goalCredit).toBe('skipped');
+  });
+
   it('updateGoal edits title, due, and target, clamping done into the new target', () => {
     const state = makeState({ goals: [{ ...goal, done: 8 }] });
 
@@ -774,6 +1083,34 @@ describe('goal links and completion stamps (v19/v20 quick wins)', () => {
 
     expect(restored.tasks[0]).toEqual(task);
     expect(restored.activeTaskId).toBe(task.id);
+  });
+
+  it('archives a timestamped completed task on removal and withdraws it on undo', () => {
+    const task = {
+      ...TEST_TASK_ONE,
+      done: true,
+      pomos: TEST_TASK_ONE.goal,
+      completedAt: Date.now(),
+    };
+    const state = makeState({ tasks: [task], historyArchive: emptyHistoryArchive() });
+
+    const removed = reducer(state, { type: 'removeTask', id: task.id });
+
+    expect(removed.historyArchive.completedTasks).toEqual([
+      expect.objectContaining({
+        taskId: task.id,
+        title: task.t,
+        completedAt: task.completedAt,
+      }),
+    ]);
+
+    const restored = reducer(removed, {
+      type: 'restoreTask',
+      task,
+      index: 0,
+      wasActive: false,
+    });
+    expect(restored.historyArchive.completedTasks).toEqual([]);
   });
 
   it('restores a removed goal with its id, progress, completion stamp, and task links', () => {
@@ -850,5 +1187,111 @@ describe('focus-history clearing', () => {
       tasks: [task],
       goals: [goal],
     });
+  });
+});
+
+describe('foundation yesterday grace', () => {
+  it('writes a late entry without changing streak, sessions, or friend progress', () => {
+    const now = new Date(2026, 6, 27, 10).getTime();
+    const yesterday = new Date(2026, 6, 26, 10).getTime();
+    const instance = createFoundationInstance({
+      type: 'phone-away',
+      order: 0,
+      at: new Date(2026, 6, 20, 10).getTime(),
+      dayStartHour: 3,
+    })!;
+    const state = makeState({
+      today: '2026-07-27',
+      now,
+      settings: { ...DEFAULT_STATE.settings, dayStartHour: 3, foundations: true },
+      foundations: { instances: [instance], entries: [], archive: [] },
+      sessions: 4,
+      streak: 3,
+      palXp: { Mochi: 2 },
+    });
+
+    const next = reducer(state, {
+      type: 'toggleFoundationDay',
+      instanceId: instance.id,
+      at: now,
+      targetAt: yesterday,
+    });
+
+    expect(next.foundations.entries).toMatchObject([
+      { instanceId: instance.id, dayKey: '2026-07-26', late: true },
+    ]);
+    expect(next).toMatchObject({
+      sessions: 4,
+      streak: 3,
+      palXp: { Mochi: 2 },
+      justDone: state.justDone,
+    });
+  });
+});
+
+describe('foundation cue anchors and restart cap', () => {
+  it('links a valid plan, counts a check-off once, and clears the link on deletion', () => {
+    const now = new Date(2026, 6, 27, 10).getTime();
+    const plan = {
+      id: 'p-foundation',
+      cueType: 'time' as const,
+      cueText: 'after coffee',
+      actionText: 'put the phone away',
+      usageCount: 0,
+      lastUsedAt: null,
+      createdAt: now - 1000,
+    };
+    const instance = createFoundationInstance({
+      type: 'phone-away',
+      order: 0,
+      at: now - 7 * 86_400_000,
+    })!;
+    const state = makeState({
+      today: '2026-07-27',
+      now,
+      foundations: { instances: [instance], entries: [], archive: [] },
+      ifThenPlans: [plan],
+    });
+
+    const linked = reducer(state, {
+      type: 'setFoundationIfThen',
+      instanceId: instance.id,
+      ifThenId: plan.id,
+    });
+    const checked = reducer(linked, {
+      type: 'toggleFoundationDay',
+      instanceId: instance.id,
+      at: now,
+    });
+    expect(checked.ifThenPlans[0]).toMatchObject({ usageCount: 1, lastUsedAt: now });
+
+    const unchecked = reducer(checked, {
+      type: 'toggleFoundationDay',
+      instanceId: instance.id,
+      at: now,
+    });
+    expect(unchecked.ifThenPlans[0].usageCount).toBe(1);
+
+    const removed = reducer(unchecked, { type: 'removeIfThenPlan', id: plan.id });
+    expect(removed.ifThenPlans).toEqual([]);
+    expect(removed.foundations.instances[0].ifThenId).toBeUndefined();
+  });
+
+  it('persists the restart offer day without touching entries', () => {
+    const instance = createFoundationInstance({
+      type: 'tiny-start',
+      order: 0,
+      at: new Date(2026, 6, 20, 10).getTime(),
+    })!;
+    const state = makeState({
+      foundations: { instances: [instance], entries: [], archive: [] },
+    });
+    const marked = reducer(state, {
+      type: 'markFoundationRestartOffered',
+      instanceId: instance.id,
+      dayKey: '2026-07-27',
+    });
+    expect(marked.foundations.instances[0].lastRestartOfferDayKey).toBe('2026-07-27');
+    expect(marked.foundations.entries).toEqual([]);
   });
 });

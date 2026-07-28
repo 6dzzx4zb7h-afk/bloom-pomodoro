@@ -22,6 +22,8 @@ export type SessionOutcome = 'completed' | 'abandoned' | 'interrupted';
 
 /** Optional self-report for the session's concrete target (PLAN 4.2). */
 export type TargetOutcome = 'done' | 'partly' | 'no';
+/** Durable resolution for one offered goal-progress credit. */
+export type GoalCreditStatus = 'pending' | 'credited' | 'skipped';
 
 /** A return check only appears for a gap long enough to be meaningful. */
 export const RETURN_GAP_MIN_SEC = 45;
@@ -63,6 +65,12 @@ export interface SessionRecord {
   taskId?: number;
   /** Planner goal the session counted toward, if any. */
   goalId?: number;
+  /**
+   * Resolution of the one-part goal credit offered for this completed
+   * session. Absent means no credit was offered (for example, the feature was
+   * off or the linked goal was already complete).
+   */
+  goalCredit?: GoalCreditStatus;
   /** Companion drift events triaged during this session (linked later). */
   driftEventIds: string[];
   /** The "one specific doable thing" typed at start, if any. */
@@ -77,6 +85,21 @@ export interface SessionRecord {
   returnSnapshot?: TimerSnapshot;
   /** Reopening onto this interrupted record should offer its resume cue. */
   resumeCuePending?: boolean;
+  /** True after a user repairs this record from History or its debrief. */
+  edited?: true;
+  /** Epoch ms when the latest repair was saved. Repaired values are estimates. */
+  editedAt?: number;
+}
+
+/**
+ * The one shared policy for day-level "finished work" signals. Keeping this
+ * predicate beside the record model makes streaks and derived foundations
+ * agree even as session modes evolve.
+ */
+export function sessionCountsTowardDay(
+  record: Pick<SessionRecord, 'outcome'>,
+): boolean {
+  return record.outcome === 'completed';
 }
 
 /** Ring-buffer cap: only the most recent records are kept in localStorage. */
@@ -101,6 +124,7 @@ export function appendSessionRecord(
 const MODES: SessionMode[] = ['focus', 'flow', 'tiny'];
 const OUTCOMES: SessionOutcome[] = ['completed', 'abandoned', 'interrupted'];
 const TARGET_OUTCOMES: TargetOutcome[] = ['done', 'partly', 'no'];
+const GOAL_CREDIT_STATUSES: GoalCreditStatus[] = ['pending', 'credited', 'skipped'];
 
 function isValidTimerSnapshot(raw: unknown, sessionId?: string): raw is TimerSnapshot {
   if (!raw || typeof raw !== 'object') return false;
@@ -145,6 +169,8 @@ export function isValidSessionRecord(r: unknown): r is SessionRecord {
     x.startHour <= 23 &&
     (x.taskId === undefined || typeof x.taskId === 'number') &&
     (x.goalId === undefined || typeof x.goalId === 'number') &&
+    (x.goalCredit === undefined ||
+      GOAL_CREDIT_STATUSES.includes(x.goalCredit as GoalCreditStatus)) &&
     Array.isArray(x.driftEventIds) &&
     (x.driftEventIds as unknown[]).every((d) => typeof d === 'string') &&
     (x.targetText === undefined || typeof x.targetText === 'string') &&
@@ -152,7 +178,13 @@ export function isValidSessionRecord(r: unknown): r is SessionRecord {
     (x.ifThenPlanId === undefined || typeof x.ifThenPlanId === 'string') &&
     (x.nextActionText === undefined || typeof x.nextActionText === 'string') &&
     (x.returnSnapshot === undefined || isValidTimerSnapshot(x.returnSnapshot, x.id as string)) &&
-    (x.resumeCuePending === undefined || typeof x.resumeCuePending === 'boolean')
+    (x.resumeCuePending === undefined || typeof x.resumeCuePending === 'boolean') &&
+    (x.edited === undefined
+      ? x.editedAt === undefined
+      : x.edited === true &&
+        typeof x.editedAt === 'number' &&
+        Number.isFinite(x.editedAt) &&
+        x.editedAt >= x.endedAt)
   );
 }
 
