@@ -79,6 +79,16 @@
 
   --font-display: 'Fredoka', system-ui, sans-serif;
   --font-body: 'Nunito', system-ui, sans-serif;
+
+
+  /* One reading column for every screen (PLAN 12.1). Titles, cards, lists and
+     controls all cap here and center, so switching tabs never shifts the left
+     edge of the content. */
+  --content-col: 560px;
+  /* How far a screen's title sits from the surface edge. It matches the
+     22px side margin the cards below it use, and drops to 0 on wide screens
+     where the shared column does the insetting instead. */
+  --screen-inset: 22px;
 }
 
 * {
@@ -335,6 +345,52 @@ button.foundation-dot {
 }
 .foundation-cap-note { margin: 12px 0; color: var(--muted); font-size: 12px; }
 
+/* Night sky (PLAN 12.1). The card shipped with day-only surfaces, so on the
+   dark theme its light panels sat under the night palette's light text and
+   the whole card read as washed-out. */
+.night .foundations-card {
+  border-color: rgba(140, 180, 150, 0.3);
+  background: rgba(24, 18, 48, 0.88);
+  box-shadow: 0 8px 22px rgba(8, 5, 20, 0.5);
+}
+.night .foundations-tend,
+.night .foundation-restart button,
+.night .foundation-anchor,
+.night .foundation-anchor-flow > button,
+.night .foundation-order button,
+.night button.foundation-dot {
+  background: #383060;
+  color: var(--plum);
+  box-shadow: none;
+}
+.night .foundation-chip {
+  border-color: rgba(140, 180, 150, 0.3);
+  background: rgba(46, 37, 87, 0.75);
+}
+.night .foundation-chip.done {
+  border-color: rgba(150, 205, 145, 0.55);
+  background: rgba(78, 112, 76, 0.5);
+}
+.night .foundation-detail,
+.night .foundation-picker-row {
+  background: rgba(46, 37, 87, 0.6);
+}
+.night .foundation-restart {
+  background: rgba(94, 82, 46, 0.4);
+}
+.night .foundation-restart .foundation-restart-skip {
+  background: transparent;
+}
+.night .foundation-dot {
+  color: var(--soft2);
+}
+.night .foundation-dot.outside {
+  color: rgba(150, 134, 184, 0.4);
+}
+.night .foundation-picker-copy input {
+  border-color: #3f3570;
+}
+
 @media (max-width: 380px), (max-height: 680px) {
   .foundations-card { margin-inline: 12px; padding: 11px; }
   .foundation-chips { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -350,6 +406,19 @@ button.foundation-dot {
 }
 
 .phone {
+  /* Neutral aliases used by the Foundations card, History rows, and the guide
+     suggestion. They were referenced without ever being declared, so those
+     rules were invalid at computed-value time and quietly inherited their
+     parent's colour instead — muted sub-labels rendered at full strength and
+     the import picker lost its dashed outline entirely (PLAN 12.1).
+     They live here, not on :root, so the night and high-contrast palettes —
+     which remap --plum on this same element — carry through. */
+  --ink: var(--plum);
+  --text: var(--plum);
+  --muted: var(--soft3);
+  --surface: #fff;
+  --line: rgba(199, 159, 230, 0.45);
+
   width: 100%;
   height: 100vh;
   height: 100dvh;
@@ -533,10 +602,15 @@ button.foundation-dot {
   box-shadow: 0 4px 10px -7px rgba(110, 85, 119, 0.7);
 }
 
+/* The whole timer ring is driven by one scale factor, so a shorter viewport
+   only has to restate `--ring-scale` instead of re-deriving the disc inset,
+   the shadow, and the pet's scale by hand (PLAN 12.1). Everything inside is
+   sized as a percentage of the wrapper, so it follows automatically. */
 .ring-wrap {
+  --ring-scale: 1;
   position: relative;
-  width: 236px;
-  height: 236px;
+  width: calc(236px * var(--ring-scale));
+  height: calc(236px * var(--ring-scale));
   margin: 16px auto 0;
   flex: none;
 }
@@ -551,16 +625,16 @@ button.foundation-dot {
 }
 .ring-disc {
   position: absolute;
-  inset: 30px;
+  inset: 12.7%;
   border-radius: 50%;
   background: radial-gradient(circle at 50% 38%, #fffdff, #fbf3fb);
 }
 .ring-shadow {
   position: absolute;
   left: 50%;
-  bottom: 54px;
+  bottom: 22.9%;
   transform: translateX(-50%);
-  width: 108px;
+  width: 45.8%;
   height: 16px;
   background: radial-gradient(ellipse, rgba(183, 159, 227, 0.28), transparent 70%);
   border-radius: 50%;
@@ -574,6 +648,7 @@ button.foundation-dot {
      offset. Written as `transform: translate(...)` the offset is scaled too,
      which pushed the pet off-centre on short viewports. */
   translate: -50% -50%;
+  scale: var(--ring-scale);
 }
 
 .readout {
@@ -688,7 +763,9 @@ button.foundation-dot {
   flex: none;
 }
 .now-label {
-  font: 600 10.5px var(--font-body);
+  /* PLAN 8.9: the label naming the active task is essential context, not
+     metadata, so it uses the ~13px practical minimum. */
+  font: 600 13px var(--font-body);
   color: var(--soft3);
   text-transform: uppercase;
   letter-spacing: 0.5px;
@@ -809,12 +886,22 @@ button.foundation-dot {
   grid-row: 1 / 3;
 }
 
+/* Collapsible settings groups (PLAN 8.4, regrouped in PLAN 12.1). Each group
+   is a card so the sheet reads as a short list of topics rather than one long
+   scroll of rows. */
 .settings-section {
-  border-bottom: 1px solid rgba(199, 159, 230, 0.2);
+  margin-bottom: 10px;
+  border: 1px solid rgba(199, 159, 230, 0.28);
+  border-radius: 16px;
+  background: rgba(252, 246, 255, 0.72);
+  overflow: hidden;
 }
 .settings-section > summary {
-  position: relative;
-  padding: 12px 28px 12px 2px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 11px 14px;
   color: var(--plum);
   font: 700 14px var(--font-display);
   cursor: pointer;
@@ -826,19 +913,28 @@ button.foundation-dot {
 }
 .settings-section > summary::after {
   content: '⌄';
-  position: absolute;
-  right: 4px;
-  top: 10px;
+  flex: none;
   color: var(--soft2);
   font-size: 18px;
+  line-height: 1;
   transform: rotate(-90deg);
   transition: transform 0.15s ease;
+}
+.settings-section[open] > summary {
+  border-bottom: 1px solid rgba(199, 159, 230, 0.22);
 }
 .settings-section[open] > summary::after {
   transform: rotate(0);
 }
 .settings-section-body {
-  padding: 0 2px 8px;
+  padding: 4px 14px 12px;
+}
+/* Rows inside a group are separated by hairlines, not by guesswork spacing. */
+.settings-section-body > .set-row + .set-row,
+.settings-section-body > .set-row + .set-block,
+.settings-section-body > .set-block + .set-row,
+.settings-section-body > .set-block + .set-block {
+  border-top: 1px solid rgba(199, 159, 230, 0.16);
 }
 
 .dialog-backdrop {
@@ -1054,6 +1150,16 @@ button.foundation-dot {
   font: 600 11.5px var(--font-body);
   line-height: 1.35;
 }
+/* A note that leads with its own little title (PLAN 12.1). */
+.set-note strong,
+.set-note > span {
+  display: block;
+}
+.set-note strong {
+  margin-bottom: 3px;
+  color: var(--plum);
+  font-family: var(--font-display);
+}
 .set-block {
   padding: 9px 0;
 }
@@ -1149,6 +1255,13 @@ button.foundation-dot {
   border: 1px dashed var(--line);
   border-radius: 12px;
   cursor: pointer;
+}
+
+/* Match the weight of the other setting labels — this used to inherit the
+   sheet's body size and read as a heading (PLAN 12.1). */
+.data-import-picker > span {
+  color: var(--plum);
+  font: 600 13px var(--font-body);
 }
 
 .data-import-picker.disabled {
@@ -1257,67 +1370,11 @@ button.foundation-dot {
   display: block;
   margin-top: 11px;
 }
-.bg-grid {
-  margin-top: 10px;
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
-}
-.bg-opt {
-  border: 2px solid #eaddf5;
-  border-radius: 14px;
-  background: #fff;
-  padding: 10px 11px;
-  text-align: left;
-  cursor: pointer;
-  font-family: inherit;
-  transition: border-color 0.15s, background 0.15s, transform 0.12s ease;
-}
-.bg-opt:active {
-  transform: scale(0.97);
-}
-.bg-opt.on {
-  border-color: var(--pink-2);
-  background: linear-gradient(150deg, #fff2f8, #f6effc);
-}
-.bg-opt-label {
-  display: block;
-  font: 700 13px var(--font-display);
-  color: var(--plum);
-}
-.bg-opt-hint {
-  display: block;
-  margin-top: 4px;
-  font: 600 10.5px var(--font-body);
-  color: var(--soft3);
-  line-height: 1.3;
-}
-.sound-focus-note {
-  margin-top: 9px;
-}
-.sound-focus-note strong,
-.sound-focus-note > span {
-  display: block;
-}
-.sound-focus-note strong {
-  margin-bottom: 3px;
-  color: var(--plum);
-  font-family: var(--font-display);
-}
-.sound-guide-link {
-  margin-top: 6px;
-  border: 0;
-  padding: 0;
-  background: transparent;
-  color: var(--soft3);
-  font: 700 10.5px var(--font-body);
-  text-decoration: underline;
-  text-underline-offset: 2px;
-  cursor: default;
-}
-
-.name-input {
-  width: 130px;
+/* Text and select controls that sit on the right of a settings row. Both
+   share one box so a row's control column reads as a single element. */
+.name-input,
+.set-select {
+  width: 152px;
   flex: none;
   border: 2px solid #eaddf5;
   border-radius: 12px;
@@ -1325,10 +1382,11 @@ button.foundation-dot {
   background: #fff;
   font: 600 13px var(--font-display);
   color: var(--plum);
-  text-align: right;
+  text-align: left;
   transition: border-color 0.15s;
 }
-.name-input:focus {
+.name-input:focus,
+.set-select:focus {
   border-color: var(--pink-2);
 }
 .name-input::placeholder {
@@ -1425,8 +1483,12 @@ button.foundation-dot {
 .tasks-bg {
   background: transparent;
 }
+/* Screen title block. Its inline padding tracks the same inset the cards
+   below it use, so the title never sits further in than the content it
+   introduces (PLAN 12.1). On wide screens the inset drops to 0 because the
+   cards are centred by the shared content column instead. */
 .head {
-  padding: 6px 22px 0;
+  padding: 6px var(--screen-inset) 0;
   flex: none;
 }
 .head-title {
@@ -1707,7 +1769,9 @@ button.foundation-dot {
   gap: 10px;
 }
 .add-form-title {
-  margin: 0 0 5px 4px;
+  /* No inline offset: this label shares the content column's left edge with
+     the list above it (PLAN 12.1). */
+  margin: 0 0 5px;
   color: var(--plum);
   font: 700 12px var(--font-display);
 }
@@ -2073,8 +2137,14 @@ button.foundation-dot {
   margin: 16px 18px 0;
   display: grid;
   grid-template-columns: 1fr 1fr;
+  /* Rows must size to their card, never to the leftover height (PLAN 12.1).
+     Without this the grid divided its own flex height across the rows on a
+     short window, squashing every card to a fraction of its content — name,
+     tagline, and XP line all vanished instead of the grid scrolling. */
+  grid-auto-rows: max-content;
   gap: 12px;
   flex: 1;
+  min-height: 0;
   align-content: start;
   overflow-y: auto;
   scrollbar-width: none;
@@ -2083,12 +2153,23 @@ button.foundation-dot {
   display: none;
 }
 .coll-card {
+  /* An explicit column: a stretched <button> grid item would otherwise let
+     the browser vertically centre its anonymous content box, which pushes the
+     XP line past the card's own edge when a row is taller than this card. */
+  display: flex;
+  flex-direction: column;
   background: #fff;
   border-radius: 20px;
   padding: 12px 10px 11px;
   text-align: center;
   box-shadow: 0 10px 20px -14px rgba(183, 159, 227, 0.8);
   position: relative;
+}
+/* The XP line stays pinned to the bottom when a neighbour makes the row
+   taller, so both cards in a row read on the same baseline. Absorbing the
+   slack above the bar (rather than on it) keeps the bar's own spacing. */
+.coll-card .coll-meta {
+  margin-bottom: auto;
 }
 .coll-card.pick {
   border: 2px solid transparent;
@@ -2405,7 +2486,11 @@ button.foundation-dot {
   font: 600 12px/1.4 var(--font-body);
 }
 .history-empty {
-  margin: auto 4px;
+  /* `margin-block: auto` keeps it vertically centred; the inline margins stay
+     separate so the wide-screen column can centre it like every other card
+     instead of letting it span the whole window (PLAN 12.1). */
+  margin-block: auto;
+  margin-inline: 4px;
   padding: 24px;
   border-radius: 20px;
   background: rgba(255, 255, 255, 0.78);
@@ -2472,7 +2557,9 @@ button.foundation-dot {
   padding: 4px 16px;
   border-radius: 14px;
   color: var(--soft3);
-  font: 700 10.5px var(--font-display);
+  /* PLAN 8.9: primary navigation labels are essential text, so they sit at the
+     documented ~13px practical minimum rather than the metadata size. */
+  font: 700 13px var(--font-display);
   transition: color 0.15s;
 }
 .nav-btn .nav-icon {
@@ -3724,11 +3811,15 @@ button.foundation-dot {
   border-bottom: 1px dashed rgba(160, 112, 140, 0.2);
 }
 .cadence-apply {
+  /* The 44px touch floor (PLAN 8.8) makes this box taller than its label, so
+     it has to center its own content or the text hangs at the top. */
   display: inline-flex;
+  align-items: center;
+  justify-content: center;
   margin-top: 7px;
   border: none;
   border-radius: 10px;
-  padding: 6px 10px;
+  padding: 6px 12px;
   background: #fff;
   color: var(--plum);
   box-shadow: 0 5px 12px -8px rgba(110, 85, 119, 0.8);
@@ -4090,6 +4181,8 @@ body.night {
   --soft: #a99bc8;
   --soft2: #a394c4;
   --soft3: #9686b8;
+  --surface: #2e2557;
+  --line: rgba(140, 120, 200, 0.45);
   --shadow-soft: 0 10px 20px -14px rgba(8, 5, 20, 0.9);
   --shadow-card: 0 8px 18px -12px rgba(8, 5, 20, 0.8);
   /* Night contrast already works — route the day-only fixes back to the
@@ -4166,6 +4259,12 @@ body.night {
 .night .now-chip {
   background: rgba(46, 37, 87, 0.72);
 }
+/* PLAN 8.9: the now-chip is the lightest translucent surface in night mode, so
+   --soft3 on it composites to 3.97:1 over the brightest sky stop — below AA.
+   The rest of night's copy sits on darker surfaces and already passes. */
+.night .now-label {
+  color: var(--soft);
+}
 .night .now-badge,
 .night .focus-flag,
 .night .goal-btn {
@@ -4195,6 +4294,19 @@ body.night {
 .night .sheet-grip {
   background: #3f3570;
 }
+.night .settings-section {
+  border-color: rgba(140, 120, 200, 0.35);
+  background: rgba(46, 37, 87, 0.55);
+}
+.night .settings-section[open] > summary {
+  border-bottom-color: rgba(140, 120, 200, 0.3);
+}
+.night .settings-section-body > .set-row + .set-row,
+.night .settings-section-body > .set-row + .set-block,
+.night .settings-section-body > .set-block + .set-row,
+.night .settings-section-body > .set-block + .set-block {
+  border-top-color: rgba(140, 120, 200, 0.22);
+}
 .night .step-btn,
 .night .add-plus,
 .night .lvl-badge {
@@ -4206,14 +4318,6 @@ body.night {
 }
 .night .switch.on::before {
   background: linear-gradient(150deg, #ffb0d4, #c79fe6);
-}
-.night .bg-opt {
-  background: #2e2557;
-  border-color: #3f3570;
-}
-.night .bg-opt.on {
-  border-color: var(--pink-2);
-  background: linear-gradient(150deg, #43305c, #3a2f66);
 }
 .night .chronotype-choice,
 .night .cadence-preset,
@@ -4248,6 +4352,7 @@ body.night {
   background: rgba(46, 37, 87, 0.7);
 }
 .night .name-input,
+.night .set-select,
 .night .onboard-input {
   background: #2e2557;
   border-color: #3f3570;
@@ -4532,47 +4637,6 @@ body.night {
   }
 }
 
-/* ---------- wide screens ----------
-   The surface stays edge-to-edge, but content rows cap at a readable column
-   width so lists and chips don't stretch across a monitor. Kept last in the
-   file so it wins over the per-element shorthand margins above. */
-@media (min-width: 700px) {
-  .greeting-row,
-  .tabs,
-  .now-chip,
-  .head,
-  .prog-card,
-  .task-list,
-  .add-row,
-  .coll-grid,
-  .coll-footer,
-  .collection-switch,
-  .guide-screen,
-  .onboard,
-  .sheet,
-  .patterns-card {
-    width: 100%;
-    max-width: 560px;
-    margin-left: auto;
-    margin-right: auto;
-  }
-  .history-head,
-  .history-scroll {
-    width: 100%;
-    max-width: 620px;
-    margin-left: auto;
-    margin-right: auto;
-  }
-  .now-chip {
-    margin-top: auto;
-    margin-bottom: 18px;
-  }
-  .navbar {
-    justify-content: center;
-    gap: 64px;
-  }
-}
-
 .storage-recovery-notice {
   position: absolute;
   z-index: 80;
@@ -4663,9 +4727,19 @@ body.night {
   backdrop-filter: blur(10px);
 }
 .greeting-row {
-  margin: 0 12px;
+  /* `margin-inline` rather than the `margin` shorthand: the wide-screen block
+     at the end of this file centres the row with auto side margins, and the
+     shorthand used to blow those away (PLAN 12.1). */
+  margin-block: 0;
+  margin-inline: 12px;
   padding: 7px 10px;
   border-radius: 16px;
+  /* The greeting is the screen's heading; it stays put when a short window
+     makes the rest of the Focus screen scroll, instead of sliding half out of
+     view and leaving its own text stranded near the bottom edge. */
+  position: sticky;
+  top: 0;
+  z-index: 6;
 }
 .readout {
   width: max-content;
@@ -4782,6 +4856,26 @@ body.night {
   .dialog { padding-inline: 12px; }
 }
 
+/* Laptop-height windows (PLAN 12.1). Between a tall phone and a short phone
+   the Focus screen used to overflow with no compaction at all, so the screen
+   scrolled the moment it opened and the greeting was already half off the
+   top. Trim the decorative ring and the gaps first — every control and every
+   instruction stays put. */
+@media (min-height: 621px) and (max-height: 820px) {
+  .focus-bg { overflow-y: auto; overscroll-behavior-y: contain; }
+  .greeting-row { padding-block: 5px; }
+  .tabs { margin-top: 6px; }
+  .tiny-picker { margin-top: 5px; }
+  .ring-wrap { --ring-scale: 0.71; margin-top: 6px; }
+  .readout { margin-top: 4px; padding-block: 4px 6px; }
+  .readout-time { font-size: 44px; }
+  .prestart-stack { margin-top: 8px; }
+  .controls { gap: 18px; margin-top: 8px; }
+  .ctrl-round { width: 46px; height: 46px; }
+  .ctrl-play { width: 66px; height: 66px; }
+  .now-chip { margin-bottom: 12px; }
+}
+
 /* Short phones shrink the decorative timer before any control or instruction
    is hidden. The pre-session stack remains scrollable when it needs more. */
 @media (max-height: 620px) {
@@ -4789,10 +4883,7 @@ body.night {
   .greeting-row { padding-block: 4px; }
   .tabs { height: 44px; margin-top: 5px; }
   .tiny-picker { margin-top: 3px; }
-  .ring-wrap { width: 164px; height: 164px; margin-top: 5px; }
-  .ring-disc { inset: 21px; }
-  .ring-shadow { bottom: 35px; width: 82px; }
-  .ring-animal { scale: 0.78; }
+  .ring-wrap { --ring-scale: 0.695; margin-top: 5px; }
   .readout { margin-top: 3px; padding-block: 3px 5px; }
   .readout-time { font-size: 42px; }
   .controls { gap: 16px; margin-top: 6px; }
@@ -4801,10 +4892,7 @@ body.night {
   .now-chip { margin: auto 12px 8px; padding-block: 7px; }
 }
 @media (max-height: 500px) and (orientation: landscape) {
-  .ring-wrap { width: 132px; height: 132px; }
-  .ring-disc { inset: 17px; }
-  .ring-shadow { bottom: 27px; }
-  .ring-animal { scale: 0.62; }
+  .ring-wrap { --ring-scale: 0.56; }
   .readout-time { font-size: 36px; }
   .now-chip { margin-bottom: 4px; }
 }
@@ -4837,6 +4925,7 @@ body.night {
   .goal-card,
   .task-row,
   .sheet,
+  .settings-section,
   .dialog,
   .companion-pop,
   .ritual-card {
@@ -4854,6 +4943,7 @@ body.night {
   .night .goal-card,
   .night .task-row,
   .night .sheet,
+  .night .settings-section,
   .night .dialog,
   .night .companion-pop,
   .night .ritual-card {
@@ -4876,6 +4966,7 @@ body.night {
   .phone,
   .screen,
   .sheet,
+  .settings-section,
   .dialog,
   .greeting-row,
   .readout,
@@ -5002,5 +5093,50 @@ body.night {
     color: CanvasText;
     background: Canvas;
     border-color: CanvasText;
+  }
+}
+
+/* ---------- one content column on wide screens (PLAN 12.1) ----------
+   The surface stays edge-to-edge so the sky fills the window, but every
+   content row caps at `--content-col` and centers. This block MUST stay last
+   in the file: many rules above set `margin` with the shorthand, which resets
+   the auto side margins and would otherwise pin a row to the left edge — the
+   bug that left the Focus greeting hugging the left while the mode tabs sat
+   centered. */
+@media (min-width: 700px) {
+  :root {
+    --screen-inset: 0px;
+  }
+  .greeting-row,
+  .tabs,
+  .day-target-strip,
+  .now-chip,
+  .head,
+  .prog-card,
+  .task-list,
+  .add-row,
+  .coll-grid,
+  .coll-footer,
+  .collection-switch,
+  .guide-screen,
+  .onboard,
+  .sheet,
+  .patterns-card,
+  .foundations-card,
+  .history-head,
+  .history-scroll,
+  .history-empty {
+    width: 100%;
+    max-width: var(--content-col);
+    margin-left: auto;
+    margin-right: auto;
+  }
+  .now-chip {
+    margin-top: auto;
+    margin-bottom: 18px;
+  }
+  .navbar {
+    justify-content: center;
+    gap: 64px;
   }
 }

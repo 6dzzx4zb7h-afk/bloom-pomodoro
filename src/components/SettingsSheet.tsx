@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { DurationMode, PersistedShape, Settings } from '../store/useBloom';
-import { audioEngine, BG_SOUNDS, requestNotifyPermission, type BgSound } from '../engine/audio';
+import { audioEngine, requestNotifyPermission } from '../engine/audio';
 import {
   AWAY_CHOICES,
   CHECKIN_CHOICES,
@@ -41,7 +41,7 @@ interface SettingsSheetProps {
   personalCadence: PersonalCadenceMemory;
   /** Store-owned day signal; cadence computation captures its own instant. */
   now: number;
-  /** Whether a session is currently running (previews only fire when idle). */
+  /** Whether a session is currently running (data import waits until it ends). */
   running: boolean;
   /** Includes paused work records whose history still belongs to the timer. */
   hasOpenSession: boolean;
@@ -272,22 +272,13 @@ export function SettingsSheet({
     const next = !settings.sound;
     onPatch({ sound: next });
     if (next) {
-      // Enabling the ring: unlock audio + ask for permission to also notify.
+      // Turning it on is also the user gesture that unlocks and previews the
+      // completion cue, then asks to pair it with a background notification.
       audioEngine.resume();
       audioEngine.playRing();
       const ok = await requestNotifyPermission();
       setNotifyDenied(!ok && typeof Notification !== 'undefined' && Notification.permission === 'denied');
     }
-  }
-
-  function pickBg(kind: BgSound) {
-    // The picker is an explicit user gesture. No effect or hydration path is
-    // allowed to unlock audio on its own (PLAN 4.3).
-    audioEngine.resume();
-    onPatch({ bgSound: kind });
-    // While a session runs the store live-switches ambience; when idle, play a
-    // short taste so the choice can be heard.
-    if (!running) audioEngine.previewAmbience(kind);
   }
 
   function clearFocusData() {
@@ -399,17 +390,10 @@ export function SettingsSheet({
     }
   }
 
-  function closeSettings() {
-    // Kill any lingering preview; a running session's ambience is owned by
-    // the store and will be re-asserted, so only stop when idle.
-    if (!running) audioEngine.stopAmbience();
-    onClose();
-  }
-
   return (
     <>
-      <Sheet title="Settings" onRequestClose={closeSettings}>
-        <SettingSection title="Identity" defaultOpen>
+      <Sheet title="Settings" onRequestClose={onClose}>
+        <SettingSection title="You" defaultOpen>
         <div className="set-row">
           <span className="set-label">Your name</span>
           <input
@@ -452,7 +436,7 @@ export function SettingsSheet({
         </div>
         </SettingSection>
 
-        <SettingSection title="Timer" defaultOpen>
+        <SettingSection title="Timer lengths" defaultOpen>
         <div className="set-block cadence-presets">
           <span className="set-label">
             Your cadence ladder
@@ -558,40 +542,9 @@ export function SettingsSheet({
           );
         })}
 
-        <fieldset className="set-block day-boundary-setting">
-          <legend className="set-label">When does your day roll over?</legend>
-          <span className="set-sub">
-            Sessions finished before this time belong to the previous study day. Their timestamps
-            stay unchanged.
-          </span>
-          <div className="day-boundary-presets" aria-label="Study day rollover presets">
-            {DAY_BOUNDARY_PRESETS.map((hour) => (
-              <button
-                type="button"
-                key={hour}
-                className={settings.dayStartHour === hour ? 'on' : ''}
-                aria-pressed={settings.dayStartHour === hour}
-                onClick={() => onPatch({ dayStartHour: hour })}
-              >
-                {clockHourLabel(hour)}
-              </button>
-            ))}
-          </div>
-          <label className="day-boundary-custom">
-            <span>Custom hour</span>
-            <select
-              value={settings.dayStartHour}
-              onChange={(event) => onPatch({ dayStartHour: Number(event.target.value) })}
-            >
-              {Array.from({ length: 24 }, (_, hour) => (
-                <option key={hour} value={hour}>
-                  {clockHourLabel(hour)}
-                </option>
-              ))}
-            </select>
-          </label>
-        </fieldset>
+        </SettingSection>
 
+        <SettingSection title="Sessions">
         <div className="set-row">
           <span className="set-label">Auto-start next</span>
           <button
@@ -603,19 +556,6 @@ export function SettingsSheet({
           >
             <span className="knob" />
           </button>
-        </div>
-
-        {/* Gentle streak (PLAN 5.4) — explains the rest-day rule where the
-            user can read it; the streak is a mirror, never a chain to guard. */}
-        <div className="set-block">
-          <span className="set-label">
-            Gentle streak
-            <span className="set-sub">
-              your streak counts days with a finished session. one rest day each week is free —
-              a single quiet day keeps it growing. a longer pause just sets the count aside,
-              and coming back always gets a warm welcome. consistency is a months game.
-            </span>
-          </span>
         </div>
 
         <div className="set-row">
@@ -666,9 +606,9 @@ export function SettingsSheet({
             <span className="knob" />
           </button>
         </div>
-        </SettingSection>
-
-        <SettingSection title="Sound">
+        {/* Ambient sounds were removed in PLAN 12.1. The disclosed completion
+            cue remains with the other session behavior instead of keeping a
+            one-row Sound section. */}
         <div className="set-row">
           <span className="set-label">
             Ring when done
@@ -687,62 +627,65 @@ export function SettingsSheet({
 
         {notifyDenied && (
           <div className="set-note">
-            Notifications are blocked, so the ring will only sound while the app is open. Enable
-            notifications in your browser/app settings to be alerted in the background.
+            Notifications are blocked for Bloom right now, so the end-of-session notice can’t
+            appear. You can allow them in your browser or app settings whenever you like.
           </div>
         )}
+        </SettingSection>
 
-        <div className="set-block">
-          <span className="set-label">
-            Background sound
-            <span className="set-sub">optional · starts only after you choose or begin a session</span>
+        <SettingSection title="Your day">
+        <fieldset className="set-block day-boundary-setting">
+          <legend className="set-label">When does your day roll over?</legend>
+          <span className="set-sub">
+            Sessions finished before this time belong to the previous study day. Their timestamps
+            stay unchanged.
           </span>
-          <div className="bg-grid">
-            {BG_SOUNDS.map((s) => (
+          <div className="day-boundary-presets" aria-label="Study day rollover presets">
+            {DAY_BOUNDARY_PRESETS.map((hour) => (
               <button
-                key={s.key}
-                className={`bg-opt${settings.bgSound === s.key ? ' on' : ''}`}
-                onClick={() => pickBg(s.key)}
-                aria-pressed={settings.bgSound === s.key}
+                type="button"
+                key={hour}
+                className={settings.dayStartHour === hour ? 'on' : ''}
+                aria-pressed={settings.dayStartHour === hour}
+                onClick={() => onPatch({ dayStartHour: hour })}
               >
-                <span className="bg-opt-label">{s.label}</span>
-                <span className="bg-opt-hint">{s.hint}</span>
+                {clockHourLabel(hour)}
               </button>
             ))}
           </div>
-          <div className="set-note sound-focus-note">
-            <strong>Sound &amp; focus</strong>
-            <span>
-              Sound works differently by task and person. Bloom’s sounds have no lyrics; lyrics in
-              your own music can make reading and writing harder.
-            </span>
-            {/* Step 6.3 activates this as a deep-link to the bundled Field Guide article. */}
-            <button className="sound-guide-link" type="button" disabled>
-              music &amp; focus guide · coming with the Field Guide
-            </button>
-          </div>
-        </div>
-        </SettingSection>
+          <label className="day-boundary-custom">
+            <span>Custom hour</span>
+            <select
+              value={settings.dayStartHour}
+              onChange={(event) => onPatch({ dayStartHour: Number(event.target.value) })}
+            >
+              {Array.from({ length: 24 }, (_, hour) => (
+                <option key={hour} value={hour}>
+                  {clockHourLabel(hour)}
+                </option>
+              ))}
+            </select>
+          </label>
+        </fieldset>
 
-        <SettingSection title="Theme">
         <div className="set-row">
           <span className="set-label">
-            Night sky
-            <span className="set-sub">cozy dark mode with stars &amp; meteors</span>
+            Daily foundations
+            <span className="set-sub">
+              keep up to three tiny daily actions beside your finished-session marker
+            </span>
           </span>
           <button
-            className={`switch${settings.night ? ' on' : ''}`}
-            onClick={() => onPatch({ night: !settings.night })}
+            className={`switch${settings.foundations ? ' on' : ''}`}
+            onClick={() => onPatch({ foundations: !settings.foundations })}
             role="switch"
-            aria-checked={settings.night}
-            aria-label="Night sky theme"
+            aria-checked={settings.foundations}
+            aria-label="Daily foundations"
           >
             <span className="knob" />
           </button>
         </div>
-        </SettingSection>
 
-        <SettingSection title="Planner">
         <div className="set-row">
           <span className="set-label">
             Goals &amp; deadlines
@@ -770,7 +713,7 @@ export function SettingsSheet({
               </span>
             </span>
             <select
-              className="name-input"
+              className="set-select"
               value={settings.goalCredit}
               onChange={(event) =>
                 onPatch({ goalCredit: event.target.value as Settings['goalCredit'] })
@@ -783,25 +726,16 @@ export function SettingsSheet({
             </select>
           </label>
         )}
-        </SettingSection>
 
-        <SettingSection title="Daily foundations">
-        <div className="set-row">
-          <span className="set-label">
-            Daily foundations
-            <span className="set-sub">
-              keep up to three tiny daily actions beside your finished-session marker
-            </span>
+        {/* Gentle streak (PLAN 5.4) — explains the rest-day rule where the
+            user can read it; the streak is a mirror, never a chain to guard. */}
+        <div className="set-note">
+          <strong>Gentle streak</strong>
+          <span>
+            Your streak counts days with a finished session. One rest day each week is free — a
+            single quiet day keeps it growing. A longer pause just sets the count aside, and coming
+            back always gets a warm welcome. Consistency is a months game.
           </span>
-          <button
-            className={`switch${settings.foundations ? ' on' : ''}`}
-            onClick={() => onPatch({ foundations: !settings.foundations })}
-            role="switch"
-            aria-checked={settings.foundations}
-            aria-label="Daily foundations"
-          >
-            <span className="knob" />
-          </button>
         </div>
         </SettingSection>
 
@@ -989,10 +923,28 @@ export function SettingsSheet({
         )}
         </SettingSection>
 
-        <SettingSection title="Data">
+        <SettingSection title="Appearance">
+        <div className="set-row">
+          <span className="set-label">
+            Night sky
+            <span className="set-sub">cozy dark mode with stars &amp; meteors</span>
+          </span>
+          <button
+            className={`switch${settings.night ? ' on' : ''}`}
+            onClick={() => onPatch({ night: !settings.night })}
+            role="switch"
+            aria-checked={settings.night}
+            aria-label="Night sky theme"
+          >
+            <span className="knob" />
+          </button>
+        </div>
+        </SettingSection>
+
+        <SettingSection title="Your data">
         <div className="set-block data-transfer">
           <span className="set-label">
-            Your data
+            Backup &amp; transfer
             <span className="set-sub">
               download a complete local backup, or a spreadsheet of session records
             </span>
@@ -1200,7 +1152,7 @@ export function SettingsSheet({
 
         <button
           className="sheet-done"
-          onClick={closeSettings}
+          onClick={onClose}
         >
           done
         </button>

@@ -1308,6 +1308,28 @@ Open-step gates, stated plainly: **9.2**'s `dayKeyFor` is load-bearing for every
 
 ---
 
+## Phase 12 — Interface clarity and audio simplification (July 2026)
+
+### - [x] 12.1 Align responsive surfaces, simplify Settings, and keep one completion chime
+
+- **Goal:** Correct the visible cross-screen alignment drift on narrow, short, and wide viewports;
+  reorganize Settings into seven clear collapsible groups (You · Timer lengths · Sessions · Your
+  day · Companion · Appearance · Your data); and remove ambient/background audio, previews, and
+  the breath swell. Keep the optional warm timer-finish chime and its background notification
+  exactly where people expect it under Sessions — removing the Sound section must not make a saved
+  completion cue disappear.
+- **Science:** n/a — `docs/product-quality.md` responsive-layout, hierarchy, accessibility,
+  local-first, and regression standards; `docs/voice.md` for the revised labels and help text.
+- **Files:** `src/styles.css`, `src/components/SettingsSheet.tsx`,
+  `src/components/KindRestart.tsx`, `src/engine/audio.ts`, `src/engine/breath.ts`,
+  `src/store/useBloom.ts`, migration/import tests and fixtures, README/docs.
+- **Done when:** All primary screen content shares one centered reading column on wide screens and
+  remains reachable on short screens; Settings shows the seven named groups with aligned rows,
+  controls, and card boundaries in day/night themes; no ambient picker or ambient runtime path
+  remains; the completion chime still plays after user activation when Ring when done is enabled;
+  v30→v31 drops `bgSound` while preserving `sound`; focused migration/Settings/lifecycle coverage,
+  `npm test`, `npm run build`, and responsive browser QA pass.
+
 ## Step dependency sketch
 
 ```
@@ -1326,6 +1348,7 @@ Phase 9: 9.1 ← 0.1  |  9.2 ← 1.4 → 9.3 ← 8.20 → 9.5 ← (1.5, 9.1)  | 
 Phase 10: 10.1 ← (9.2, 1.1) → 10.2 ← (10.1, 8.12, 4.2, 9.2)  |  10.3 ← (9.6, 9.2, 10.1)  |  (10.2, 10.3) → 10.4 → 10.5 ← (8.3, 9.2)  |  10.6 ← (9.1 blocking, 10.1–10.3, 2.3, 8.2)
           10.7 ← (9.2, 5.4, 1.2) → 10.8 ← (8.3, 8.4, 5.1) → 10.9 ← (9.5, 5.4) → 10.10 ← (3.1, 3.2, 5.3)  |  10.11 ← (9.3, 9.4, 2.3, 10.1, 10.7, 7.1 fixtures)  |  10.12 last ← (10.2–10.11, 0.2)
 Phase 11: 11.1 ← (8.11, 9.4, synced release slices through 10.11) → 11.2 ← (7.1, 9.4, 10.11) → 11.3  |  11.4 ← (8.4, 11.1, 11.3)  |  11.5 ← (11.2–11.4, 8.15) → 11.6 ← (7.1–7.4, 8.11, 8.15)
+Phase 12: 12.1 ← (8.4, 8.8, 8.9, 4.3, 5.3)
 ```
 
 ## What this plan deliberately does NOT include (per §Do not build)

@@ -43,7 +43,7 @@ Hosted on **Cloudflare Pages** (project `bloom-pomodoro`).
 ## Android app (APK)
 
 Bloom is wrapped as a native Android app with **Capacitor** — the built web bundle is packaged
-inside the APK, so it runs fully offline (timer, sounds, and friends all work with no network).
+inside the APK, so it runs fully offline (timer, tasks, and friends all work with no network).
 
 **Prerequisites:** JDK 21 (Capacitor 7 compiles against Java 21) and the Android SDK
 (platform-tools, `platforms;android-35`, `build-tools;35.0.0`). Point `android/local.properties`
@@ -74,16 +74,15 @@ To pick up web changes later, just re-run `npm run apk` (it rebuilds and re-sync
   Play/pause, reset, skip. On completion: **ring** + celebrate ~3.6s, increment session count
   (focus only), then advance (every 4th focus → long, else short; break → focus). Optional
   **auto-start** chains the next timer automatically.
-- **Sound (all synthesized live via Web Audio — no asset files, works offline):**
-  - **Ring when done** — a warm rising chime at session end. Enabling it also asks for
-    Notification permission so it can alert you when the app is backgrounded.
-  - **Background sound** while a session runs: **No sound**, **Calm music** (soft pads +
-    drifting bells), **Coffee shop** (room hum, murmur & clinks), or **White noise**. Tapping
-    an option in Settings plays a short preview.
+- **Completion cue (synthesized live via Web Audio; works offline):** **Ring when done** plays a
+  warm rising chime at session end. Enabling it also asks for Notification permission so a
+  backgrounded session can alert you. Bloom has no ambient audio, soundscapes, or audio previews.
 - **Wall-clock accuracy:** the run stores an `endsAt` timestamp and recomputes remaining from
   `Date.now()`, so it stays accurate when the tab is backgrounded.
-- **Settings:** name, focus/short/long durations, ring toggle, background-sound picker, auto-start,
-  night sky, flow timer, goals & deadlines, companion mode.
+- **Settings:** grouped into You (name, chronotype), Timer lengths (cadence ladder + durations),
+  Sessions (auto-start, flow timer, environment reset, ring when done), Your day (day rollover,
+  daily foundations, goals & deadlines), Companion, Appearance (night sky), and Your data
+  (export/import, weekly review, focus history).
 - **Companion Mode (opt-in):** the pet gently checks in during focus sessions ("still with me?"),
   notices tab-aways, and offers a two-tap drift triage (rabbit hole / interruption / urge /
   wandering / restlessness) with a matching micro-tip. Everything logs to a small local event
@@ -119,12 +118,12 @@ To pick up web changes later, just re-run `npm run apk` (it rebuilds and re-sync
 src/
   engine/
     pixelpals.ts             # sprite data + Canvas animation engine
-    audio.ts                 # synthesized ambience + end-of-session ring (Web Audio)
+    audio.ts                 # synthesized end-of-session chime + notification
   data/friends.ts            # friend roster + level/XP helpers
   components/
     PixelPal.tsx             # React wrapper around the engine
     Onboarding.tsx           # first-run name gate
-    SettingsSheet.tsx        # settings bottom sheet (durations, ring, background sound, features)
+    SettingsSheet.tsx        # settings bottom sheet (seven collapsible groups)
     CompanionPrompt.tsx      # the pet's check-in speech bubble + drift triage
     TabBar.tsx               # bottom navigation (Goals tab appears when the planner is on)
   screens/
@@ -132,7 +131,7 @@ src/
     TasksScreen.tsx          # tasks + focus patterns + the attention recipe
     GoalsScreen.tsx          # opt-in deadline planner with pace insights
     CollectionScreen.tsx     # all friends, each with a level + XP bar
-  store/useBloom.ts          # state, wall-clock timer, audio wiring, versioned persistence
+  store/useBloom.ts          # state, wall-clock timer, versioned persistence
   store/companion.ts         # companion event log, insights + attention-recipe math
   store/useCompanion.ts      # live check-in scheduling / tab-away detection
   store/goals.ts             # goal types + deadline pace math

@@ -35,6 +35,7 @@ import mainV27 from './fixtures/migrations/main-v27.json';
 import mainV28 from './fixtures/migrations/main-v28.json';
 import mainV29 from './fixtures/migrations/main-v29.json';
 import mainV30 from './fixtures/migrations/main-v30.json';
+import mainV31 from './fixtures/migrations/main-v31.json';
 import { loadEvents, updateEvent } from './companion';
 import { readPersisted, SCHEMA_VERSION } from './useBloom';
 
@@ -126,6 +127,7 @@ const mainFixtures: MainFixture[] = [
   mainV28,
   mainV29,
   mainV30,
+  mainV31,
 ];
 const companionFixtures: CompanionFixture[] = [
   companionV1,
@@ -154,7 +156,6 @@ const expectedCore = {
     name: 'Migration Friend',
     durations: { focus: 1800, short: 420, long: 1200 },
     sound: false,
-    bgSound: 'calm',
     autoStart: true,
     night: true,
     pal: 'Pip',
@@ -242,8 +243,27 @@ describe('main persisted-state migrations', () => {
         preSlumpCheck: false,
         dayStartHour: 0,
         foundations: false,
+        sound: false,
       },
     });
+    // The ambient choice is dropped; the completion cue remains.
+    expect(migrated?.settings).not.toHaveProperty('bgSound');
+  });
+
+  // PLAN 12.1: removing ambience must not reset the completion-chime choice.
+  it('preserves an enabled completion chime while dropping ambience', () => {
+    localStorage.setItem(
+      'bloom-state',
+      JSON.stringify({
+        ...mainV30,
+        settings: { ...mainV30.settings, sound: true, bgSound: 'coffee' },
+      }),
+    );
+
+    const migrated = readPersisted();
+
+    expect(migrated?.settings.sound).toBe(true);
+    expect(migrated?.settings).not.toHaveProperty('bgSound');
   });
 });
 

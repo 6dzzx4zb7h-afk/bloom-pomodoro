@@ -1,6 +1,8 @@
 import { useEffect, useId, useRef, useState } from 'react';
-import { BREATH_CYCLE_MS, playBreathSwell, type BreathPlayback } from '../engine/breath';
 import { SESSION_TARGET_MAX } from '../store/useBloom';
+
+/** How long the visual breath pacer runs before the next-step prompt. */
+const BREATH_CYCLE_MS = 10_000;
 
 type RestartKind = 'drift' | 'abandon';
 type RestartStage = 'offer' | 'breath' | 'next';
@@ -20,6 +22,8 @@ interface KindRestartProps {
  * action, then resume (during a drift) or a two-minute tiny start (after an
  * abandon). The only timed part is ten seconds, so the guided path stays well
  * inside the plan's 60-second ceiling without growing into a meditation mode.
+ * The breath is paced entirely by the visual orb (PLAN 12.1); the timer-finish
+ * chime is Bloom's only remaining audio path.
  */
 export function KindRestart({
   kind,
@@ -33,13 +37,10 @@ export function KindRestart({
   const [nextStep, setNextStep] = useState(initialNextStep);
   const inputId = useId();
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const playback = useRef<BreathPlayback | null>(null);
 
   function clearBreath() {
     if (timer.current) clearTimeout(timer.current);
     timer.current = null;
-    playback.current?.stop();
-    playback.current = null;
   }
 
   useEffect(() => clearBreath, []);
@@ -48,10 +49,8 @@ export function KindRestart({
     onBegin?.();
     clearBreath();
     setStage('breath');
-    playback.current = playBreathSwell();
     timer.current = setTimeout(() => {
       timer.current = null;
-      playback.current = null;
       setStage('next');
     }, BREATH_CYCLE_MS);
   }
@@ -94,7 +93,7 @@ export function KindRestart({
           <span />
         </div>
         <div className="kind-restart-title">breathe in… and let it soften out ♡</div>
-        <div className="pop-soft">one quiet swell · about 10 seconds</div>
+        <div className="pop-soft">follow the circle · about 10 seconds</div>
         <button className="pop-dismiss" onClick={finishBreathEarly}>
           next step now
         </button>

@@ -79,7 +79,7 @@ function renderSettings() {
 }
 
 function openDataSection() {
-  fireEvent.click(screen.getByText('Data', { selector: 'summary' }));
+  fireEvent.click(screen.getByText('Your data', { selector: 'summary' }));
 }
 
 function streamedFile(contents: string, name: string): File {
@@ -109,6 +109,29 @@ describe('Settings data import status', () => {
   afterEach(() => {
     cleanup();
     vi.unstubAllGlobals();
+  });
+
+  it('uses seven purpose-based groups with the completion ring under Sessions', () => {
+    renderSettings();
+
+    expect(
+      Array.from(document.querySelectorAll('summary'), (summary) => summary.textContent),
+    ).toEqual([
+      'You',
+      'Timer lengths',
+      'Sessions',
+      'Your day',
+      'Companion',
+      'Appearance',
+      'Your data',
+    ]);
+    expect(screen.getByRole('switch', { name: 'Ring when done' })).toBeTruthy();
+    expect(
+      Array.from(document.querySelectorAll('summary')).some(
+        (summary) => summary.textContent === 'Sound',
+      ),
+    ).toBe(false);
+    expect(screen.queryByText(/coffee shop|white noise|background sound/i)).toBeNull();
   });
 
   it('announces a calm validation failure and keeps recovery actions available', async () => {

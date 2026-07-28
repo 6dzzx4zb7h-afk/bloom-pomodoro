@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef } from 'react';
 import { friendByName } from '../data/friends';
 import type { AnimalKind } from '../engine/pixelpals';
-import { audioEngine, notify, type BgSound } from '../engine/audio';
+import { audioEngine, notify } from '../engine/audio';
 import {
   EMPTY_PRE_SLUMP_CAPS,
   PRE_SLUMP_DAILY_CAP,
@@ -188,10 +188,8 @@ export interface Settings {
   /** What the app calls the user (chosen on first run, editable in settings). */
   name: string;
   durations: Durations;
-  /** Play the end-of-session ring (chime + notification). */
+  /** Play the end-of-session chime and post a notification when available. */
   sound: boolean;
-  /** Ambience played while a session runs. */
-  bgSound: BgSound;
   /** Automatically start the next timer after the celebrate animation. */
   autoStart: boolean;
   /** Night sky theme: dark palette + animated stars and meteors. */
@@ -296,7 +294,6 @@ export const DEFAULT_SETTINGS: Settings = {
   name: '',
   durations: { focus: 1500, short: 300, long: 900 },
   sound: true,
-  bgSound: 'off',
   autoStart: false,
   night: false,
   pal: 'Mochi',
@@ -368,7 +365,7 @@ export const BLOOM_STORAGE_KEY = 'bloom-state';
 const STORAGE_KEY = BLOOM_STORAGE_KEY;
 /** Older keys we still read from once, newest first. */
 const LEGACY_KEYS = ['bloom-state-v2', 'bloom-state-v1'];
-export const SCHEMA_VERSION = 30;
+export const SCHEMA_VERSION = 31;
 
 export interface PersistedShape {
   version: number;
@@ -623,6 +620,17 @@ const MIGRATIONS: Array<(blob: Record<string, unknown>) => Record<string, unknow
   // the live log; only future evictions are summarized, so no historical
   // session or task date is inferred during migration.
   (blob) => ({ ...blob, historyArchive: emptyHistoryArchive() }),
+  // v30 -> v31: ambient soundscapes removed (PLAN 12.1). `settings.sound`
+  // remains the user's completion-chime preference; `settings.bgSound` has no
+  // successor and is dropped.
+  (blob) => {
+    const settings = (blob.settings ?? {}) as Record<string, unknown>;
+    const { bgSound: _bgSound, ...rest } = settings;
+    return {
+      ...blob,
+      settings: rest,
+    };
+  },
 ];
 
 type ValidationNote = (reason: string) => void;
@@ -743,7 +751,6 @@ function withDefaults(blob: Record<string, unknown>, note?: ValidationNote): Per
     b.durations && typeof b.durations === 'object'
       ? (b.durations as Partial<Durations>)
       : {};
-  const validBg: BgSound[] = ['off', 'calm', 'coffee', 'white'];
   const validChronotypes: Chronotype[] = ['betterEarlier', 'betterLater', 'notSure'];
   const validGoalCredit = ['off', 'ask', 'auto'] as const;
   const invalidSetting = (
@@ -756,7 +763,6 @@ function withDefaults(blob: Record<string, unknown>, note?: ValidationNote): Per
   };
   invalidSetting('name', (value) => typeof value === 'string');
   invalidSetting('sound', (value) => typeof value === 'boolean');
-  invalidSetting('bgSound', (value) => validBg.includes(value as BgSound));
   invalidSetting('autoStart', (value) => typeof value === 'boolean');
   invalidSetting('night', (value) => typeof value === 'boolean');
   invalidSetting('pal', (value) => typeof value === 'string' && value.length > 0);
@@ -838,9 +844,6 @@ function withDefaults(blob: Record<string, unknown>, note?: ValidationNote): Per
     ...DEFAULT_SETTINGS,
     name: typeof bSettings.name === 'string' ? bSettings.name : DEFAULT_SETTINGS.name,
     sound: typeof bSettings.sound === 'boolean' ? bSettings.sound : DEFAULT_SETTINGS.sound,
-    bgSound: validBg.includes(bSettings.bgSound as BgSound)
-      ? (bSettings.bgSound as BgSound)
-      : DEFAULT_SETTINGS.bgSound,
     autoStart:
       typeof bSettings.autoStart === 'boolean'
         ? bSettings.autoStart
@@ -3147,9 +3150,10 @@ export function useBloom() {
     return () => document.removeEventListener('visibilitychange', onVis);
   }, [dayStartHour]);
 
-  // When a session completes: chime, hold the celebrate state, then advance.
-  // A finished first tiny rung stays put until the user freely chooses the
-  // 10-minute extension or says this was enough.
+  // When a session completes: play the optional chime, post its paired notice,
+  // hold the celebrate state, then advance. A finished first tiny rung stays
+  // put until the user freely chooses the 10-minute extension or says this was
+  // enough (PLAN 12.1).
   const celRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const soundRef = useRef(state.settings.sound);
   soundRef.current = state.settings.sound;
@@ -3170,31 +3174,6 @@ export function useBloom() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.justDone, state.mode, state.sessionRecords]);
-
-  // Background ambience is owned here so it can never fight a settings preview.
-  const runningRef = useRef(state.running);
-  runningRef.current = state.running;
-
-  // Start ambience when a session starts, stop it when it ends/pauses.
-  useEffect(() => {
-    if (state.running && state.settings.bgSound !== 'off') {
-      audioEngine.setAmbience(state.settings.bgSound);
-    } else if (!state.running) {
-      audioEngine.stopAmbience();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.running]);
-
-  // Live-switch the ambience if the choice changes mid-session. When not
-  // running, previews (fired from the settings sheet) are left untouched.
-  useEffect(() => {
-    if (!runningRef.current) return;
-    if (state.settings.bgSound === 'off') audioEngine.stopAmbience();
-    else audioEngine.setAmbience(state.settings.bgSound);
-  }, [state.settings.bgSound]);
-
-  // Silence everything if the app unmounts.
-  useEffect(() => () => audioEngine.stopAmbience(), []);
 
   // Derived animal mood.
   const mood = useMemo<'idle' | 'work' | 'sleep' | 'celebrate'>(() => {
@@ -3225,8 +3204,8 @@ export function useBloom() {
   const actions = useMemo(
     () => ({
       toggle: (ifThenPlanId?: string, targetText?: string) => {
-        // First press is a user gesture — unlock audio for ambience + ring.
-        audioEngine.resume();
+        // The first start press is the user gesture that unlocks the finish cue.
+        if (soundRef.current) audioEngine.resume();
         const target = targetText?.trim().slice(0, SESSION_TARGET_MAX) || undefined;
         dispatch({ type: 'toggle', ifThenPlanId, targetText: target });
       },
@@ -3253,7 +3232,7 @@ export function useBloom() {
       setActiveTask: (id: number) => dispatch({ type: 'setActiveTask', id }),
       finishFlow: () => dispatch({ type: 'finishFlow' }),
       extendTiny: () => {
-        audioEngine.resume();
+        if (soundRef.current) audioEngine.resume();
         dispatch({ type: 'extendTiny' });
       },
       declineTiny: () => dispatch({ type: 'declineTiny' }),

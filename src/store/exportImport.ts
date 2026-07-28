@@ -351,7 +351,6 @@ function isValidSettings(value: unknown): boolean {
     finite(value.durations.short, 1) &&
     finite(value.durations.long, 1) &&
     typeof value.sound === 'boolean' &&
-    ['off', 'calm', 'coffee', 'white'].includes(value.bgSound as string) &&
     typeof value.autoStart === 'boolean' &&
     typeof value.night === 'boolean' &&
     typeof value.pal === 'string' &&

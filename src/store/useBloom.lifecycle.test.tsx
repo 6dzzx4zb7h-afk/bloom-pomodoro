@@ -12,6 +12,7 @@ import {
   EMPTY_PERSONAL_CADENCE,
   personalCadenceForSurface,
 } from '../insights/cadence';
+import { audioEngine } from '../engine/audio';
 import { DEFAULT_COMPANION, loadEvents } from './companion';
 import { DEFAULT_RITUAL } from './ritual';
 import { finalizeSession, newOpenSession, type OpenSession } from './sessions';
@@ -368,6 +369,7 @@ describe('timer lifecycle controls at the hook/component boundary', () => {
   });
 
   it('completes a Tiny first rung, extends it once, and finalizes the extension once', () => {
+    const ring = vi.spyOn(audioEngine, 'playRing');
     seedState();
     render(<FocusHarness />);
 
@@ -388,6 +390,7 @@ describe('timer lifecycle controls at the hook/component boundary', () => {
         outcome: 'completed',
       }),
     ]);
+    expect(ring).toHaveBeenCalledOnce();
 
     fireEvent.click(screen.getByRole('button', { name: 'yes, 10 more' }));
     const extended = stateProbe();
@@ -410,7 +413,24 @@ describe('timer lifecycle controls at the hook/component boundary', () => {
     expect(finished.sessionRecords.filter((record) => record.id === extensionId)).toEqual([
       expect.objectContaining({ mode: 'tiny', plannedMin: 10, outcome: 'completed' }),
     ]);
+    expect(ring).toHaveBeenCalledTimes(2);
     expect(screen.queryByRole('button', { name: 'yes, 10 more' })).toBeNull();
+  });
+
+  it('does not play the completion ring when that setting is off', () => {
+    const ring = vi.spyOn(audioEngine, 'playRing');
+    seedState({ settings: { sound: false } });
+    render(<FocusHarness />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Tiny' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Start' }));
+    act(() => {
+      vi.setSystemTime(new Date(Date.now() + 2 * 60_000));
+      vi.advanceTimersByTime(250);
+    });
+
+    expect(stateProbe().justDone).toBe(true);
+    expect(ring).not.toHaveBeenCalled();
   });
 
   it('declines a completed Tiny first rung without opening or finalizing another session', () => {
