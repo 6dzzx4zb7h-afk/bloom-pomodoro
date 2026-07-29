@@ -1078,6 +1078,20 @@ export function SettingsSheet({
           </div>
         </div>
 
+        <div className="set-note privacy-note" role="note" aria-labelledby="privacy-note-title">
+          <strong id="privacy-note-title">Privacy &amp; local data</strong>
+          <p>
+            Bloom keeps your name, settings, tasks, goals, timer records, plans, and Companion
+            moments on this device. The Android app has no ads, analytics, account, cloud sync, or
+            runtime network permission, and Android backup is disabled.
+          </p>
+          <p>
+            Bloom does not collect, sell, or share this data. Export only creates a file when you
+            choose it; import only reads the file you select. You can export a copy above before
+            clearing Bloom’s local data or uninstalling the app.
+          </p>
+        </div>
+
         {onShowWeekly && (
           <div className="set-row">
             <span className="set-label">

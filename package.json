@@ -14,13 +14,23 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:migrations": "vitest run src/store/migrations.test.ts",
-    "icons": "node scripts/gen-icons.mjs"
+    "icons": "node scripts/gen-icons.mjs",
+    "android:sync": "npm run build && cap sync android",
+    "android:debug": "npm run android:sync && node scripts/android-build.mjs assembleDebug",
+    "android:key": "node scripts/android-key.mjs",
+    "android:aab": "npm run android:sync && node scripts/android-build.mjs bundleRelease && node scripts/android-verify.mjs",
+    "android:check": "node scripts/android-build.mjs testDebugUnitTest && node scripts/android-build.mjs lintRelease",
+    "android:verify": "node scripts/android-verify.mjs",
+    "android:version": "node scripts/android-version.mjs"
   },
   "dependencies": {
+    "@capacitor/android": "8.4.2",
+    "@capacitor/core": "8.4.2",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },
   "devDependencies": {
+    "@capacitor/cli": "8.4.2",
     "@testing-library/react": "^16.3.2",
     "@types/node": "^22.12.0",
     "@types/react": "^18.3.12",

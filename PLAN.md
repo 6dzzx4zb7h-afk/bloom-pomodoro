@@ -968,6 +968,41 @@ Rules of thumb:
   boundary and DST tests pass unchanged; no user-visible change.
 - **Depends on:** nothing; coordinate with 9.2 so the boundary hour keeps a single resolution point.
 
+### - [x] 8.25 Fresh Android Play release pipeline
+
+- **Goal:** Recreate Android packaging from a clean baseline with the current supported Capacitor
+  major, an immutable `dev.bloom.pomodoro` application ID, Google Play-compliant target SDK, signed
+  Android App Bundle output, locally ignored upload credentials, and one repeatable workflow for
+  later web-code updates and Play releases. Keep the native shell local-first: no runtime network
+  permission, analytics, advertising, remote assets, or cloud/device-transfer backup. Treat the
+  tracked version code as strictly increasing and document the Play Console handoff without
+  claiming that account-owned forms or review have been completed.
+- **Science:** n/a — Android packaging, privacy, security, and release engineering.
+- **Quality:** `docs/product-quality.md` — Privacy and security; Browser and device verification;
+  Release process and rollback. Current Google Play target-API, Android App Bundle, Play App
+  Signing, Data safety, and privacy-policy requirements; current Capacitor Android support matrix.
+- **Files:** `android/`, `capacitor.config.ts`, `package.json`/lockfile, `scripts/android-*.mjs`,
+  `scripts/gen-icons.mjs`, native asset sources, service-worker registration, `README.md`,
+  `docs/android-release.md`, and Android verification evidence.
+- **Done when:** The declared Node/npm toolchain passes a pristine `npm ci`, `npm test`, and
+  `npm run build`; `npm run android:sync` refreshes native web assets; debug APK and signed release
+  AAB builds succeed with target SDK 36 and package `dev.bloom.pomodoro`; the merged release
+  manifest has no runtime network or sensitive permission and disables backup/transfer; signing
+  verification identifies the upload certificate without exposing secrets; credentials and build
+  outputs are ignored; and the documented update path requires an increased `versionCode`, rebuild,
+  smoke test, bundle verification, backup, and Play Console upload.
+- **Depends on:** 7.1, 7.4, 8.10, and 8.11. Play Console account creation, identity verification,
+  public hosting for the privacy policy, listing assets/forms, review, and rollout remain explicit
+  account-owned handoff work.
+- **Closed 2026-07-29:** Capacitor 8.4.2 now packages the bundled app as
+  `dev.bloom.pomodoro` for API 24–36. The exact Node 22.17.0/npm 11.17.0 clean-copy install passed
+  502 web tests and the production build; native unit tests and release lint passed; debug APK and
+  signed release AAB builds passed; the verifier confirmed version `1.0.0 (1)`, target SDK 36, no
+  Android runtime permissions, disabled backup/transfer and cleartext, and upload-certificate
+  SHA-256 `7B:B5:82:C4:36:32:55:50:57:B7:71:45:F9:31:D7:AF:68:5D:4C:5C:80:3F:19:B2:8E:18:17:41:84:C6:DD:C5`.
+  `docs/verification/plan-8.25-android-2026-07-29.md` records commands, artifact hashes, and the
+  still-account-owned device/Play handoff.
+
 ---
 
 ## Phase 9 — Own your record (measurement integrity & data stewardship, July 2026)

@@ -1,14 +1,17 @@
 /// <reference types="vite/client" />
 
+import { Capacitor } from '@capacitor/core';
+
 const SERVICE_WORKER_PATH = '/sw.js';
 
 /**
- * PLAN 8.15: install the generated app-shell worker only for production web builds.
+ * PLAN 8.15 / 8.25: install the app-shell worker only for production web builds.
+ * The native bundle already carries the same files and must not layer a web cache over them.
  */
 export function registerBloomServiceWorker(
   reloadPage: () => void = () => window.location.reload(),
 ): void {
-  if (!import.meta.env.PROD || !('serviceWorker' in navigator)) {
+  if (!import.meta.env.PROD || Capacitor.isNativePlatform() || !('serviceWorker' in navigator)) {
     return;
   }
 

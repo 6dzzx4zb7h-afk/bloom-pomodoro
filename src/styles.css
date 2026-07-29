@@ -1157,6 +1157,18 @@ button.foundation-dot {
   font: 600 11.5px var(--font-body);
   line-height: 1.35;
 }
+.privacy-note {
+  margin-top: 10px;
+}
+.privacy-note > strong {
+  margin-bottom: 7px;
+}
+.privacy-note p {
+  margin: 0 0 9px;
+}
+.privacy-note p:last-child {
+  margin-bottom: 0;
+}
 /* A note that leads with its own little title (PLAN 12.1). */
 .set-note strong,
 .set-note > span {

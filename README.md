@@ -28,6 +28,25 @@ npm run build    # type-check + production build
 npm run preview  # serve the production build locally
 ```
 
+## Android
+
+Bloom's Android app is a Capacitor 8 shell around the same bundled, offline-capable web app. Its
+permanent Play identity is `dev.bloom.pomodoro`; do not change that ID after the first Play upload.
+
+```bash
+npm run android:debug              # sync and build a debug APK
+npm run android:key                # one time only: create the ignored upload key
+npm run android:aab                # sync, build, sign, and verify the release AAB
+npm run android:check              # native unit tests and Android lint
+npm run android:version -- 2 1.0.1 # future release: increase code and set display version
+```
+
+The Play bundle is written to `android/app/build/outputs/bundle/release/app-release.aab`. Upload
+credentials are deliberately ignored by Git. Back up `android/app/upload-keystore.jks` and
+`android/keystore.properties` together in a secure password manager or encrypted vault before the
+first upload. See [docs/android-release.md](docs/android-release.md) for the first release, Play
+Console checklist, and repeatable update procedure.
+
 ## What's implemented
 
 - **Onboarding:** first run asks the user's name; editable later in Settings.
@@ -101,4 +120,7 @@ src/
   store/goals.ts             # goal types + deadline pace math
   styles.css                 # design tokens + screen styles
 scripts/gen-icons.mjs        # generates web app icons (sharp)
+scripts/android-*.mjs        # native environment, signing, version, build, and verification tools
+android/                     # Capacitor Android Studio project (API 24–36)
+capacitor.config.ts          # immutable Android identity and bundled-web configuration
 ```

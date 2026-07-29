@@ -90,6 +90,8 @@ Acceptance criteria:
   [Apple's accessibility guidance](https://developer.apple.com/design/human-interface-guidelines/accessibility)
   and [Android's touch-target guidance](https://developer.android.com/guide/topics/ui/accessibility/apps#touch-targets),
   not a claim that WCAG requires 44 pixels.
+- In the Android shell, ordinary controls also meet Android's recommended 48 by 48 dp touch target,
+  including WebView content after viewport scaling and system font-size changes.
 - Drag, swipe, multipoint, or path-based actions have a simple single-pointer alternative. Pointer
   actions can be canceled or undone where WCAG requires it.
 - Critical paths are completed using screen-reader output alone. Test at minimum with VoiceOver on
@@ -240,7 +242,8 @@ Security acceptance criteria:
 - Pin and review dependencies, address known vulnerabilities proportionate to risk, and document
   security-sensitive assumptions and threat boundaries. Apply
   [OWASP ASVS](https://owasp.org/www-project-application-security-verification-standard/) to web
-  surfaces.
+  surfaces and [OWASP MASVS](https://mas.owasp.org/MASVS/) to the Android wrapper and release
+  configuration.
 - Consent is specific and as easy to withdraw as to grant; collection is minimized to the user's
   goal. Use the [W3C Privacy Principles](https://www.w3.org/TR/privacy-principles/) for minimization,
   transparency, data rights, consent, and withdrawal.
@@ -254,9 +257,17 @@ The affected path must define its support matrix. The release baseline is:
 - current stable Chromium, Firefox, and Safari on desktop;
 - current mobile Safari on a supported iPhone/iPad class device;
 - current mobile Chrome on the oldest and newest Android versions the project declares supported;
+- the installed Android shell on a physical or virtual API 24 device and a current API 36 device,
+  including cold start, background/foreground timer recovery, rotation, system Back, TalkBack,
+  large font/display size, offline mode, and an update installed over an earlier build;
 - representative 320-pixel small phone, common phone, tablet, desktop, and short-landscape layouts;
 - light and night themes, keyboard-only, touch/coarse pointer, screen reader, reduced motion,
   increased contrast/forced colors where supported, and network-blocked local-only mode.
+
+For Android release candidates, also verify the merged release manifest, target SDK, absence of
+unexpected permissions, backup and cleartext settings, signed AAB certificate, Play pre-launch
+report, and the oldest/newest supported-device smoke paths. Record the application ID, version code,
+version name, upload-certificate fingerprint, tested devices, and resulting artifact hash.
 
 Emulation is acceptable for fast iteration. A real device is required where emulation cannot prove
 touch targeting, safe areas, virtual-keyboard behavior, audio/permissions, background visibility,

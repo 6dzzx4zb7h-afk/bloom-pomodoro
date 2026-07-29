@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { Capacitor } from '@capacitor/core';
 import { registerBloomServiceWorker } from './serviceWorker';
 
 type ServiceWorkerMock = {
@@ -69,5 +70,16 @@ describe('production service-worker registration', () => {
 
     window.dispatchEvent(new Event('load'));
     await vi.waitFor(() => expect(serviceWorker.register).toHaveBeenCalledOnce());
+  });
+
+  it('does not register inside the native Capacitor shell', () => {
+    vi.stubEnv('PROD', true);
+    vi.spyOn(Capacitor, 'isNativePlatform').mockReturnValue(true);
+    const { serviceWorker } = installServiceWorkerMock(false);
+
+    registerBloomServiceWorker();
+    window.dispatchEvent(new Event('load'));
+
+    expect(serviceWorker.register).not.toHaveBeenCalled();
   });
 });

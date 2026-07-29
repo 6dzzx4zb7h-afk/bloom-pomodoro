@@ -8,6 +8,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 npm run dev                  # vite dev server on :5173 (respects $PORT if set)
 npm run build                # tsc -b && vite build — must stay green
 npm test                     # vitest run (current unit suite)
+npm run android:debug        # build the synced debug APK
+npm run android:aab          # build, sign, and verify the Play release bundle
+npm run android:check        # native unit tests + Android lint
+npm run android:version -- 2 1.0.1 # increase Play versionCode for an update
 npx vitest run src/insights/why.test.ts        # a single test file
 npx vitest run -t "late drift"                 # a single test by name
 npx vitest                                     # watch mode
@@ -87,6 +91,11 @@ report's confidence: "tends to help" for strong meta-analyses, "worth an experim
 React 18 + TypeScript + Vite. There is currently no router or state library: `App.tsx` swaps screens with a
 `useState`, and all app state lives in one `useReducer` inside `src/store/useBloom.ts`. That hook
 is passed down as a `bloom` prop; there is no context.
+
+The checked-in `android/` directory is a Capacitor 8 shell for Play Store releases. The application
+ID `dev.bloom.pomodoro` is permanent. Web changes reach Android only through `npm run android:sync`;
+release signing files stay ignored, must be backed up together, and must never be regenerated for a
+published app. Follow `docs/android-release.md` for every first release and update.
 
 These are current-system facts, not permanent prohibitions. A future numbered step may change them
 with a clear reason, migration and rollback considerations, measured bundle/performance impact,
