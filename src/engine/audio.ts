@@ -2,7 +2,7 @@
  * Bloom's one remaining audio path (PLAN 12.1): the optional completion chime.
  *
  * The AudioContext is created lazily from a user gesture so the timer never
- * violates browser/WebView autoplay rules. The cue is synthesized locally;
+ * violates browser autoplay rules. The cue is synthesized locally;
  * no audio asset or network request is needed.
  */
 

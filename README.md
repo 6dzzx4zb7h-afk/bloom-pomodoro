@@ -4,8 +4,6 @@ A kawaii-cozy Pomodoro focus timer with a pixel-art animal companion that **work
 while the timer runs, **naps** on breaks, **bounces/blinks** when idle, and throws
 **confetti** when a session completes.
 
-**Live:** https://bloom-pomodoro.pages.dev
-
 **Project standards:** behavior-change mechanisms and scientific claims use
 [docs/science.md](docs/science.md); voice and copy use [docs/voice.md](docs/voice.md); UX/UI,
 accessibility, privacy, security, reliability, performance, and engineering quality use
@@ -29,40 +27,6 @@ npm run dev      # http://localhost:5173
 npm run build    # type-check + production build
 npm run preview  # serve the production build locally
 ```
-
-## Deploy
-
-Hosted on **Cloudflare Pages** (project `bloom-pomodoro`).
-
-- **Automatic:** every push to `main` runs [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml),
-  which builds and deploys. Requires a repository secret `CLOUDFLARE_API_TOKEN` — a
-  Cloudflare token with the *Cloudflare Pages → Edit* permission. The account ID is baked
-  into the workflow. Until the secret exists, CI still builds; it just skips the deploy step.
-- **Manual:** `npm run deploy` (builds, then `wrangler pages deploy dist`).
-
-## Android app (APK)
-
-Bloom is wrapped as a native Android app with **Capacitor** — the built web bundle is packaged
-inside the APK, so it runs fully offline (timer, tasks, and friends all work with no network).
-
-**Prerequisites:** JDK 21 (Capacitor 7 compiles against Java 21) and the Android SDK
-(platform-tools, `platforms;android-35`, `build-tools;35.0.0`). Point `android/local.properties`
-at your SDK with `sdk.dir=/path/to/Android/Sdk` (already set up on this machine). This machine's
-default `java` is 17, so `android/gradle.properties` pins the build to a bundled JDK 21 via
-`org.gradle.java.home` — update or remove that line if your JDK 21 lives elsewhere.
-
-```bash
-npm run icons     # regenerate app + launcher icons from scripts/gen-icons.mjs (only if art changes)
-npm run apk       # build web → cap sync → gradle assembleDebug (via scripts/build-apk.mjs)
-```
-
-The installable debug APK lands at
-`android/app/build/outputs/apk/debug/app-debug.apk`. Copy it to your phone and open it to
-install (enable "install from unknown sources" for your file manager/browser the first time).
-Being a debug build, it's self-signed — perfect for personal sideloading; no Play Store account
-needed.
-
-To pick up web changes later, just re-run `npm run apk` (it rebuilds and re-syncs before packaging).
 
 ## What's implemented
 
@@ -136,7 +100,5 @@ src/
   store/useCompanion.ts      # live check-in scheduling / tab-away detection
   store/goals.ts             # goal types + deadline pace math
   styles.css                 # design tokens + screen styles
-scripts/gen-icons.mjs        # generates web + Android launcher icons (sharp)
-android/                     # Capacitor native Android project
-capacitor.config.ts          # Capacitor config (appId dev.bloom.pomodoro)
+scripts/gen-icons.mjs        # generates web app icons (sharp)
 ```

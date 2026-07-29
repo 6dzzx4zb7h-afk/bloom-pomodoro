@@ -6,9 +6,8 @@ import { fileURLToPath } from 'node:url';
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const DEFAULT_OUT_DIR = resolve(ROOT, 'dist');
 const CACHE_PREFIX = 'bloom-shell-';
-// PLAN 8.15: v2 caches the HTML shell through its canonical root URL. Cloudflare
-// Pages redirects /index.html to /, and Safari rejects a redirected Response
-// when a service worker returns it for a navigation.
+// PLAN 8.15: v2 caches the HTML shell through its canonical root URL so every
+// navigation uses one stable cache key across static web servers.
 const POLICY_VERSION = 'precache-policy-v2';
 
 const PRECACHE_EXTENSIONS = new Set([

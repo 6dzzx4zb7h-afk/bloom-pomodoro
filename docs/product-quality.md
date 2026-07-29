@@ -85,16 +85,15 @@ Acceptance criteria:
   [APG dialog pattern](https://www.w3.org/WAI/ARIA/apg/patterns/dialog-modal/). Routine check-ins and
   status messages remain non-modal and do not steal focus.
 - WCAG 2.2's target-size minimum remains the conformance floor. Bloom's stronger web touch target is
-  an effective hit area of at least 44 by 44 CSS pixels for ordinary controls; the Android wrapper
-  also verifies the platform's 48 by 48 dp recommendation. Keep enough separation to prevent
-  adjacent activation. These are product/platform targets informed by
+  an effective hit area of at least 44 by 44 CSS pixels for ordinary controls. Keep enough
+  separation to prevent adjacent activation. This product target is informed by
   [Apple's accessibility guidance](https://developer.apple.com/design/human-interface-guidelines/accessibility)
   and [Android's touch-target guidance](https://developer.android.com/guide/topics/ui/accessibility/apps#touch-targets),
   not a claim that WCAG requires 44 pixels.
 - Drag, swipe, multipoint, or path-based actions have a simple single-pointer alternative. Pointer
   actions can be canceled or undone where WCAG requires it.
 - Critical paths are completed using screen-reader output alone. Test at minimum with VoiceOver on
-  Safari and TalkBack in the Android app for release; add an appropriate desktop screen reader when
+  Safari and TalkBack in mobile Chrome for release; add an appropriate desktop screen reader when
   the changed interaction differs across engines.
 - Screen-reader announcements identify the changed object and result without repeating the entire
   screen. Errors and recoveries are announced without unexpectedly moving focus.
@@ -117,9 +116,8 @@ Acceptance criteria:
   orientation changes do not strand focus or reset valid input.
 - Mobile text inputs use a practical font size that avoids forced browser zoom; Bloom's default
   target is at least 16 CSS pixels unless real-device verification proves an accessible exception.
-- Emulation is supplemented by a real iOS Safari and Android WebView/device check for keyboard,
-  safe-area, gesture, and viewport behavior. Android WebView behavior follows the current
-  [window-insets guidance](https://developer.android.com/develop/ui/views/layout/webapps/understand-window-insets).
+- Emulation is supplemented by real mobile Safari and mobile Chrome device checks for keyboard,
+  safe-area, gesture, and viewport behavior.
 
 ## Visual hierarchy, readability, contrast, and motion
 
@@ -242,7 +240,7 @@ Security acceptance criteria:
 - Pin and review dependencies, address known vulnerabilities proportionate to risk, and document
   security-sensitive assumptions and threat boundaries. Apply
   [OWASP ASVS](https://owasp.org/www-project-application-security-verification-standard/) to web
-  surfaces and [OWASP MASVS](https://mas.owasp.org/MASVS/) to the Android wrapper as applicable.
+  surfaces.
 - Consent is specific and as easy to withdraw as to grant; collection is minimized to the user's
   goal. Use the [W3C Privacy Principles](https://www.w3.org/TR/privacy-principles/) for minimization,
   transparency, data rights, consent, and withdrawal.
@@ -255,15 +253,14 @@ The affected path must define its support matrix. The release baseline is:
 
 - current stable Chromium, Firefox, and Safari on desktop;
 - current mobile Safari on a supported iPhone/iPad class device;
-- current Chrome/Android WebView plus the Android wrapper on the oldest and newest Android versions
-  the project declares supported;
+- current mobile Chrome on the oldest and newest Android versions the project declares supported;
 - representative 320-pixel small phone, common phone, tablet, desktop, and short-landscape layouts;
 - light and night themes, keyboard-only, touch/coarse pointer, screen reader, reduced motion,
   increased contrast/forced colors where supported, and network-blocked local-only mode.
 
 Emulation is acceptable for fast iteration. A real device is required where emulation cannot prove
 touch targeting, safe areas, virtual-keyboard behavior, audio/permissions, background visibility,
-WebView integration, or assistive-technology output. Record unavailable matrix cells as open release
+or assistive-technology output. Record unavailable matrix cells as open release
 work; do not call them verified.
 
 ## Component, integration, accessibility, and visual regression testing

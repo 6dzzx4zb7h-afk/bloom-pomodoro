@@ -31,7 +31,6 @@ function installServiceWorkerMock(controlled: boolean) {
 afterEach(() => {
   vi.unstubAllEnvs();
   vi.restoreAllMocks();
-  delete (window as Window & { Capacitor?: unknown }).Capacitor;
   Object.defineProperty(navigator, 'serviceWorker', {
     configurable: true,
     value: undefined,
@@ -70,18 +69,5 @@ describe('production service-worker registration', () => {
 
     window.dispatchEvent(new Event('load'));
     await vi.waitFor(() => expect(serviceWorker.register).toHaveBeenCalledOnce());
-  });
-
-  it('does not install a web worker inside the native Capacitor shell', () => {
-    vi.stubEnv('PROD', true);
-    const { serviceWorker } = installServiceWorkerMock(false);
-    (window as Window & {
-      Capacitor?: { isNativePlatform: () => boolean };
-    }).Capacitor = { isNativePlatform: () => true };
-
-    registerBloomServiceWorker();
-    window.dispatchEvent(new Event('load'));
-
-    expect(serviceWorker.register).not.toHaveBeenCalled();
   });
 });

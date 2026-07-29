@@ -10,9 +10,8 @@ deployed-web Phase 1–5 release pass.
 - The generated-worker fixture installs an exact local app shell, serves an
   offline navigation and hashed asset, leaves `/api` network-only, removes only
   obsolete `bloom-shell-*` caches, and preserves unrelated caches.
-- The registration fixture covers root scope, `updateViaCache: "none"`, one
-  controlled-page reload on controller change, and no registration in the
-  Capacitor shell.
+- The registration fixture covers root scope, `updateViaCache: "none"`, and one
+  controlled-page reload on controller change.
 - `npm run build`: green; generated shell hash `461c0a10a6c442ef` with 11
   precached files.
 

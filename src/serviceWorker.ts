@@ -2,29 +2,13 @@
 
 const SERVICE_WORKER_PATH = '/sw.js';
 
-type CapacitorWindow = Window & {
-  Capacitor?: {
-    isNativePlatform?: () => boolean;
-  };
-};
-
-function isNativeCapacitorShell(): boolean {
-  return (window as CapacitorWindow).Capacitor?.isNativePlatform?.() === true;
-}
-
 /**
- * PLAN 8.15: install the generated app-shell worker only for production web
- * builds. Capacitor already bundles the same files inside the APK and should
- * not acquire a second, independently cached copy.
+ * PLAN 8.15: install the generated app-shell worker only for production web builds.
  */
 export function registerBloomServiceWorker(
   reloadPage: () => void = () => window.location.reload(),
 ): void {
-  if (
-    !import.meta.env.PROD ||
-    !('serviceWorker' in navigator) ||
-    isNativeCapacitorShell()
-  ) {
+  if (!import.meta.env.PROD || !('serviceWorker' in navigator)) {
     return;
   }
 

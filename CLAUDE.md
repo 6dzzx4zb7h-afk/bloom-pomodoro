@@ -11,30 +11,22 @@ npm test                     # vitest run (current unit suite)
 npx vitest run src/insights/why.test.ts        # a single test file
 npx vitest run -t "late drift"                 # a single test by name
 npx vitest                                     # watch mode
-npm run deploy               # build + wrangler pages deploy (Cloudflare Pages)
-npm run apk                  # build → cap sync → gradle assembleDebug (needs JDK 21 + Android SDK)
 ```
 
 The current suite is mostly pure logic in React-free modules (`src/store/*.ts` minus the hooks,
 `src/insights/*.ts`). Do not treat that as a testing policy: PLAN 7.4 adds reducer, hook, and
 component-level lifecycle coverage for behavior that pure selectors cannot prove.
 
-### Dependency and CI toolchain changes
+### Dependency toolchain changes
 
-Treat `.github/workflows/deploy.yml` as the release toolchain contract. Whenever `package.json` or
-`package-lock.json` changes, compare the resolved packages' Node engine requirements with the
-workflow's Node version and keep the runner on a supported version. A dependency refresh must not
-silently introduce a package that requires a newer Node release; update the workflow in the same
-change when an engine bump is intentional.
-
-Generate and validate the lockfile with the same Node/npm major versions used by CI (or the exact
-versions declared by the repository once they are pinned). Before committing any dependency or
-lockfile change, run a **clean `npm ci` in a temporary/pristine checkout with those CI versions**,
+Generate and validate the lockfile with the exact Node/npm versions declared by the repository.
+Before committing any dependency or lockfile change, run a **clean `npm ci` in a temporary/pristine
+checkout with those versions**,
 then `npm test` and `npm run build`. An existing `node_modules`, `npm install`, or a successful
-`npm ci` under a newer local npm version does not prove that the CI lockfile parser will accept the
-commit. Never hand-edit `package-lock.json`; inspect its diff for unexpected dependency movement and
-platform-package loss. If clean CI-version installation cannot be reproduced, stop and report the
-toolchain mismatch rather than pushing the dependency change.
+`npm ci` under another npm version does not prove that the declared toolchain will accept the
+lockfile. Never hand-edit `package-lock.json`; inspect its diff for unexpected dependency movement
+and platform-package loss. If the declared toolchain cannot be reproduced, stop and report the
+mismatch rather than pushing the dependency change.
 
 ## How work is planned here
 
@@ -94,8 +86,7 @@ report's confidence: "tends to help" for strong meta-analyses, "worth an experim
 
 React 18 + TypeScript + Vite. There is currently no router or state library: `App.tsx` swaps screens with a
 `useState`, and all app state lives in one `useReducer` inside `src/store/useBloom.ts`. That hook
-is passed down as a `bloom` prop; there is no context. Capacitor wraps the built bundle as an
-Android app.
+is passed down as a `bloom` prop; there is no context.
 
 These are current-system facts, not permanent prohibitions. A future numbered step may change them
 with a clear reason, migration and rollback considerations, measured bundle/performance impact,

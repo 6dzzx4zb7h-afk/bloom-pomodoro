@@ -94,7 +94,7 @@ async function fixture() {
   await writeFile(join(root, 'assets', 'index-abc.js'), 'console.log("Bloom")');
   await writeFile(join(root, 'assets', 'index-abc.css'), 'body { color: #321; }');
   await writeFile(join(root, 'manifest.webmanifest'), '{"name":"Bloom"}');
-  await writeFile(join(root, '_headers'), '/sw.js\\n  Cache-Control: no-cache');
+  await writeFile(join(root, '_control'), 'not a runtime asset');
   await writeFile(join(root, 'api', 'session.json'), '{"token":"never cache this"}');
   await writeFile(join(root, 'sw.js'), 'old generated worker');
   return root;
@@ -111,7 +111,7 @@ describe('service-worker build generation', () => {
     expect(shouldPrecache('index.html')).toBe(true);
     expect(shouldPrecache('assets/index-abc.js')).toBe(true);
     expect(shouldPrecache('fonts/nunito.woff2')).toBe(true);
-    expect(shouldPrecache('_headers')).toBe(false);
+    expect(shouldPrecache('_control')).toBe(false);
     expect(shouldPrecache('sw.js')).toBe(false);
     expect(shouldPrecache('api/session.json')).toBe(false);
     expect(shouldPrecache('auth/callback.html')).toBe(false);
