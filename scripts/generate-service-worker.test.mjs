@@ -141,6 +141,9 @@ describe('service-worker build generation', () => {
       'manifest.webmanifest',
     ]);
     expect(source).toContain(`const CACHE_NAME = "bloom-shell-${result.buildHash}"`);
+    expect(source).toContain("const APP_SHELL = '/'");
+    expect(source).toContain('  "/"');
+    expect(source).not.toContain('  "/index.html"');
     expect(source).toContain(".filter((name) => name.startsWith(CACHE_PREFIX) && name !== CACHE_NAME)");
     expect(source).toContain("if (url.origin !== self.location.origin || isNetworkOnlyPath(url.pathname)) return");
     expect(source).toContain("if (!PRECACHE_PATHS.has(url.pathname)) return");
@@ -176,7 +179,7 @@ describe('service-worker build generation', () => {
       responded: true,
       response: {
         cacheName: `bloom-shell-${firstHash}`,
-        pathname: '/index.html',
+        pathname: '/',
       },
     });
 

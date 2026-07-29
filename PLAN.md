@@ -1330,6 +1330,21 @@ Open-step gates, stated plainly: **9.2**'s `dayKeyFor` is load-bearing for every
   v30→v31 drops `bgSound` while preserving `sound`; focused migration/Settings/lifecycle coverage,
   `npm test`, `npm run build`, and responsive browser QA pass.
 
+### - [x] 12.2 Center the mode bar and give the ring pet breathing room
+
+- **Goal:** Correct the production Focus-screen geometry shown at wide desktop scale: the 44 px
+  mode buttons currently overflow their 42 px bar and place every label below the visual center,
+  while the ring pet sits high and fills too much of the inner disc. Make the bar tall enough to
+  contain its touch targets, center every label on both axes, and reduce/center the pet without
+  changing timer behavior or shrinking its progress ring.
+- **Science:** n/a — `docs/product-quality.md` alignment, touch-target, responsive-layout, and
+  visual-regression standards.
+- **Files:** `src/styles.css`, `src/screens/FocusScreen.tsx`.
+- **Done when:** Focus/Tiny/Short/Long (and optional Flow) share one measured vertical center at
+  phone, short-height, and wide breakpoints; each tab retains a ≥44 px target; the pet is centered
+  with visibly even space inside the disc; `npm test`, `npm run build`, and browser QA against the
+  reported wide composition pass.
+
 ## Step dependency sketch
 
 ```
@@ -1348,7 +1363,7 @@ Phase 9: 9.1 ← 0.1  |  9.2 ← 1.4 → 9.3 ← 8.20 → 9.5 ← (1.5, 9.1)  | 
 Phase 10: 10.1 ← (9.2, 1.1) → 10.2 ← (10.1, 8.12, 4.2, 9.2)  |  10.3 ← (9.6, 9.2, 10.1)  |  (10.2, 10.3) → 10.4 → 10.5 ← (8.3, 9.2)  |  10.6 ← (9.1 blocking, 10.1–10.3, 2.3, 8.2)
           10.7 ← (9.2, 5.4, 1.2) → 10.8 ← (8.3, 8.4, 5.1) → 10.9 ← (9.5, 5.4) → 10.10 ← (3.1, 3.2, 5.3)  |  10.11 ← (9.3, 9.4, 2.3, 10.1, 10.7, 7.1 fixtures)  |  10.12 last ← (10.2–10.11, 0.2)
 Phase 11: 11.1 ← (8.11, 9.4, synced release slices through 10.11) → 11.2 ← (7.1, 9.4, 10.11) → 11.3  |  11.4 ← (8.4, 11.1, 11.3)  |  11.5 ← (11.2–11.4, 8.15) → 11.6 ← (7.1–7.4, 8.11, 8.15)
-Phase 12: 12.1 ← (8.4, 8.8, 8.9, 4.3, 5.3)
+Phase 12: 12.1 ← (8.4, 8.8, 8.9, 4.3, 5.3)  →  12.2
 ```
 
 ## What this plan deliberately does NOT include (per §Do not build)

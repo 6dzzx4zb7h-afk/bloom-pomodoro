@@ -666,7 +666,7 @@ export function FocusScreen({
         </svg>
         <div className="ring-disc" />
         <div className="ring-shadow" />
-        <PixelPal sprite={palSprite} mode={mood} scale={6} size={130} className="ring-animal" />
+        <PixelPal sprite={palSprite} mode={mood} scale={6} size={116} className="ring-animal" />
       </div>
 
       <div className="readout">

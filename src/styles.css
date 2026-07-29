@@ -528,11 +528,13 @@ button.foundation-dot {
 .tabs {
   position: relative;
   margin: 14px 22px 0;
-  height: 42px;
+  /* PLAN 12.2: the four mode buttons have a 44px touch floor. The old 42px
+     shell forced them to overflow below its visual center. */
+  height: 52px;
   background: var(--tabs-bg);
   border: 1.5px solid var(--tabs-border);
   border-radius: 18px;
-  padding: 4px;
+  padding: 3px 4px;
   flex: none;
 }
 .tabs-pill {
@@ -553,11 +555,16 @@ button.foundation-dot {
   z-index: 2;
 }
 .tab-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   flex: 1;
   border: none;
+  padding: 0;
   background: transparent;
   cursor: pointer;
   font: 600 13.5px var(--font-display);
+  line-height: 1;
   color: var(--tab-inactive);
   transition: color 0.2s;
 }
@@ -642,7 +649,7 @@ button.foundation-dot {
 .ring-animal {
   position: absolute;
   left: 50%;
-  top: 46%;
+  top: 50%;
   /* The individual `translate` property composes outside `scale`, so the
      compact-height `scale` overrides below cannot shrink this centering
      offset. Written as `transform: translate(...)` the offset is scaled too,
@@ -4881,7 +4888,7 @@ body.night {
 @media (max-height: 620px) {
   .focus-bg { overflow-y: auto; overscroll-behavior-y: contain; }
   .greeting-row { padding-block: 4px; }
-  .tabs { height: 44px; margin-top: 5px; }
+  .tabs { height: 52px; margin-top: 5px; }
   .tiny-picker { margin-top: 3px; }
   .ring-wrap { --ring-scale: 0.695; margin-top: 5px; }
   .readout { margin-top: 3px; padding-block: 3px 5px; }
