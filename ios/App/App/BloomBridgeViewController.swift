@@ -50,13 +50,40 @@ private struct BloomSegmentConfiguration: Decodable {
     let frame: BloomControlFrame
 }
 
+private struct BloomNativeControlConfiguration: Decodable {
+    let id: String
+    let kind: String
+    let label: String
+    let enabled: Bool
+    let visible: Bool
+    let checked: Bool?
+    let frame: BloomControlFrame
+}
+
+private final class BloomNativeSwitch: UISwitch {
+    let bloomControlID: String
+
+    init(controlID: String) {
+        bloomControlID = controlID
+        super.init(frame: .zero)
+    }
+
+    required init?(coder: NSCoder) {
+        return nil
+    }
+}
+
 @objc(BloomBridgeViewController)
 final class BloomBridgeViewController: CAPBridgeViewController, UITabBarDelegate {
     private let bloomTabBar = UITabBar()
     private let bloomSegmentTabBar = UITabBar()
     private let bloomSegmentedControl = UISegmentedControl()
+    private let bloomSettingsButton = UIButton(type: .system)
+    private var bloomSwitches: [String: BloomNativeSwitch] = [:]
     private let navigationPlugin = BloomNavigationPlugin()
     private let appIconPlugin = BloomAppIconPlugin()
+    private let completionAlertPlugin = BloomCompletionAlertPlugin()
+    private let liveActivityPlugin = BloomLiveActivityPlugin()
     private var visibleTabs: [BloomTab] = []
     private var segmentKind: String?
     private var segmentItems: [BloomSegmentItem] = []
@@ -68,8 +95,11 @@ final class BloomBridgeViewController: CAPBridgeViewController, UITabBarDelegate
         navigationPlugin.tabsController = self
         bridge?.registerPluginInstance(navigationPlugin)
         bridge?.registerPluginInstance(appIconPlugin)
+        bridge?.registerPluginInstance(completionAlertPlugin)
+        bridge?.registerPluginInstance(liveActivityPlugin)
         installNativeTabBar()
         installNativeSegmentedControl()
+        installNativeAuxiliaryControls()
     }
 
     override func viewSafeAreaInsetsDidChange() {
@@ -122,6 +152,18 @@ final class BloomBridgeViewController: CAPBridgeViewController, UITabBarDelegate
         view.addSubview(bloomSegmentedControl)
     }
 
+    private func installNativeAuxiliaryControls() {
+        bloomSettingsButton.isHidden = true
+        bloomSettingsButton.accessibilityIdentifier = "bloom-native-settings-button"
+        bloomSettingsButton.accessibilityLabel = "Settings"
+        bloomSettingsButton.addTarget(
+            self,
+            action: #selector(nativeSettingsButtonActivated),
+            for: .touchUpInside
+        )
+        view.addSubview(bloomSettingsButton)
+    }
+
     private func updateTabBarHeight() {
         let systemHeight = bloomTabBar.sizeThatFits(
             CGSize(width: view.bounds.width, height: UIView.layoutFittingCompressedSize.height)
@@ -165,6 +207,7 @@ final class BloomBridgeViewController: CAPBridgeViewController, UITabBarDelegate
         bloomSegmentTabBar.tintColor = accentColor
         bloomSegmentTabBar.unselectedItemTintColor = .secondaryLabel
         view.tintColor = accentColor
+        updateAuxiliaryControlTint(accentColor)
         bloomTabBar.isHidden = !visible
         view.bringSubviewToFront(bloomTabBar)
         if !bloomSegmentTabBar.isHidden {
@@ -173,6 +216,145 @@ final class BloomBridgeViewController: CAPBridgeViewController, UITabBarDelegate
             view.bringSubviewToFront(bloomSegmentedControl)
         }
         updateTabBarHeight()
+    }
+
+    private func updateAuxiliaryControlTint(_ accentColor: UIColor) {
+        bloomSwitches.values.forEach { $0.onTintColor = accentColor }
+        guard #available(iOS 15.0, *) else {
+            bloomSettingsButton.tintColor = accentColor
+            return
+        }
+        guard var configuration = bloomSettingsButton.configuration else {
+            bloomSettingsButton.tintColor = accentColor
+            return
+        }
+        configuration.baseForegroundColor = accentColor
+        bloomSettingsButton.configuration = configuration
+    }
+
+    /// PLAN 13.4a: UIKit owns the visible Settings symbol and switch semantics;
+    /// React supplies only validated state, labels, and measured fallback slots.
+    fileprivate func applyNativeControlConfiguration(
+        _ configuration: BloomNativeControlConfiguration
+    ) -> Bool {
+        let identifierPattern = "^[A-Za-z][A-Za-z0-9._:-]{0,79}$"
+        let validIdentifier = configuration.id.range(
+            of: identifierPattern,
+            options: .regularExpression
+        ) != nil
+        let trimmedLabel = configuration.label.trimmingCharacters(in: .whitespacesAndNewlines)
+        let requestedFrame = CGRect(
+            x: configuration.frame.x,
+            y: configuration.frame.y,
+            width: configuration.frame.width,
+            height: configuration.frame.height
+        )
+        guard
+            validIdentifier,
+            !trimmedLabel.isEmpty,
+            trimmedLabel.count <= 100,
+            requestedFrame.minX.isFinite,
+            requestedFrame.minY.isFinite,
+            requestedFrame.width.isFinite,
+            requestedFrame.height.isFinite,
+            requestedFrame.width >= 24,
+            requestedFrame.height >= 24
+        else {
+            hideNativeControl(id: configuration.id)
+            return false
+        }
+
+        switch configuration.kind {
+        case "settingsButton":
+            guard configuration.id == "settings", configureSettingsButtonImage() else {
+                bloomSettingsButton.isHidden = true
+                return false
+            }
+            bloomSettingsButton.frame = requestedFrame.intersection(view.bounds)
+            bloomSettingsButton.isEnabled = configuration.enabled
+            bloomSettingsButton.accessibilityLabel = trimmedLabel
+            bloomSettingsButton.isHidden = !configuration.visible
+            if configuration.visible {
+                view.bringSubviewToFront(bloomSettingsButton)
+            }
+            return true
+
+        case "switch":
+            guard let checked = configuration.checked else {
+                hideNativeControl(id: configuration.id)
+                return false
+            }
+            let control: BloomNativeSwitch
+            if let existing = bloomSwitches[configuration.id] {
+                control = existing
+            } else {
+                control = BloomNativeSwitch(controlID: configuration.id)
+                control.addTarget(
+                    self,
+                    action: #selector(nativeSwitchChanged(_:)),
+                    for: .valueChanged
+                )
+                view.addSubview(control)
+                bloomSwitches[configuration.id] = control
+            }
+            let fittedSize = control.sizeThatFits(UIView.layoutFittingCompressedSize)
+            control.frame = CGRect(
+                x: requestedFrame.midX - fittedSize.width / 2,
+                y: requestedFrame.midY - fittedSize.height / 2,
+                width: fittedSize.width,
+                height: fittedSize.height
+            ).intersection(view.bounds)
+            control.setOn(checked, animated: false)
+            control.isEnabled = configuration.enabled
+            control.accessibilityLabel = trimmedLabel
+            control.accessibilityIdentifier = "bloom-native-control-\(configuration.id)"
+            control.onTintColor = view.tintColor
+            control.isHidden = !configuration.visible
+            if configuration.visible {
+                view.bringSubviewToFront(control)
+            }
+            return true
+
+        default:
+            hideNativeControl(id: configuration.id)
+            return false
+        }
+    }
+
+    private func configureSettingsButtonImage() -> Bool {
+        guard let image = UIImage(systemName: "gearshape.fill") else {
+            // Never hide the web fallback behind a blank SF Symbol.
+            return false
+        }
+        let configuredImage = image.applyingSymbolConfiguration(
+            UIImage.SymbolConfiguration(pointSize: 20, weight: .semibold)
+        ) ?? image
+        if #available(iOS 26.0, *) {
+            var configuration = UIButton.Configuration.glass()
+            configuration.image = configuredImage
+            configuration.baseForegroundColor = view.tintColor
+            bloomSettingsButton.configuration = configuration
+        } else if #available(iOS 15.0, *) {
+            var configuration = UIButton.Configuration.tinted()
+            configuration.image = configuredImage
+            configuration.baseForegroundColor = view.tintColor
+            bloomSettingsButton.configuration = configuration
+        } else {
+            bloomSettingsButton.setImage(configuredImage, for: .normal)
+            bloomSettingsButton.tintColor = view.tintColor
+            bloomSettingsButton.backgroundColor = .secondarySystemBackground
+            bloomSettingsButton.layer.cornerRadius = 12
+        }
+        return true
+    }
+
+    fileprivate func hideNativeControl(id: String) {
+        if id == "settings" {
+            bloomSettingsButton.isHidden = true
+            return
+        }
+        bloomSwitches[id]?.removeFromSuperview()
+        bloomSwitches.removeValue(forKey: id)
     }
 
     /// Returns the height the native control actually occupies, or nil when no
@@ -312,6 +494,17 @@ final class BloomBridgeViewController: CAPBridgeViewController, UITabBarDelegate
         )
     }
 
+    @objc private func nativeSettingsButtonActivated() {
+        navigationPlugin.publishControlActivation(id: "settings", value: nil)
+    }
+
+    @objc private func nativeSwitchChanged(_ sender: BloomNativeSwitch) {
+        navigationPlugin.publishControlActivation(
+            id: sender.bloomControlID,
+            value: sender.isOn
+        )
+    }
+
     func tabBar(_ tabBar: UITabBar, didSelect item: UITabBarItem) {
         if tabBar === bloomSegmentTabBar {
             guard
@@ -338,6 +531,8 @@ final class BloomNavigationPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "configure", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "configureSegment", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "hideSegment", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "configureControl", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "hideControl", returnType: CAPPluginReturnPromise),
     ]
 
     weak var tabsController: BloomBridgeViewController?
@@ -403,6 +598,38 @@ final class BloomNavigationPlugin: CAPPlugin, CAPBridgedPlugin {
         }
     }
 
+    @objc func configureControl(_ call: CAPPluginCall) {
+        guard let tabsController else {
+            call.reject("Native control host is unavailable")
+            return
+        }
+        do {
+            let configuration = try call.decode(BloomNativeControlConfiguration.self)
+            DispatchQueue.main.async {
+                call.resolve([
+                    "active": tabsController.applyNativeControlConfiguration(configuration)
+                ])
+            }
+        } catch {
+            call.reject("Invalid native control configuration", nil, error)
+        }
+    }
+
+    @objc func hideControl(_ call: CAPPluginCall) {
+        guard let tabsController else {
+            call.reject("Native control host is unavailable")
+            return
+        }
+        guard let id = call.getString("id") else {
+            call.reject("Missing native control identifier")
+            return
+        }
+        DispatchQueue.main.async {
+            tabsController.hideNativeControl(id: id)
+            call.resolve()
+        }
+    }
+
     func publishSelection(_ screen: String) {
         notifyListeners(
             "tabSelected",
@@ -416,6 +643,21 @@ final class BloomNavigationPlugin: CAPPlugin, CAPBridgedPlugin {
             "segmentSelected",
             data: ["kind": kind, "value": value],
             retainUntilConsumed: true
+        )
+    }
+
+    func publishControlActivation(id: String, value: Bool?) {
+        var data: JSObject = ["id": id]
+        if let value {
+            data["value"] = value
+        }
+        notifyListeners(
+            "controlActivated",
+            data: data,
+            // A UI event is meaningful only to the listener mounted for the
+            // currently visible React control. Replaying it could mutate a
+            // newly mounted setting with an old tap.
+            retainUntilConsumed: false
         )
     }
 }

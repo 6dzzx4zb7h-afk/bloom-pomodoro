@@ -36,6 +36,23 @@ export interface NativeSegmentConfiguration {
   frame: NativeControlFrame;
 }
 
+export type NativeAuxiliaryControlKind = 'settingsButton' | 'switch';
+
+export interface NativeAuxiliaryControlConfiguration {
+  id: string;
+  kind: NativeAuxiliaryControlKind;
+  label: string;
+  enabled: boolean;
+  visible: boolean;
+  checked?: boolean;
+  frame: NativeControlFrame;
+}
+
+export interface NativeAuxiliaryControlActivation {
+  id: string;
+  value?: boolean;
+}
+
 interface NativeTabSelection {
   screen: string;
 }
@@ -60,6 +77,10 @@ interface BloomNavigationPlugin {
   configure(options: NativeTabConfiguration): Promise<{ active: boolean }>;
   configureSegment(options: NativeSegmentConfiguration): Promise<NativeSegmentResult>;
   hideSegment(options: { kind: NativeSegmentKind }): Promise<void>;
+  configureControl(
+    options: NativeAuxiliaryControlConfiguration,
+  ): Promise<{ active: boolean }>;
+  hideControl(options: { id: string }): Promise<void>;
   addListener(
     eventName: 'tabSelected',
     listener: (event: NativeTabSelection) => void,
@@ -67,6 +88,10 @@ interface BloomNavigationPlugin {
   addListener(
     eventName: 'segmentSelected',
     listener: (event: NativeSegmentSelection) => void,
+  ): Promise<PluginListenerHandle>;
+  addListener(
+    eventName: 'controlActivated',
+    listener: (event: NativeAuxiliaryControlActivation) => void,
   ): Promise<PluginListenerHandle>;
 }
 
@@ -116,6 +141,37 @@ export function listenForNativeIOSSegmentSelection(
   return bloomNavigation.addListener('segmentSelected', listener);
 }
 
+const NATIVE_AUXILIARY_CONTROL_ID = /^[A-Za-z][A-Za-z0-9._:-]{0,79}$/;
+
+export function isNativeAuxiliaryControlID(value: string): boolean {
+  return NATIVE_AUXILIARY_CONTROL_ID.test(value);
+}
+
+export function configureNativeIOSAuxiliaryControl(
+  configuration: NativeAuxiliaryControlConfiguration,
+): Promise<{ active: boolean }> {
+  if (
+    !isNativeAuxiliaryControlID(configuration.id) ||
+    !configuration.label.trim() ||
+    configuration.label.length > 100 ||
+    !Object.values(configuration.frame).every(Number.isFinite)
+  ) {
+    return Promise.resolve({ active: false });
+  }
+  return bloomNavigation.configureControl(configuration);
+}
+
+export function hideNativeIOSAuxiliaryControl(id: string): Promise<void> {
+  if (!isNativeAuxiliaryControlID(id)) return Promise.resolve();
+  return bloomNavigation.hideControl({ id });
+}
+
+export function listenForNativeIOSAuxiliaryControlActivation(
+  listener: (event: NativeAuxiliaryControlActivation) => void,
+): Promise<PluginListenerHandle> {
+  return bloomNavigation.addListener('controlActivated', listener);
+}
+
 export function isNativeTimerMode(value: string): value is TimerMode {
   return ['focus', 'flow', 'tiny', 'short', 'long'].includes(value);
 }
@@ -153,6 +209,19 @@ export function observeNativeControlFrame(
   window.addEventListener('resize', schedule);
   window.visualViewport?.addEventListener('resize', schedule);
   window.visualViewport?.addEventListener('scroll', schedule);
+  // Capture scroll from nested sheets as well as the window. Native overlays
+  // do not move with WKWebView content unless React reports the new slot frame.
+  document.addEventListener('scroll', schedule, true);
+  const mutationObserver =
+    typeof MutationObserver === 'undefined'
+      ? null
+      : new MutationObserver(schedule);
+  mutationObserver?.observe(document.body, {
+    attributes: true,
+    childList: true,
+    subtree: true,
+    attributeFilter: ['aria-hidden', 'class', 'hidden', 'inert', 'open', 'style'],
+  });
   schedule();
 
   return () => {
@@ -161,5 +230,36 @@ export function observeNativeControlFrame(
     window.removeEventListener('resize', schedule);
     window.visualViewport?.removeEventListener('resize', schedule);
     window.visualViewport?.removeEventListener('scroll', schedule);
+    document.removeEventListener('scroll', schedule, true);
+    mutationObserver?.disconnect();
   };
+}
+
+export function isNativeControlSlotVisible(
+  element: HTMLElement,
+  frame: NativeControlFrame,
+): boolean {
+  if (frame.width < 1 || frame.height < 1) return false;
+  if (element.getClientRects().length === 0) return false;
+  if (frame.x + frame.width <= 0 || frame.y + frame.height <= 0) return false;
+  if (frame.x >= window.innerWidth || frame.y >= window.innerHeight) return false;
+
+  // The measured element is the fallback slot. Once UIKit is active React
+  // deliberately marks that slot aria-hidden and transparent so VoiceOver and
+  // touch reach only the native control. Inspecting the slot's own aria-hidden
+  // would create a feedback loop that immediately hid the UIKit control too.
+  // Modal/inert state is owned by ancestors, which must still hide it.
+  let current: HTMLElement | null = element.parentElement;
+  while (current) {
+    if (
+      current.hidden ||
+      current.inert ||
+      current.getAttribute('aria-hidden') === 'true' ||
+      (current instanceof HTMLDetailsElement && !current.open)
+    ) {
+      return false;
+    }
+    current = current.parentElement;
+  }
+  return true;
 }

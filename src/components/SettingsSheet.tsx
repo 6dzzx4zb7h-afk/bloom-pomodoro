@@ -20,8 +20,11 @@ import {
   type PersonalCadenceRecommendation,
 } from '../insights/cadence';
 import type { SessionRecord } from '../store/sessions';
+import type { IOSCompletionAlertStatus } from '../native/iosCompletionAlerts';
+import type { IOSLiveActivityStatus } from '../native/iosLiveActivity';
 import { Dialog } from './Dialog';
 import { Sheet } from './Sheet';
+import { SystemSwitch } from './SystemSwitch';
 import {
   BackupError,
   IMPORT_RECOVERY_KEY,
@@ -55,6 +58,11 @@ interface SettingsSheetProps {
   onClearFocusData: () => void;
   onDataImported: () => void;
   onClose: () => void;
+  completionAlertStatus: IOSCompletionAlertStatus;
+  onRequestCompletionAlertPermission: () => Promise<IOSCompletionAlertStatus>;
+  /** Present only in the native iOS wrapper; this setting remains system-owned. */
+  liveActivityStatus?: IOSLiveActivityStatus;
+  liveActivityChecking?: boolean;
   /** Open the weekly review card on demand (PLAN 2.3); closes the sheet. */
   onShowWeekly?: () => void;
 }
@@ -166,6 +174,10 @@ export function SettingsSheet({
   onClearFocusData,
   onDataImported,
   onClose,
+  completionAlertStatus,
+  onRequestCompletionAlertPermission,
+  liveActivityStatus,
+  liveActivityChecking = false,
   onShowWeekly,
 }: SettingsSheetProps) {
   // 'unknown' until asked; used to nudge the user if they blocked notifications.
@@ -273,11 +285,20 @@ export function SettingsSheet({
     onPatch({ sound: next });
     if (next) {
       // Turning it on is also the user gesture that unlocks and previews the
-      // completion cue, then asks to pair it with a background notification.
+      // completion cue. Native notification permission remains a separate,
+      // explained choice.
       audioEngine.resume();
       audioEngine.playRing();
-      const ok = await requestNotifyPermission();
-      setNotifyDenied(!ok && typeof Notification !== 'undefined' && Notification.permission === 'denied');
+      if (completionAlertStatus.permission === 'unsupported') {
+        const ok = await requestNotifyPermission();
+        setNotifyDenied(
+          !ok && typeof Notification !== 'undefined' && Notification.permission === 'denied',
+        );
+      } else {
+        // Native iOS permission follows the explicit explanation below. The
+        // Ring switch itself only enables and previews the foreground cue.
+        setNotifyDenied(false);
+      }
     }
   }
 
@@ -547,15 +568,12 @@ export function SettingsSheet({
         <SettingSection title="Sessions">
         <div className="set-row">
           <span className="set-label">Auto-start next</span>
-          <button
-            className={`switch${settings.autoStart ? ' on' : ''}`}
-            onClick={() => onPatch({ autoStart: !settings.autoStart })}
-            role="switch"
-            aria-checked={settings.autoStart}
-            aria-label="Auto-start next timer"
-          >
-            <span className="knob" />
-          </button>
+          <SystemSwitch
+            nativeId="settings.autoStart"
+            checked={settings.autoStart}
+            label="Auto-start next timer"
+            onChange={(checked) => onPatch({ autoStart: checked })}
+          />
         </div>
 
         <div className="set-row">
@@ -563,15 +581,12 @@ export function SettingsSheet({
             Environment reset
             <span className="set-sub">an optional 15–30 second tidy-up before a session</span>
           </span>
-          <button
-            className={`switch${ritual.enabled ? ' on' : ''}`}
-            onClick={() => onPatchRitual({ enabled: !ritual.enabled })}
-            role="switch"
-            aria-checked={ritual.enabled}
-            aria-label="Environment reset ritual"
-          >
-            <span className="knob" />
-          </button>
+          <SystemSwitch
+            nativeId="ritual.enabled"
+            checked={ritual.enabled}
+            label="Environment reset ritual"
+            onChange={(enabled) => onPatchRitual({ enabled })}
+          />
         </div>
 
         {ritual.enabled && (
@@ -596,15 +611,12 @@ export function SettingsSheet({
               a count-up stopwatch tab — ride the focus as long as it flows, no ticking deadline
             </span>
           </span>
-          <button
-            className={`switch${settings.flow ? ' on' : ''}`}
-            onClick={() => onPatch({ flow: !settings.flow })}
-            role="switch"
-            aria-checked={settings.flow}
-            aria-label="Flow timer"
-          >
-            <span className="knob" />
-          </button>
+          <SystemSwitch
+            nativeId="settings.flow"
+            checked={settings.flow}
+            label="Flow timer"
+            onChange={(flow) => onPatch({ flow })}
+          />
         </div>
         {/* Ambient sounds were removed in PLAN 12.1. The disclosed completion
             cue remains with the other session behavior instead of keeping a
@@ -614,16 +626,40 @@ export function SettingsSheet({
             Ring when done
             <span className="set-sub">a gentle chime at session end</span>
           </span>
-          <button
-            className={`switch${settings.sound ? ' on' : ''}`}
-            onClick={toggleRing}
-            role="switch"
-            aria-checked={settings.sound}
-            aria-label="Ring when done"
-          >
-            <span className="knob" />
-          </button>
+          <SystemSwitch
+            nativeId="settings.sound"
+            checked={settings.sound}
+            label="Ring when done"
+            onChange={(sound) => {
+              if (sound !== settings.sound) void toggleRing();
+            }}
+          />
         </div>
+
+        {liveActivityStatus && (
+          <div className="set-note live-activity-note">
+            <strong>Live Activity</strong>
+            <span>
+              Focus and Tiny can show their mode and time remaining on the Lock Screen and, on
+              supported iPhones, the Dynamic Island. Task text never appears, and no Bloom server
+              is involved.
+            </span>
+            {liveActivityChecking ? (
+              <span role="status">Checking your iOS Live Activity setting…</span>
+            ) : !liveActivityStatus.supported ? (
+              <span role="status">
+                Live Activities aren’t available on this iOS version. Your timer still works
+                normally.
+              </span>
+            ) : !liveActivityStatus.enabled ? (
+              <span role="status">
+                Live Activities are off in iOS Settings. Your timer still works normally.
+              </span>
+            ) : (
+              <span>Live Activities follow your iOS Settings and work without internet access.</span>
+            )}
+          </div>
+        )}
 
         {notifyDenied && (
           <div className="set-note">
@@ -631,6 +667,43 @@ export function SettingsSheet({
             appear. You can allow them in your browser or app settings whenever you like.
           </div>
         )}
+        {settings.sound && completionAlertStatus.permission === 'prompt' && (
+          <div className="set-note">
+            <span>
+              Bloom can chime while it’s open. Allow notifications so iOS can deliver a timer alert
+              while Bloom is in the background or your device is locked. Silent Mode, Focus, and
+              your notification settings still apply.
+            </span>
+            <button
+              className="mini-btn completion-alert-permission"
+              type="button"
+              onClick={() => void onRequestCompletionAlertPermission()}
+            >
+              allow notifications
+            </button>
+          </div>
+        )}
+        {settings.sound && completionAlertStatus.permission === 'denied' && (
+          <div className="set-note" role="status">
+            Timer alerts are off in iOS Settings. Bloom can still chime while it’s open.
+          </div>
+        )}
+        {settings.sound && completionAlertStatus.permission === 'unavailable' && (
+          <div className="set-note" role="status">
+            Background timer alerts aren’t available right now. Bloom can still chime while it’s
+            open.
+          </div>
+        )}
+        {settings.sound &&
+          completionAlertStatus.permission === 'granted' &&
+          (!completionAlertStatus.alertsEnabled ||
+            !completionAlertStatus.soundsEnabled ||
+            !completionAlertStatus.lockScreenEnabled) && (
+            <div className="set-note" role="status">
+              One or more iOS notification options are off. Bloom can still chime while it’s
+              open; you can adjust banners, sound, and Lock Screen alerts in iOS Settings.
+            </div>
+          )}
         </SettingSection>
 
         <SettingSection title="Your day">
@@ -675,15 +748,12 @@ export function SettingsSheet({
               keep up to three tiny daily actions beside your finished-session marker
             </span>
           </span>
-          <button
-            className={`switch${settings.foundations ? ' on' : ''}`}
-            onClick={() => onPatch({ foundations: !settings.foundations })}
-            role="switch"
-            aria-checked={settings.foundations}
-            aria-label="Daily foundations"
-          >
-            <span className="knob" />
-          </button>
+          <SystemSwitch
+            nativeId="settings.foundations"
+            checked={settings.foundations}
+            label="Daily foundations"
+            onChange={(foundations) => onPatch({ foundations })}
+          />
         </div>
 
         <div className="set-row">
@@ -694,15 +764,12 @@ export function SettingsSheet({
               the pace that lands it
             </span>
           </span>
-          <button
-            className={`switch${settings.planner ? ' on' : ''}`}
-            onClick={() => onPatch({ planner: !settings.planner })}
-            role="switch"
-            aria-checked={settings.planner}
-            aria-label="Goals and deadlines"
-          >
-            <span className="knob" />
-          </button>
+          <SystemSwitch
+            nativeId="settings.planner"
+            checked={settings.planner}
+            label="Goals and deadlines"
+            onChange={(planner) => onPatch({ planner })}
+          />
         </div>
         {settings.planner && (
           <label className="set-row goal-credit-setting">
@@ -758,15 +825,14 @@ export function SettingsSheet({
               your pet gently checks in and helps you understand your focus patterns
             </span>
           </span>
-          <button
-            className={`switch${companion.on ? ' on' : ''}`}
-            onClick={toggleCompanion}
-            role="switch"
-            aria-checked={companion.on}
-            aria-label="Companion mode"
-          >
-            <span className="knob" />
-          </button>
+          <SystemSwitch
+            nativeId="settings.companion"
+            checked={companion.on}
+            label="Companion mode"
+            onChange={(enabled) => {
+              if (enabled !== companion.on) toggleCompanion();
+            }}
+          />
         </div>
 
         <div className="set-block">
@@ -775,15 +841,12 @@ export function SettingsSheet({
               Gentle pre-slump check
               <span className="set-sub">an optional breath or stretch hello during focus</span>
             </span>
-            <button
-              className={`switch${settings.preSlumpCheck ? ' on' : ''}`}
-              onClick={() => onPatch({ preSlumpCheck: !settings.preSlumpCheck })}
-              role="switch"
-              aria-checked={settings.preSlumpCheck}
-              aria-label="Gentle pre-slump check"
-            >
-              <span className="knob" />
-            </button>
+            <SystemSwitch
+              nativeId="settings.preSlumpCheck"
+              checked={settings.preSlumpCheck}
+              label="Gentle pre-slump check"
+              onChange={(preSlumpCheck) => onPatch({ preSlumpCheck })}
+            />
           </div>
           <div className="set-note">
             Based on when your drifts usually start. Once Bloom has enough of your focus history,
@@ -836,15 +899,12 @@ export function SettingsSheet({
                 Notice tab switches
                 <span className="set-sub">a soft hello when you come back</span>
               </span>
-              <button
-                className={`switch${companion.tabDetect ? ' on' : ''}`}
-                onClick={() => onPatch({ companion: { ...companion, tabDetect: !companion.tabDetect } })}
-                role="switch"
-                aria-checked={companion.tabDetect}
-                aria-label="Notice tab switches"
-              >
-                <span className="knob" />
-              </button>
+              <SystemSwitch
+                nativeId="settings.companion.tabDetect"
+                checked={companion.tabDetect}
+                label="Notice tab switches"
+                onChange={(tabDetect) => onPatch({ companion: { ...companion, tabDetect } })}
+              />
             </div>
 
             {companion.tabDetect && (
@@ -891,15 +951,12 @@ export function SettingsSheet({
                 Quiet mode
                 <span className="set-sub">log patterns silently, never ask</span>
               </span>
-              <button
-                className={`switch${companion.quiet ? ' on' : ''}`}
-                onClick={() => onPatch({ companion: { ...companion, quiet: !companion.quiet } })}
-                role="switch"
-                aria-checked={companion.quiet}
-                aria-label="Quiet mode"
-              >
-                <span className="knob" />
-              </button>
+              <SystemSwitch
+                nativeId="settings.companion.quiet"
+                checked={companion.quiet}
+                label="Quiet mode"
+                onChange={(quiet) => onPatch({ companion: { ...companion, quiet } })}
+              />
             </div>
 
             <div className="set-row">
@@ -907,17 +964,14 @@ export function SettingsSheet({
                 Session intention
                 <span className="set-sub">one small “what will you do?” before you start</span>
               </span>
-              <button
-                className={`switch${companion.intention ? ' on' : ''}`}
-                onClick={() =>
-                  onPatch({ companion: { ...companion, intention: !companion.intention } })
+              <SystemSwitch
+                nativeId="settings.companion.intention"
+                checked={companion.intention}
+                label="Session intention"
+                onChange={(intention) =>
+                  onPatch({ companion: { ...companion, intention } })
                 }
-                role="switch"
-                aria-checked={companion.intention}
-                aria-label="Session intention"
-              >
-                <span className="knob" />
-              </button>
+              />
             </div>
           </div>
         )}
@@ -929,15 +983,12 @@ export function SettingsSheet({
             Night sky
             <span className="set-sub">cozy dark mode with stars &amp; meteors</span>
           </span>
-          <button
-            className={`switch${settings.night ? ' on' : ''}`}
-            onClick={() => onPatch({ night: !settings.night })}
-            role="switch"
-            aria-checked={settings.night}
-            aria-label="Night sky theme"
-          >
-            <span className="knob" />
-          </button>
+          <SystemSwitch
+            nativeId="settings.night"
+            checked={settings.night}
+            label="Night sky theme"
+            onChange={(night) => onPatch({ night })}
+          />
         </div>
         </SettingSection>
 

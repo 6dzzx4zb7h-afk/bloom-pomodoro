@@ -90,6 +90,13 @@ for screens and timer guards. It has no CSS glass imitation. The native-control 
 remaining conversion roadmap are documented in
 [docs/ios-liquid-glass.md](docs/ios-liquid-glass.md).
 
+The **App** scheme also embeds `BloomLiveActivityExtension`. On iOS 16.2 or later, starting Focus or
+Tiny can show a local Live Activity on the Lock Screen and supported Dynamic Island devices. The
+extension receives only the timer mode, an opaque local session identifier, and clock state; it
+does not receive task text or contact a Bloom server. If physical-device signing asks for attention,
+select the `BloomLiveActivityExtension` target in Xcode and choose the same Team and automatic
+signing used by the **App** target.
+
 The checked-in project has been compiled as a code-signing-free generic iOS Simulator build. App
 Store submission and real-device accessibility, notification, safe-area, background-timer, and
 airplane-mode QA remain separate release work.
@@ -104,11 +111,19 @@ airplane-mode QA remain separate release work.
   Play/pause, reset, skip. On completion: **ring** + celebrate ~3.6s, increment session count
   (focus only), then advance (every 4th focus → long, else short; break → focus). Optional
   **auto-start** chains the next timer automatically.
-- **Completion cue (synthesized live via Web Audio; works offline):** **Ring when done** plays a
-  warm rising chime at session end. Enabling it also asks for Notification permission so a
-  backgrounded session can alert you. Bloom has no ambient audio, soundscapes, or audio previews.
+- **Completion cue (local and offline):** **Ring when done** plays a warm rising chime at session
+  end. In the iOS app, a single native local notification mirrors the active countdown after an
+  in-context permission choice, so iOS can deliver the bundled Bloom cue while the app is
+  backgrounded or the phone is locked. Foreground Bloom keeps the synthesized Web Audio cue and
+  suppresses the duplicate system presentation. Ordinary iOS Silent Mode, Focus, and notification
+  settings still apply; there is no server or APNs path. Web builds use the browser Notification API
+  when it is available. Bloom has no ambient audio, soundscapes, or audio previews.
 - **Wall-clock accuracy:** the run stores an `endsAt` timestamp and recomputes remaining from
   `Date.now()`, so it stays accurate when the tab is backgrounded.
+- **iOS Live Activity (local and offline):** Focus and Tiny mirror their reducer-owned deadline or
+  paused remaining time into one ActivityKit presentation. The system advances the visible clock;
+  pause/resume updates the same Activity, terminal timer actions remove it, and swiping it away keeps
+  it away for that session. Breaks and the open-ended Flow stopwatch do not create one.
 - **Settings:** grouped into You (name, chronotype), Timer lengths (cadence ladder + durations),
   Sessions (auto-start, flow timer, environment reset, ring when done), Your day (day rollover,
   daily foundations, goals & deadlines), Companion, Appearance (night sky), and Your data

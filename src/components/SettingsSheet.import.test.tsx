@@ -74,6 +74,18 @@ function renderSettings() {
       onClearFocusData={vi.fn()}
       onDataImported={vi.fn()}
       onClose={vi.fn()}
+      completionAlertStatus={{
+        permission: 'unsupported',
+        alertsEnabled: false,
+        soundsEnabled: false,
+        lockScreenEnabled: false,
+      }}
+      onRequestCompletionAlertPermission={vi.fn(async () => ({
+        permission: 'unsupported' as const,
+        alertsEnabled: false,
+        soundsEnabled: false,
+        lockScreenEnabled: false,
+      }))}
     />,
   );
 }

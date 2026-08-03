@@ -10,15 +10,23 @@ describe('focus surface coordinator', () => {
   it('publishes one stable, duplicate-free priority table', () => {
     const owners = FOCUS_SURFACE_PRIORITY.map((rule) => rule.owner);
     expect(new Set(owners).size).toBe(owners.length);
-    expect(owners.slice(0, 7)).toEqual([
+    expect(owners.slice(0, 8)).toEqual([
       'returnTruth',
       'transitionConfirm',
       'settings',
+      'completionAlert',
       'resumeInterrupted',
       'tinyComplete',
       'returnedParking',
       'debrief',
     ]);
+  });
+
+  it('keeps the completion-alert explainer behind an already-open Settings sheet', () => {
+    expect(
+      resolveFocusSurface({ settings: true, completionAlert: true }).owner,
+    ).toBe('settings');
+    expect(resolveFocusSurface({ completionAlert: true }).owner).toBe('completionAlert');
   });
 
   it('gives honest return sole control and navigation ownership', () => {

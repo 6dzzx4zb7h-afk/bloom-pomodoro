@@ -47,10 +47,14 @@ import {
   resolveFocusSurface,
 } from '../store/surfaceCoordinator';
 import {
+  configureNativeIOSAuxiliaryControl,
   configureNativeIOSSegment,
+  hideNativeIOSAuxiliaryControl,
   hideNativeIOSSegment,
+  isNativeControlSlotVisible,
   isNativeIOSTabsPlatform,
   isNativeTimerMode,
+  listenForNativeIOSAuxiliaryControlActivation,
   listenForNativeIOSSegmentSelection,
   observeNativeControlFrame,
   type NativeControlFrame,
@@ -79,7 +83,19 @@ export function FocusScreen({
   onOpenGoals?: () => void;
   onNativeOverlayChange?: (open: boolean) => void;
 }) {
-  const { state, now, mood, statusLabel, palSprite, activeTask, actions, mmss, clock } = bloom;
+  const {
+    state,
+    now,
+    mood,
+    statusLabel,
+    palSprite,
+    activeTask,
+    actions,
+    completionAlerts,
+    liveActivity,
+    mmss,
+    clock,
+  } = bloom;
   const [showSettings, setShowSettings] = useState(false);
   const [tinyMinutes, setTinyMinutes] = useState<TinyStartMinutes>(TINY_START_OPTIONS[0]);
   const [ritualOpen, setRitualOpen] = useState(false);
@@ -87,12 +103,15 @@ export function FocusScreen({
   const [woopOpen, setWoopOpen] = useState(false);
   const [targetDraft, setTargetDraft] = useState('');
   const [nativeModeReady, setNativeModeReady] = useState(false);
+  const [nativeSettingsReady, setNativeSettingsReady] = useState(false);
+  const [nativeSettingsFrame, setNativeSettingsFrame] = useState<NativeControlFrame | null>(null);
   // PLAN 13.10: the room UIKit reported it needs for the rail. The slot grows
   // to match so the system is never handed a frame that clips its own labels.
   const [nativeModeHeight, setNativeModeHeight] = useState(0);
   const [nativeWebOverlayOpen, setNativeWebOverlayOpen] = useState(false);
   const [parkingDeferred, setParkingDeferred] = useState(false);
   const [dayTargetIndex, setDayTargetIndex] = useState(0);
+  const completionAlertLaterRef = useRef<HTMLButtonElement>(null);
   const [pendingTransition, setPendingTransition] = useState<{
     title: string;
     description: string;
@@ -103,6 +122,8 @@ export function FocusScreen({
   const nativeModeSlotRef = useRef<HTMLDivElement>(null);
   const nativeModeFrameRef = useRef<NativeControlFrame | null>(null);
   const nativeModeSelectionRef = useRef<(value: string) => void>(() => undefined);
+  const nativeSettingsSlotRef = useRef<HTMLButtonElement>(null);
+  const nativeSettingsActionRef = useRef<() => void>(() => undefined);
 
   // Post-session debrief (PLAN 2.1): watch the session log for a record
   // finalized while this screen is up. Seeding the ref with the log's current
@@ -443,6 +464,7 @@ export function FocusScreen({
     returnTruth: Boolean(activeReturnSession),
     transitionConfirm: Boolean(pendingTransition),
     settings: showSettings,
+    completionAlert: completionAlerts.primerOpen,
     resumeInterrupted: Boolean(interruptedReturnSession),
     tinyComplete: showTinyOffer,
     returnedParking:
@@ -485,6 +507,22 @@ export function FocusScreen({
     });
   };
 
+  const configureNativeSettingsControl = (frame = nativeSettingsFrame) => {
+    const element = nativeSettingsSlotRef.current;
+    if (!frame || !element) return Promise.resolve({ active: false });
+    return configureNativeIOSAuxiliaryControl({
+      id: 'settings',
+      kind: 'settingsButton',
+      label: 'Settings',
+      enabled: !surface.blocksTimerControls,
+      visible:
+        surface.owner === 'none' &&
+        !nativeWebOverlayOpen &&
+        isNativeControlSlotVisible(element, frame),
+      frame,
+    });
+  };
+
   // Native views sit above WKWebView regardless of CSS z-index. Hide both the
   // mode rail and native bottom navigation while a Focus overlay owns the UI.
   useEffect(() => {
@@ -502,6 +540,13 @@ export function FocusScreen({
       value === 'tiny' ? actions.pickTiny(tinyMinutes) : actions.pick(value),
     );
     if (!accepted) void configureNativeModeControl();
+  };
+  nativeSettingsActionRef.current = () => {
+    if (surface.blocksTimerControls || surface.owner !== 'none') {
+      void configureNativeSettingsControl();
+      return;
+    }
+    setShowSettings(true);
   };
 
   // PLAN 13.3: a second system UITabBar owns the iOS 26 Liquid Glass rail
@@ -529,6 +574,58 @@ export function FocusScreen({
       void hideNativeIOSSegment('focusModes');
     };
   }, []);
+
+  useEffect(() => {
+    if (!isNativeIOSTabsPlatform()) return;
+    let disposed = false;
+    let listener: Awaited<
+      ReturnType<typeof listenForNativeIOSAuxiliaryControlActivation>
+    > | null = null;
+    void listenForNativeIOSAuxiliaryControlActivation((event) => {
+      if (event.id === 'settings' && event.value === undefined) {
+        nativeSettingsActionRef.current();
+      }
+    })
+      .then((handle) => {
+        if (disposed) void handle.remove();
+        else listener = handle;
+      })
+      .catch(() => {
+        if (!disposed) setNativeSettingsReady(false);
+      });
+
+    return () => {
+      disposed = true;
+      if (listener) void listener.remove();
+      void hideNativeIOSAuxiliaryControl('settings');
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isNativeIOSTabsPlatform() || !nativeSettingsSlotRef.current) return;
+    return observeNativeControlFrame(nativeSettingsSlotRef.current, setNativeSettingsFrame);
+  }, []);
+
+  useEffect(() => {
+    if (!isNativeIOSTabsPlatform() || !nativeSettingsFrame) return;
+    let disposed = false;
+    void configureNativeSettingsControl(nativeSettingsFrame)
+      .then(({ active }) => {
+        if (!disposed) setNativeSettingsReady(active);
+      })
+      .catch(() => {
+        void hideNativeIOSAuxiliaryControl('settings');
+        if (!disposed) setNativeSettingsReady(false);
+      });
+    return () => {
+      disposed = true;
+    };
+  }, [
+    nativeSettingsFrame,
+    nativeWebOverlayOpen,
+    surface.blocksTimerControls,
+    surface.owner,
+  ]);
 
   useEffect(() => {
     if (!isNativeIOSTabsPlatform() || !nativeModeSlotRef.current) return;
@@ -672,12 +769,25 @@ export function FocusScreen({
             </div>
           )}
           <button
-            className="gear-btn"
+            ref={nativeSettingsSlotRef}
+            className={`gear-btn${nativeSettingsReady ? ' native-control-slot-ready' : ''}`}
             onClick={() => setShowSettings(true)}
             aria-label="Settings"
+            aria-hidden={nativeSettingsReady || undefined}
+            tabIndex={nativeSettingsReady ? -1 : undefined}
             disabled={surface.blocksTimerControls}
           >
-            &#9881;
+            <svg className="gear-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <circle cx="12" cy="12" r="7.3" fill="none" stroke="currentColor" strokeWidth="2" />
+              <circle cx="12" cy="12" r="2.7" fill="none" stroke="currentColor" strokeWidth="2" />
+              <path
+                d="M12 1.5v3M12 19.5v3M1.5 12h3M19.5 12h3M4.6 4.6l2.1 2.1M17.3 17.3l2.1 2.1M19.4 4.6l-2.1 2.1M6.7 17.3l-2.1 2.1"
+                fill="none"
+                stroke="currentColor"
+                strokeLinecap="round"
+                strokeWidth="2.2"
+              />
+            </svg>
           </button>
         </div>
       </div>
@@ -1146,11 +1256,59 @@ export function FocusScreen({
           onClearFocusData={actions.clearFocusData}
           onDataImported={actions.reloadPersistedState}
           onClose={() => setShowSettings(false)}
+          completionAlertStatus={completionAlerts.status}
+          onRequestCompletionAlertPermission={completionAlerts.requestPermission}
+          liveActivityStatus={liveActivity.isIOS ? liveActivity.status : undefined}
+          liveActivityChecking={liveActivity.checking}
           onShowWeekly={() => {
             setShowSettings(false);
             setWeekly(true);
           }}
         />
+      )}
+
+      {completionAlerts.primerOpen && surface.owner === 'completionAlert' && (
+        <Dialog
+          title={
+            completionAlerts.status.permission === 'prompt'
+              ? 'Get a timer alert?'
+              : 'Foreground chime only'
+          }
+          description={
+            completionAlerts.status.permission === 'prompt' ? (
+              'Bloom can chime while it’s open. Allow notifications so iOS can deliver a timer alert while Bloom is in the background or your device is locked. Silent Mode, Focus, and your notification settings still apply.'
+            ) : (
+              <span role="status">
+                {completionAlerts.status.permission === 'denied'
+                  ? 'Timer alerts are off in iOS Settings. Bloom can still chime while it’s open.'
+                  : 'Background timer alerts aren’t available right now. Bloom can still chime while it’s open.'}
+              </span>
+            )
+          }
+          onRequestClose={completionAlerts.dismissPrimer}
+          closeLabel="Close timer alert explanation"
+          initialFocusRef={completionAlertLaterRef}
+        >
+          <div className="dialog-actions">
+            <button
+              ref={completionAlertLaterRef}
+              type="button"
+              className="dialog-button"
+              onClick={completionAlerts.dismissPrimer}
+            >
+              {completionAlerts.status.permission === 'prompt' ? 'not now' : 'got it'}
+            </button>
+            {completionAlerts.status.permission === 'prompt' && (
+              <button
+                type="button"
+                className="dialog-button primary"
+                onClick={() => void completionAlerts.requestPermission()}
+              >
+                allow notifications
+              </button>
+            )}
+          </div>
+        </Dialog>
       )}
 
       {pendingTransition && surface.owner === 'transitionConfirm' && (

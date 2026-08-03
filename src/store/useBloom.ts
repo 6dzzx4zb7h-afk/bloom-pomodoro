@@ -1,7 +1,24 @@
-import { useCallback, useEffect, useMemo, useReducer, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { friendByName } from '../data/friends';
 import type { AnimalKind } from '../engine/pixelpals';
 import { audioEngine, notify } from '../engine/audio';
+import {
+  consumeIOSCompletionAlertDelivery,
+  isIOSCompletionAlertPlatform,
+  readIOSCompletionAlertStatus,
+  reconcileIOSCompletionAlert,
+  requestIOSCompletionAlertPermission,
+  UNSUPPORTED_COMPLETION_ALERT_STATUS,
+  type IOSCompletionAlertStatus,
+} from '../native/iosCompletionAlerts';
+import {
+  isIOSLiveActivityPlatform,
+  readIOSLiveActivityStatus,
+  reconcileIOSLiveActivity,
+  type IOSLiveActivityMode,
+  type IOSLiveActivitySnapshot,
+  type IOSLiveActivityStatus,
+} from '../native/iosLiveActivity';
 import {
   EMPTY_PRE_SLUMP_CAPS,
   PRE_SLUMP_DAILY_CAP,
@@ -3155,16 +3172,241 @@ export function useBloom() {
   // put until the user freely chooses the 10-minute extension or says this was
   // enough (PLAN 12.1).
   const celRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastCountdownDeadlineRef = useRef<number | null>(state.endsAt);
+  if (state.running && state.mode !== 'flow' && state.endsAt != null) {
+    lastCountdownDeadlineRef.current = state.endsAt;
+  }
+  const handledCompletionCueRef = useRef<string | null>(null);
   const soundRef = useRef(state.settings.sound);
   soundRef.current = state.settings.sound;
+  const runningRef = useRef(state.running);
+  runningRef.current = state.running;
+  const modeRef = useRef(state.mode);
+  modeRef.current = state.mode;
+  const [completionAlertStatus, setCompletionAlertStatus] =
+    useState<IOSCompletionAlertStatus>(() =>
+      isIOSCompletionAlertPlatform()
+        ? {
+            ...UNSUPPORTED_COMPLETION_ALERT_STATUS,
+            permission: 'checking',
+          }
+        : UNSUPPORTED_COMPLETION_ALERT_STATUS,
+    );
+  const [completionAlertPrimerOpen, setCompletionAlertPrimerOpen] = useState(false);
+  const completionAlertPrimerOfferedRef = useRef(false);
+
+  const refreshCompletionAlertStatus = useCallback(async () => {
+    const status = await readIOSCompletionAlertStatus();
+    setCompletionAlertStatus(status);
+    if (status.permission === 'granted') setCompletionAlertPrimerOpen(false);
+    return status;
+  }, []);
+
+  const requestCompletionAlertPermission = useCallback(async () => {
+    const status = await requestIOSCompletionAlertPermission();
+    setCompletionAlertStatus(status);
+    if (status.permission === 'granted') setCompletionAlertPrimerOpen(false);
+    return status;
+  }, []);
+
+  const maybeOfferCompletionAlertPermission = useCallback(() => {
+    if (
+      completionAlertPrimerOfferedRef.current ||
+      !soundRef.current ||
+      !isIOSCompletionAlertPlatform()
+    ) {
+      return;
+    }
+    completionAlertPrimerOfferedRef.current = true;
+    void readIOSCompletionAlertStatus().then((status) => {
+      setCompletionAlertStatus(status);
+      if (status.permission === 'prompt' || status.permission === 'unavailable') {
+        setCompletionAlertPrimerOpen(true);
+      }
+    });
+  }, []);
+
+  // Permission remains system-owned. Refresh when Bloom returns so a change
+  // made in iOS Settings is reflected without adding persisted app state.
+  useEffect(() => {
+    if (!isIOSCompletionAlertPlatform()) return;
+    const refresh = () => {
+      if (document.visibilityState === 'visible') void refreshCompletionAlertStatus();
+    };
+    refresh();
+    document.addEventListener('visibilitychange', refresh);
+    return () => document.removeEventListener('visibilitychange', refresh);
+  }, [refreshCompletionAlertStatus]);
+
+  // PLAN 13.11: mirror the reducer-owned deadline into one native local
+  // request. This effect never completes or persists a session; after process
+  // termination, the existing boot sweep remains the source of record truth.
+  useEffect(() => {
+    void reconcileIOSCompletionAlert({
+      enabled: state.settings.sound,
+      running: state.running,
+      mode: state.mode,
+      deadlineMs: state.endsAt,
+    });
+  }, [
+    completionAlertStatus.permission,
+    state.endsAt,
+    state.mode,
+    state.running,
+    state.settings.sound,
+  ]);
+
+  // PLAN 13.8: mirror only reducer lifecycle changes into one local Live
+  // Activity. Running snapshots use the wall-clock deadline; paused snapshots
+  // use the frozen remaining seconds. Neither dependency changes on the
+  // reducer's 250 ms display tick, so ActivityKit never receives per-second
+  // bridge traffic. A null session ends stale native state after terminal
+  // actions or the existing interrupted-session boot sweep.
+  const liveActivitySessionId = state.openFocus?.id ?? null;
+  const liveActivityMode: IOSLiveActivityMode | null =
+    state.openFocus?.mode === 'focus' || state.openFocus?.mode === 'tiny'
+      ? state.openFocus.mode
+      : null;
+  const liveActivityStartedAtMs = state.openFocus?.startedAt ?? null;
+  const liveActivityPhase =
+    liveActivitySessionId && liveActivityMode
+      ? state.running && state.endsAt != null
+        ? 'running'
+        : 'paused'
+      : null;
+  const liveActivityDeadlineMs =
+    liveActivityPhase === 'running' ? state.endsAt : null;
+  const liveActivityRemainingSeconds =
+    liveActivityPhase === 'paused' ? state.remaining : null;
+  const liveActivityPlatform = isIOSLiveActivityPlatform();
+  const [liveActivityStatus, setLiveActivityStatus] = useState<IOSLiveActivityStatus>({
+    supported: false,
+    enabled: false,
+    active: false,
+  });
+  const [liveActivityStatusChecking, setLiveActivityStatusChecking] =
+    useState(liveActivityPlatform);
+  const liveActivityMirrorRef = useRef<{
+    key: string;
+    snapshot: IOSLiveActivitySnapshot | null;
+    active: boolean | null;
+  }>({ key: 'none', snapshot: null, active: null });
+
+  const refreshLiveActivityStatus = useCallback(async () => {
+    if (!isIOSLiveActivityPlatform()) {
+      const unsupported: IOSLiveActivityStatus = {
+        supported: false,
+        enabled: false,
+        active: false,
+      };
+      setLiveActivityStatus(unsupported);
+      setLiveActivityStatusChecking(false);
+      return unsupported;
+    }
+    setLiveActivityStatusChecking(true);
+    const status = await readIOSLiveActivityStatus();
+    setLiveActivityStatus(status);
+    setLiveActivityStatusChecking(false);
+    return status;
+  }, []);
+
+  const mirrorLiveActivity = useCallback(
+    (snapshot: IOSLiveActivitySnapshot | null) => {
+      const key = JSON.stringify(snapshot);
+      liveActivityMirrorRef.current = { key, snapshot, active: null };
+      void reconcileIOSLiveActivity(snapshot).then((result) => {
+        if (liveActivityMirrorRef.current.key === key) {
+          liveActivityMirrorRef.current.active = result.active;
+          setLiveActivityStatus((status) => ({
+            ...status,
+            supported: result.supported,
+            active: result.active,
+          }));
+        }
+      });
+    },
+    [],
+  );
+
+  useEffect(() => {
+    let snapshot: IOSLiveActivitySnapshot | null = null;
+    if (
+      liveActivitySessionId &&
+      liveActivityMode &&
+      liveActivityStartedAtMs != null
+    ) {
+      snapshot =
+        liveActivityPhase === 'running' && liveActivityDeadlineMs != null
+          ? {
+              sessionId: liveActivitySessionId,
+              mode: liveActivityMode,
+              state: 'running',
+              startedAtMs: liveActivityStartedAtMs,
+              deadlineMs: liveActivityDeadlineMs,
+            }
+          : {
+              sessionId: liveActivitySessionId,
+              mode: liveActivityMode,
+              state: 'paused',
+              startedAtMs: liveActivityStartedAtMs,
+              remainingSeconds: Math.max(
+                0,
+                Math.floor(liveActivityRemainingSeconds ?? 0),
+              ),
+            };
+    }
+    mirrorLiveActivity(snapshot);
+  }, [
+    liveActivityDeadlineMs,
+    liveActivityMode,
+    liveActivityPhase,
+    liveActivityRemainingSeconds,
+    liveActivitySessionId,
+    liveActivityStartedAtMs,
+    mirrorLiveActivity,
+  ]);
+
+  // Refresh system-owned availability on return. If iOS declined an initial
+  // request for a still-current session, retry that same stable snapshot once
+  // per foreground transition. A manually dismissed activity remains absent:
+  // native reconciliation returns `dismissed` for its session tombstone.
+  useEffect(() => {
+    if (!liveActivityPlatform) return;
+    const onVisible = () => {
+      if (document.visibilityState !== 'visible') return;
+      void refreshLiveActivityStatus();
+      const mirror = liveActivityMirrorRef.current;
+      if (mirror.snapshot && mirror.active === false) {
+        mirrorLiveActivity(mirror.snapshot);
+      }
+    };
+    void refreshLiveActivityStatus();
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, [liveActivityPlatform, mirrorLiveActivity, refreshLiveActivityStatus]);
+
   useEffect(() => {
     if (!state.justDone) return;
     const lastRecord = state.sessionRecords[state.sessionRecords.length - 1];
     const holdsTinyOffer = state.mode === 'tiny' && isTinyFirstRung(lastRecord);
-    if (soundRef.current) {
-      audioEngine.playRing();
-      const notice = completionNotice(state.mode, holdsTinyOffer);
-      notify(notice.title, notice.body);
+    const completedDeadline = lastCountdownDeadlineRef.current;
+    const completionCueToken = `${state.mode}:${completedDeadline ?? 'unknown'}`;
+    if (handledCompletionCueRef.current !== completionCueToken) {
+      handledCompletionCueRef.current = completionCueToken;
+      void (async () => {
+        const presentation =
+          completedDeadline != null && isIOSCompletionAlertPlatform()
+            ? await consumeIOSCompletionAlertDelivery(completedDeadline)
+            : 'none';
+        if (!soundRef.current || presentation === 'background-system') return;
+        audioEngine.playRing();
+        // Native iOS owns its system notification. This legacy browser path
+        // must never create an unfiltered duplicate inside WKWebView.
+        if (!isIOSCompletionAlertPlatform()) {
+          const notice = completionNotice(state.mode, holdsTinyOffer);
+          notify(notice.title, notice.body);
+        }
+      })();
     }
     if (!holdsTinyOffer) {
       celRef.current = setTimeout(() => dispatch({ type: 'clearDone' }), 3600);
@@ -3206,6 +3448,11 @@ export function useBloom() {
       toggle: (ifThenPlanId?: string, targetText?: string) => {
         // The first start press is the user gesture that unlocks the finish cue.
         if (soundRef.current) audioEngine.resume();
+        if (!runningRef.current && modeRef.current !== 'flow') {
+          // The timer starts regardless; this only opens a skippable primer if
+          // iOS has never asked for completion-alert permission.
+          maybeOfferCompletionAlertPermission();
+        }
         const target = targetText?.trim().slice(0, SESSION_TARGET_MAX) || undefined;
         dispatch({ type: 'toggle', ifThenPlanId, targetText: target });
       },
@@ -3266,6 +3513,9 @@ export function useBloom() {
         // reducer action clears every dependent main-store slice.
         clearEvents();
         dispatch({ type: 'clearFocusData' });
+        // Settings only exposes this action with no open work session. End any
+        // orphaned system presentation as part of the same confirmed cleanup.
+        void reconcileIOSLiveActivity(null);
       },
       linkDriftEvent: (eventId: string, sessionId: string) =>
         dispatch({ type: 'linkDrift', eventId, sessionId }),
@@ -3344,8 +3594,10 @@ export function useBloom() {
         dispatch({ type: 'resolveTabReturn', resolution }),
       setNextAction: (sessionId: string, text: string) =>
         dispatch({ type: 'setNextAction', sessionId, text }),
-      resumeInterrupted: (sessionId: string) =>
-        dispatch({ type: 'resumeInterrupted', sessionId }),
+      resumeInterrupted: (sessionId: string) => {
+        maybeOfferCompletionAlertPermission();
+        dispatch({ type: 'resumeInterrupted', sessionId });
+      },
       dismissResumeCue: (sessionId: string) =>
         dispatch({ type: 'dismissResumeCue', sessionId }),
       toggleFoundationDay: (instanceId: string, targetAt?: number) =>
@@ -3464,6 +3716,19 @@ export function useBloom() {
       retry: retryStorage,
       recover: recoverStorage,
       recoveredBloom: persistedShapeFromState(state),
+    },
+    completionAlerts: {
+      status: completionAlertStatus,
+      primerOpen: completionAlertPrimerOpen,
+      requestPermission: requestCompletionAlertPermission,
+      dismissPrimer: () => setCompletionAlertPrimerOpen(false),
+      refreshStatus: refreshCompletionAlertStatus,
+    },
+    liveActivity: {
+      isIOS: liveActivityPlatform,
+      status: liveActivityStatus,
+      checking: liveActivityStatusChecking,
+      refreshStatus: refreshLiveActivityStatus,
     },
     mmss,
     clock,

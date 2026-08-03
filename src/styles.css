@@ -506,23 +506,31 @@ button.foundation-dot {
   color: var(--text-faint);
 }
 .gear-btn {
-  width: 34px;
-  height: 34px;
+  width: 44px;
+  height: 44px;
   border: none;
   border-radius: 12px;
   background: #fff;
   color: var(--soft2);
-  font-size: 17px;
-  line-height: 1;
   cursor: pointer;
   box-shadow: 0 6px 14px -8px rgba(183, 159, 227, 0.7);
   transition: transform 0.12s ease, color 0.15s;
+}
+.gear-icon {
+  display: block;
+  width: 22px;
+  height: 22px;
+  margin: auto;
 }
 .gear-btn:hover {
   color: var(--plum);
 }
 .gear-btn:active {
   transform: scale(0.92);
+}
+.native-control-slot-ready {
+  opacity: 0;
+  pointer-events: none;
 }
 
 .tabs {
@@ -3766,6 +3774,9 @@ button.foundation-dot {
   cursor: default;
   opacity: 0.55;
   transform: none;
+}
+.completion-alert-permission {
+  min-height: 44px;
 }
 .focus-clear-scope {
   margin: 0 0 8px;

@@ -1445,23 +1445,58 @@ Open-step gates, stated plainly: **9.2**'s `dayKeyFor` is load-bearing for every
   `git diff --check` passed. iOS 27 and the wider physical-device/accessibility matrix remain in
   13.6.
 
-### - [ ] 13.4 Build a native iOS Settings entry point and form with system switches and inputs
+### - [x] 13.4a Replace the iOS Settings glyph and boolean controls with UIKit controls
 
-- **Goal:** Move the Settings affordance into appropriate native chrome and present Settings through
-  a native sheet/Form using `UISwitch`, steppers, segmented controls, pickers, text fields, and
-  standard sheet behavior. Bridge validated settings snapshots and mutations without duplicating
-  persistence or weakening import/migration rules; retain the web Settings implementation for
-  browser and Android.
+- **Goal:** Replace the Focus screen's Unicode gear with an SF Symbol in a standard native glass
+  `UIButton`, and replace every hand-rolled boolean switch visible in the current iOS Settings and
+  foundations picker with a real `UISwitch`. Keep the existing web layout as the measured slot and
+  browser/Android fallback; all native events still dispatch exactly once through React and the
+  reducer. Hide native controls whenever their web slot is clipped, scrolled away, inert, covered by
+  another modal, or unmounted. Do not move non-boolean fields or data operations in this slice.
+- **Science:** n/a — native platform controls, accessibility, and state integrity.
+- **Quality:** `docs/product-quality.md` — Accessibility and semantics; Error prevention and
+  recovery; Architecture changes; Privacy and security; responsive/scroll lifecycle; integration
+  testing.
+- **Files:** `BloomBridgeViewController.swift`, typed native-control adapter/wrapper, every current
+  `.switch` call site, Focus Settings affordance, focused tests, `docs/ios-liquid-glass.md`.
+- **Done when:** `gearshape.fill` resolves at runtime before the native Settings button replaces the
+  fallback; every current boolean switch call site uses the shared native-aware wrapper; UIKit owns
+  touch, VoiceOver switch semantics, tint, and iOS appearance; scroll/modal/unmount cleanup leaves no
+  floating native control; stale or malformed native events cannot mutate state; browser/Android
+  retain accessible web controls; focused tests, full test/build, Capacitor sync, Xcode build, live
+  Simulator inspection, and `git diff --check` pass.
+- **Depends on:** 13.2, 8.4, 8.11.
+- **Closed (August 2026):** Replaced the U+2699 text gear with a runtime-guarded
+  `gearshape.fill` in a standard iOS 26 glass `UIButton` and an inline SVG web fallback. Routed all
+  13 current hand-rolled switch call sites through one native-aware React wrapper and real UIKit
+  `UISwitch` instances while keeping React/reducer state authoritative and browser/Android controls
+  intact. The bridge validates identifiers, labels, finite frames, and exact boolean events; UI
+  events are not retained for a later mount. Resize, nested-scroll, modal/inert, offscreen, and
+  unmount observation hides or removes native controls. A Simulator pass found and fixed an
+  `aria-hidden` fallback feedback loop before release. The iPhone 17e iOS 26.5 Simulator visibly
+  rendered the glass SF Symbol and accessible native switches, and the user confirmed switch
+  interaction. Focused native-control tests pass 19 cases; the full suite passes 58 files/562 tests,
+  `npm run build`, `npx cap sync ios`, a code-signing-free Xcode 26.5 Simulator build, live
+  install/launch/interaction, and `git diff --check` pass. The wider physical-device, iPad, iOS 27,
+  Dynamic Type, and assistive-technology matrix remains in 13.6.
+
+### - [ ] 13.4b Complete the native iOS Settings sheet and remaining form inputs
+
+- **Goal:** Present Settings through a native sheet/Form and migrate durations, segmented choices,
+  pickers, text fields, permission/recovery states, and safe import/export/destructive operations to
+  their appropriate native equivalents. Reuse the validated control bridge from 13.4a without
+  duplicating persistence or weakening import/migration rules; retain the complete web Settings
+  implementation for browser and Android.
 - **Science:** n/a — native platform controls, accessibility, and state integrity.
 - **Quality:** `docs/product-quality.md` — Accessibility and semantics; Error prevention and
   recovery; Architecture changes; Privacy and security; migration/integration testing.
-- **Files:** native Settings views and bridge, typed web adapter, `SettingsSheet.tsx`, store action
-  seam/tests, voice and migration fixtures only if the persisted shape changes.
-- **Done when:** Every current Settings control has a native semantic equivalent on iOS, including
+- **Files:** native Settings presentation/views, typed snapshot/action bridge, `SettingsSheet.tsx`,
+  store action seam/tests, voice and migration fixtures only if the persisted shape changes.
+- **Done when:** Every remaining Settings control has a native semantic equivalent on iOS, including
   loading/error/permission states; all mutations still flow through the reducer; VoiceOver,
   keyboard, Dynamic Type, Reduced Motion/Transparency, day/night, cancellation, import/export, and
   migration coverage pass with no duplicate web sheet.
-- **Depends on:** 13.2, 8.4, 8.11.
+- **Depends on:** 13.4a.
 
 ### - [ ] 13.5 Adopt native iOS presentations and selectively glass remaining chrome
 
@@ -1479,7 +1514,7 @@ Open-step gates, stated plainly: **9.2**'s `dayKeyFor` is load-bearing for every
   implemented native presentations preserve cancellation, focus return, destructive confirmations,
   and exactly-once actions; no nested or decorative glass clutter ships; browser/Android behavior
   remains unchanged; the full release matrix passes.
-- **Depends on:** 13.2–13.4.
+- **Depends on:** 13.2–13.4b.
 
 ### - [ ] 13.6 iOS 26/27 Liquid Glass release QA
 
@@ -1535,6 +1570,19 @@ Open-step gates, stated plainly: **9.2**'s `dayKeyFor` is load-bearing for every
   all compact/minimal/expanded/Lock Screen presentations are accessible and reveal no target text by
   default; airplane-mode, background, simulator/device, lifecycle, test, and build checks pass.
 - **Depends on:** 7.4, 8.3, 8.4, 13.1.
+- **Implementation evidence (August 2026):** Added a shared ActivityKit attributes model, a
+  WidgetKit extension covering Lock Screen and every Dynamic Island family, an availability-guarded
+  Capacitor bridge, and reducer-owned Focus/Tiny lifecycle reconciliation. The system-rendered timer
+  advances without per-second bridge calls; pause/resume, terminal cleanup, relaunch sweep, foreground
+  retry, data clear, and user-dismissal behavior have focused coverage. System UI receives only an
+  opaque session identifier, mode, phase, and clock data — never task text — and the implementation
+  adds no server, APNs, or runtime network path. `npm test` passes 60 files/576 tests, `npm run build`,
+  `npx cap sync ios`, plist validation, and `git diff --check` pass. A code-signing-free App build
+  successfully embedded and validated the extension before the final stale-state/accessibility
+  refinement; a fresh post-refinement Xcode build was blocked before compilation by the sandboxed
+  Simulator/SPM environment. Physical-device signing plus Lock Screen, Dynamic Island, StandBy,
+  background, airplane-mode, and accessibility checks remain for user verification, so this step
+  stays open.
 
 ### - [x] 13.9 An app icon for each friend, following whoever is on duty
 
@@ -1605,6 +1653,80 @@ Open-step gates, stated plainly: **9.2**'s `dayKeyFor` is load-bearing for every
   `npm run build`, `npx cap sync ios`, an Xcode Release Simulator build, live rail inspection, and
   `git diff --check` passed.
 
+### - [ ] 13.11 Deliver reliable local iOS timer completion alerts
+
+- **Goal:** Mirror each active Focus, Tiny, Short, or Long countdown into one native local
+  notification so the finish cue still arrives after Bloom is backgrounded, locked, or suspended.
+  Keep the reducer as the only timer/session authority: native delivery never completes or writes a
+  session record. Reconcile one stable pending request on every deadline change and cancel it on
+  pause, reset, skip, mode change, completion, and sound-off. Ask for notification
+  permission in context through a skippable primer, keep the existing synthesized foreground chime,
+  and bundle a deterministic rendering of that cue for native delivery. Do not add APNs, a server,
+  tracking, a background-execution mode, Time Sensitive/Critical Alert entitlement, or a runtime
+  network path.
+- **Science:** n/a — reliable user-configured timer feedback and native background lifecycle.
+- **Quality:** `docs/product-quality.md` — Local-first and offline behavior; Accessibility and
+  semantics; Error prevention and recovery; Privacy and security; Background/interrupt lifecycle;
+  Build and release reproducibility; component and integration testing.
+- **Files:** native UserNotifications bridge and app delegate, typed web adapter and tests,
+  `useBloom.ts` lifecycle integration/tests, Settings permission/status copy, shared cue data and
+  generated bundled sound, iOS project resources, `README.md`, `docs/ios-liquid-glass.md`.
+- **Done when:** With Ring when done on and notification permission granted, exactly one pending
+  native request matches the reducer-owned deadline; start/resume/re-timing replaces it rather than
+  accumulating requests; pause/reset/skip/mode change/completion/sound-off cancels it;
+  denied/skipped/unavailable permission leaves the complete timer usable and reports precisely that
+  only the foreground chime remains. The foreground produces one Bloom chime with no duplicate
+  system banner/sound; background/locked delivery uses the bundled Bloom cue, respects ordinary iOS
+  silent/Focus controls, reveals no task text, and makes no network request. A notification can say
+  that the timer finished but never claims that the reducer recorded a completed session. Focused
+  lifecycle/adapter/copy/asset tests, the full test/build suite, Capacitor sync, an Xcode Simulator
+  build, a locked/background Simulator smoke, airplane-mode inspection, and `git diff --check` pass;
+  physical-device silent-switch/Focus/force-quit evidence remains explicitly recorded for 13.6.
+- **Depends on:** 7.4, 8.4, 13.1.
+- **Implementation evidence (August 2026):** Added the reducer-to-`UNUserNotificationCenter` mirror,
+  a process-local foreground/background delivery handshake, a stable request identifier, an
+  in-context and skippable permission explainer, system-setting recovery copy, and a deterministic
+  3.04-second bundled rendering of the existing foreground chime. Focused lifecycle, race,
+  delivery-disposition, permission, modal-ownership, copy, and asset coverage passes; `npm test`
+  passes 56 files/546 tests, `npm run build`, `npx cap sync ios`, a code-signing-free Xcode 26.5
+  Simulator build, built-bundle audio/plist inspection, app install/launch, and `git diff --check`
+  pass. Simulator privacy automation rejected notification authorization with `Operation not
+  permitted`, and the available Computer Use route timed out against Simulator, so actual locked
+  system delivery remains intentionally unchecked for user/device verification rather than being
+  claimed from an injected push payload.
+
+### - [ ] 13.12 Use AlarmKit for prominent finish alarms on supported iOS versions
+
+- **Goal:** On iOS and iPadOS 26 or later, let a person who keeps **Ring when done** on authorize
+  AlarmKit so every bounded Focus, Tiny, Short, and Long countdown can finish with a prominent
+  system alarm even through Silent Mode or an active Focus. Flow remains excluded because it has no
+  predetermined finish. Keep the reducer as the only session authority: stopping the system alarm
+  silences it but never writes or upgrades a Bloom session record. Reuse the 13.8 widget extension
+  for AlarmKit's countdown presentation, and show only one system countdown surface rather than a
+  separate AlarmKit activity beside Bloom's generic Live Activity. On older systems, denied
+  authorization, or an AlarmKit scheduling error, retain 13.11's ordinary local-notification and
+  foreground-chime fallback without duplicate sounds or banners. Add no APNs, server, analytics,
+  background-execution mode, or Critical Alert entitlement.
+- **Science:** n/a — reliable, explicitly authorized system timer feedback.
+- **Quality:** `docs/product-quality.md` — Accessibility and semantics; Privacy and security;
+  Local-first and offline behavior; Permission and interruption lifecycle; Error prevention and
+  recovery; Build and release reproducibility; integration and physical-device testing.
+- **Files:** AlarmKit metadata/presentation in the 13.8 widget extension, native alarm bridge and
+  `NSAlarmKitUsageDescription`, typed adapter, reducer lifecycle reconciliation and tests,
+  Settings/primer permission and fallback copy, `docs/ios-liquid-glass.md`, release QA evidence.
+- **Done when:** A first explicit authorization action explains that prominent alarms can sound
+  through Silent Mode and Focus; authorization is requested once by the system and remains
+  reversible in iOS Settings. Exactly one AlarmKit alarm mirrors the current reducer-owned deadline;
+  pause/resume, reset, skip, mode change, auto-advance, completion, sound-off, relaunch recovery, and
+  data clear reconcile idempotently. All four bounded countdown modes alert; Flow never schedules an
+  alarm. AlarmKit owns the countdown/alert presentation on supported authorized systems, while the
+  13.8 generic activity and 13.11 notification remain nonduplicating fallbacks elsewhere. The custom
+  Bloom cue is bundled locally, no task or target text appears in system UI, airplane mode keeps the
+  complete path working, and denied/unavailable states say precisely which ordinary fallback remains.
+  Focused authorization/race/lifecycle/copy tests, the full test/build suite, Capacitor sync, Xcode
+  Simulator compilation, physical-device locked/Silent/Focus checks, and `git diff --check` pass.
+- **Depends on:** 7.4, 8.4, 13.1, 13.8, 13.11.
+
 ## Step dependency sketch
 
 ```
@@ -1624,7 +1746,7 @@ Phase 10: 10.1 ← (9.2, 1.1) → 10.2 ← (10.1, 8.12, 4.2, 9.2)  |  10.3 ← (
           10.7 ← (9.2, 5.4, 1.2) → 10.8 ← (8.3, 8.4, 5.1) → 10.9 ← (9.5, 5.4) → 10.10 ← (3.1, 3.2, 5.3)  |  10.11 ← (9.3, 9.4, 2.3, 10.1, 10.7, 7.1 fixtures)  |  10.12 last ← (10.2–10.11, 0.2)
 Phase 11: 11.1 ← (8.11, 9.4, synced release slices through 10.11) → 11.2 ← (7.1, 9.4, 10.11) → 11.3  |  11.4 ← (8.4, 11.1, 11.3)  |  11.5 ← (11.2–11.4, 8.15) → 11.6 ← (7.1–7.4, 8.11, 8.15)
 Phase 12: 12.1 ← (8.4, 8.8, 8.9, 4.3, 5.3)  →  12.2
-Phase 13: 13.1 ← existing Capacitor 7 Android wrapper and local production build → 13.2 → 13.3 → 13.4 → 13.5 → 13.6  |  13.7 ← 13.1  |  13.8 ← (7.4, 8.3, 8.4, 13.1)
+Phase 13: 13.1 ← existing Capacitor 7 Android wrapper and local production build → 13.2 → 13.3 → 13.4a → 13.4b → 13.5 → 13.6  |  13.7 ← 13.1  |  13.8 ← (7.4, 8.3, 8.4, 13.1)  |  13.11 ← (7.4, 8.4, 13.1) → 13.12 → 13.6
 ```
 
 ## What this plan deliberately does NOT include (per §Do not build)
