@@ -64,6 +64,36 @@ needed.
 
 To pick up web changes later, just re-run `npm run apk` (it rebuilds and re-syncs before packaging).
 
+## iOS app (Xcode)
+
+Bloom also ships as a Capacitor iOS project. It uses the same React/store implementation as the
+web and Android builds, and the production web bundle is copied into the app so the core remains
+local-first and offline-capable at runtime.
+
+**Prerequisites:** macOS with Xcode. The project uses Swift Package Manager, so Xcode resolves the
+Capacitor package on the first native build; this build-time download does not add a runtime network
+feature to Bloom. A Simulator build does not need an Apple Developer account. Running on a physical
+device needs an Xcode signing team, and App Store distribution needs its own signing and release work.
+
+```bash
+npm run ios:sync   # build web -> copy the bundle -> update the native project
+npm run ios:open   # open ios/App/App.xcodeproj in Xcode
+```
+
+In Xcode, choose the **App** scheme and an iPhone or iPad Simulator, then press Run. Re-run
+`npm run ios:sync` whenever the web app changes. `npm run icons` refreshes the web, Android, and iOS
+icons and the native launch image when the source art changes.
+
+On current iOS releases, Bloom's bottom navigation is a real UIKit `UITabBar`: iOS renders the
+floating Liquid Glass rail and moving selected-item lens, while React remains the source of truth
+for screens and timer guards. It has no CSS glass imitation. The native-control decisions and
+remaining conversion roadmap are documented in
+[docs/ios-liquid-glass.md](docs/ios-liquid-glass.md).
+
+The checked-in project has been compiled as a code-signing-free generic iOS Simulator build. App
+Store submission and real-device accessibility, notification, safe-area, background-timer, and
+airplane-mode QA remain separate release work.
+
 ## What's implemented
 
 - **Onboarding:** first run asks the user's name; editable later in Settings.
@@ -136,7 +166,8 @@ src/
   store/useCompanion.ts      # live check-in scheduling / tab-away detection
   store/goals.ts             # goal types + deadline pace math
   styles.css                 # design tokens + screen styles
-scripts/gen-icons.mjs        # generates web + Android launcher icons (sharp)
+scripts/gen-icons.mjs        # generates web + Android/iOS native art (sharp)
 android/                     # Capacitor native Android project
+ios/                         # Capacitor native iOS project (Swift Package Manager)
 capacitor.config.ts          # Capacitor config (appId dev.bloom.pomodoro)
 ```

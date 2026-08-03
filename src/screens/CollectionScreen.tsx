@@ -1,9 +1,18 @@
-import { useEffect, useState, type CSSProperties } from 'react';
+import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { GuideScreen } from '../components/GuideScreen';
 import type { GuideArticleId } from '../content/guide';
 import { PixelPal } from '../components/PixelPal';
 import { FRIENDS, levelProgress, MAX_LEVEL } from '../data/friends';
 import type { useBloom } from '../store/useBloom';
+import {
+  configureNativeIOSSegment,
+  hideNativeIOSSegment,
+  isNativeCollectionSection,
+  isNativeIOSTabsPlatform,
+  listenForNativeIOSSegmentSelection,
+  observeNativeControlFrame,
+  type NativeControlFrame,
+} from '../native/iosTabs';
 
 function fmtXp(value: number): string {
   return Number.isInteger(value) ? String(value) : value.toFixed(2).replace(/0+$/, '').replace(/\.$/, '');
@@ -21,10 +30,72 @@ export function CollectionScreen({
   const { state, actions } = bloom;
   const { palXp } = state;
   const [section, setSection] = useState<'friends' | 'guide'>('friends');
+  const [nativeSectionReady, setNativeSectionReady] = useState(false);
+  const nativeSectionSlotRef = useRef<HTMLDivElement>(null);
+  const nativeSectionFrameRef = useRef<NativeControlFrame | null>(null);
+  const nativeSectionSelectionRef = useRef<(value: string) => void>(() => undefined);
 
   useEffect(() => {
     if (guideArticleId) setSection('guide');
   }, [guideArticleId]);
+
+  const configureNativeSectionControl = (frame = nativeSectionFrameRef.current) => {
+    if (!frame) return Promise.resolve({ active: false });
+    return configureNativeIOSSegment({
+      kind: 'collectionSections',
+      items: [
+        { id: 'friends', title: 'Friends' },
+        { id: 'guide', title: 'Field Guide' },
+      ],
+      selected: section,
+      enabled: true,
+      visible: true,
+      frame,
+    });
+  };
+
+  nativeSectionSelectionRef.current = (value) => {
+    if (isNativeCollectionSection(value)) setSection(value);
+  };
+
+  useEffect(() => {
+    if (!isNativeIOSTabsPlatform()) return;
+
+    let disposed = false;
+    let listener: Awaited<ReturnType<typeof listenForNativeIOSSegmentSelection>> | null = null;
+    void listenForNativeIOSSegmentSelection(({ kind, value }) => {
+      if (kind === 'collectionSections') nativeSectionSelectionRef.current(value);
+    })
+      .then((handle) => {
+        if (disposed) void handle.remove();
+        else listener = handle;
+      })
+      .catch(() => {
+        if (!disposed) setNativeSectionReady(false);
+      });
+
+    return () => {
+      disposed = true;
+      if (listener) void listener.remove();
+      void hideNativeIOSSegment('collectionSections');
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isNativeIOSTabsPlatform() || !nativeSectionSlotRef.current) return;
+
+    let disposed = false;
+    return observeNativeControlFrame(nativeSectionSlotRef.current, (frame) => {
+      nativeSectionFrameRef.current = frame;
+      void configureNativeSectionControl(frame)
+        .then(({ active }) => {
+          if (!disposed) setNativeSectionReady(active);
+        })
+        .catch(() => {
+          if (!disposed) setNativeSectionReady(false);
+        });
+    });
+  }, [section]);
 
   const totalLevels = FRIENDS.reduce((sum, f) => sum + levelProgress(palXp[f.name] ?? 0).level, 0);
 
@@ -42,7 +113,8 @@ export function CollectionScreen({
       </div>
 
       <div
-        className="collection-switch"
+        ref={nativeSectionSlotRef}
+        className={`collection-switch${nativeSectionReady ? ' native-segment-slot-ready' : ''}`}
         role="group"
         aria-label="Collection sections"
       >

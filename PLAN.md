@@ -1345,6 +1345,197 @@ Open-step gates, stated plainly: **9.2**'s `dayKeyFor` is load-bearing for every
   with visibly even space inside the disc; `npm test`, `npm run build`, and browser QA against the
   reported wide composition pass.
 
+---
+
+## Phase 13 — Native iOS wrapper
+
+### - [x] 13.1 Add and verify the Capacitor iOS app
+
+- **Goal:** Package the existing local-first web app as a native iOS app through the same Capacitor
+  boundary used by Android. Keep one React/store implementation, bundle the production web assets
+  into the app, and give contributors repeatable sync/open commands without implying App Store or
+  physical-device release readiness.
+- **Science:** n/a — platform packaging and build reliability.
+- **Quality:** `docs/product-quality.md` — Local-first and offline behavior; Responsive layout and
+  touch; Browser and device verification; Privacy and security; Build and release reproducibility.
+- **Files:** `package.json`, `package-lock.json`, `capacitor.config.ts`, `ios/`,
+  `scripts/gen-icons.mjs`, `README.md`.
+- **Done when:** The Capacitor iOS package is pinned to the repository's Capacitor major; `npm run
+  ios:sync` rebuilds and copies the local bundle; `npm run ios:open` opens the generated Xcode
+  project; the app uses Bloom's identifier, name, colors, and icon; a code-signing-free generic
+  iOS Simulator build succeeds; `npm test`, `npm run build`, a clean CI-version `npm ci`, and
+  `git diff --check` are green. App Store signing/submission and real-device accessibility,
+  notifications, safe-area, background-timer, and airplane-mode checks remain explicitly deferred.
+- **Closed (August 2026):** Added the Capacitor 7.6.8 Swift Package Manager project, Bloom native
+  art, repeatable sync/open scripts, and contributor instructions. A code-signing-free generic
+  iOS Simulator build succeeded and the installed app rendered its first-run screen on an iPhone
+  17 Pro Simulator. Clean Node 22/npm 11.17.0 `npm ci`, all 502 tests, the production build, and
+  `git diff --check` passed.
+
+### - [x] 13.2 Replace the iOS bottom navigation with the system Liquid Glass tab bar
+
+- **Goal:** Replace Bloom's web-rendered bottom navigation inside the iOS wrapper with a real UIKit
+  `UITabBar`. Keep the single Capacitor web view and React store as the content/state owner, bridge
+  tab selection in both directions, and let the system own the floating rail, interactive selection
+  lens, material, motion, accessibility adaptations, and OS-specific appearance. Use Bloom tint only
+  for the selected destination; do not draw or simulate Liquid Glass in CSS.
+- **Science:** n/a — native platform navigation and interaction quality.
+- **Quality:** `docs/product-quality.md` — Architecture changes; Accessibility and semantics;
+  Responsive layout and touch; Reduced motion/transparency/contrast; Browser and device
+  verification; Component and integration testing. Apple's Liquid Glass guidance reserves glass for
+  the navigation/control layer and discourages custom backgrounds or indiscriminate use in content.
+- **Files:** `docs/ios-liquid-glass.md` (new), `src/App.tsx`, a small typed native-navigation adapter
+  under `src/native/`, focused tests, `src/styles.css`, `ios/App/App/BloomBridgeViewController.swift`
+  (new), the iOS storyboard/Xcode project, `README.md`.
+- **Done when:** iOS uses one native floating tab rail with Focus, Tasks, History, optional Goals,
+  and Friends; tapping a destination uses the system's moving Liquid Glass selection lens and updates
+  React exactly once; React-driven navigation, guarded navigation, theme changes, onboarding
+  visibility, and planner enable/disable update the native bar; the selected item has a restrained
+  Bloom tint while unselected items remain system-adaptive; VoiceOver receives native tab semantics;
+  Reduced Motion, Reduced Transparency, and Increased Contrast remain system-owned; browser and
+  Android keep the accessible web bar; there is no duplicate iOS bar. An iOS 26 Simulator build and
+  visual/interaction smoke, `npm test`, `npm run build`, `npm run ios:sync`, and `git diff --check`
+  pass. iOS 27's refreshed system appearance is verified when Xcode 27 and its runtime are installed.
+- **Depends on:** 13.1.
+- **Closed (August 2026):** Replaced the iOS web bar with a standalone native `UITabBar` over the
+  single Capacitor web view and added a typed two-way `BloomNavigation` bridge. UIKit owns the
+  floating rail, selected tint, interactive Liquid Glass lens and transition; no custom glass
+  material or animation is drawn in CSS. An iPhone 17 Pro Simulator on iOS 26.5 showed one native
+  rail and successfully moved from Focus to Friends while updating React. Guard rejection,
+  onboarding/theme/Goals configuration, invalid native events, and stale-wrapper web fallback are
+  handled at the bridge boundary. Xcode 26.6 compiled the Swift controller against the iOS 26.5 SDK;
+  all 504 tests, the production build, Capacitor sync, and `git diff --check` passed. iOS 27 visual
+  verification remains intentionally deferred to 13.6 because Xcode 27 is not installed.
+
+### - [x] 13.3 Build native Liquid Glass segmented rails and fit Focus without scrolling
+
+- **Goal:** Replace the Focus/Tiny/Short/Long/Flow and Friends/Field Guide rails with compact
+  standalone `UITabBar` controls on iOS 26 and later—the same system class as Bloom's lower rail—so
+  UIKit owns an identical Liquid Glass capsule and moving selection lens. Keep the compact upper
+  controls text-only so mode and section labels remain quiet and immediately legible.
+  Keep reducer/local React state authoritative and retain `UISegmentedControl` as the pre-iOS-26
+  fallback. Rebalance the fresh Focus composition so its header, mode rail, pet, timer, preparation
+  card, and transport controls fit together on supported portrait phone heights without page
+  scrolling or tab-bar overlap. Remove the touch-triggered desktop focus outline from the
+  session-target field without weakening visible keyboard focus on browser/Android.
+- **Science:** n/a — native platform controls and interaction quality.
+- **Quality:** `docs/product-quality.md` — Architecture changes; Accessibility and semantics; Error
+  prevention and recovery; Reduced motion/transparency/contrast; integration testing.
+- **Files:** native bridge/controller, typed web adapter, `FocusScreen.tsx`, `CollectionScreen.tsx`,
+  focused tests, `src/styles.css`, `docs/ios-liquid-glass.md`.
+- **Done when:** UIKit renders the iOS 26/27 rail, lensing, interaction response, and moving system
+  selection lens without custom material or animation; mode and collection-section events remain
+  authoritative and exactly-once; rejected mode changes restore the native selection; modal surfaces
+  never sit behind an interactive native overlay; web/Android controls remain; measured 402×874,
+  390×844, and 375×667 portrait layouts have no Focus scroll range or obscured controls while input
+  focus can still accommodate the keyboard; the full timer lifecycle invariant suite and native
+  iOS 26 Simulator interaction matrix pass. iOS 27, physical-device, iPad, and assistive-technology
+  coverage stays in 13.6.
+- **Depends on:** 13.2 and 7.4.
+- **Closed (August 2026):** Replaced both web selector rails on iOS 26.5 with compact, text-only
+  standalone `UITabBar` controls and retained `UISegmentedControl` before iOS 26. UIKit now owns the
+  rail material and moving selection lens without a custom background, blur, mask, or animation;
+  the iPhone 17 Pro Simulator visibly moved the lens from Focus to Long. Native mode changes still
+  pass through the timer transition guard, and opening either Settings or the portaled Tend daily
+  foundations dialog removes both native rails until the modal closes. The fresh Focus composition
+  measured with no scroll range at 402×874, 390×844, and 375×667, while input focus can restore
+  keyboard scrolling and no longer receives the touch-triggered outer outline. Native bridge and
+  modal-ownership regression tests, the full test/build suite, Capacitor sync, an Xcode iOS 26.5
+  Simulator build, live interaction smoke, a clean Node 22/npm 11.17 `npm ci` plus test/build, and
+  `git diff --check` passed. iOS 27 and the wider physical-device/accessibility matrix remain in
+  13.6.
+
+### - [ ] 13.4 Build a native iOS Settings entry point and form with system switches and inputs
+
+- **Goal:** Move the Settings affordance into appropriate native chrome and present Settings through
+  a native sheet/Form using `UISwitch`, steppers, segmented controls, pickers, text fields, and
+  standard sheet behavior. Bridge validated settings snapshots and mutations without duplicating
+  persistence or weakening import/migration rules; retain the web Settings implementation for
+  browser and Android.
+- **Science:** n/a — native platform controls, accessibility, and state integrity.
+- **Quality:** `docs/product-quality.md` — Accessibility and semantics; Error prevention and
+  recovery; Architecture changes; Privacy and security; migration/integration testing.
+- **Files:** native Settings views and bridge, typed web adapter, `SettingsSheet.tsx`, store action
+  seam/tests, voice and migration fixtures only if the persisted shape changes.
+- **Done when:** Every current Settings control has a native semantic equivalent on iOS, including
+  loading/error/permission states; all mutations still flow through the reducer; VoiceOver,
+  keyboard, Dynamic Type, Reduced Motion/Transparency, day/night, cancellation, import/export, and
+  migration coverage pass with no duplicate web sheet.
+- **Depends on:** 13.2, 8.4, 8.11.
+
+### - [ ] 13.5 Adopt native iOS presentations and selectively glass remaining chrome
+
+- **Goal:** Inventory Bloom's dialogs, sheets, menus, buttons, sliders, text fields, and contextual
+  actions. Use native presentations and standard controls where they materially improve behavior;
+  use `UIGlassEffect`/SwiftUI `glassEffect` only for important custom chrome that has no standard
+  equivalent. Leave content cards, the pet, timer visualization, and decorative sky in the content
+  layer instead of glazing the whole app.
+- **Science:** n/a — platform consistency and restrained visual hierarchy.
+- **Quality:** `docs/product-quality.md` — Accessibility; Responsive layout; Reduced motion,
+  transparency, and contrast; Performance; Architecture changes; visual regression.
+- **Files:** `docs/ios-liquid-glass.md`, native presentation/bridge code, affected React components,
+  focused tests and verification evidence.
+- **Done when:** The inventory records a native/keep-web decision for every interactive surface;
+  implemented native presentations preserve cancellation, focus return, destructive confirmations,
+  and exactly-once actions; no nested or decorative glass clutter ships; browser/Android behavior
+  remains unchanged; the full release matrix passes.
+- **Depends on:** 13.2–13.4.
+
+### - [ ] 13.6 iOS 26/27 Liquid Glass release QA
+
+- **Goal:** Verify the native navigation/control layer on real iPhone and iPad classes across iOS 26
+  and 27, including the refreshed 2027 appearance compiled with Xcode 27. Cover touch, VoiceOver,
+  Switch Control, Dynamic Type, Reduced Motion, Reduced Transparency, Increased Contrast, day/night,
+  rotation/window resizing, keyboard, background timer/completion cue, and airplane-mode operation.
+- **Science:** n/a — native release verification.
+- **Quality:** `docs/product-quality.md` — the full applicable accessibility, device, privacy,
+  reliability, performance, and visual-regression matrix.
+- **Files:** `docs/qa.md`, iOS verification evidence, native/UI tests and CI where practical.
+- **Done when:** The system glass rail and controls adapt correctly on both OS generations without
+  custom visual imitation; no content is obscured; all events remain exactly-once; core use remains
+  offline; regressions are closed and the native plus web/Android suites pass.
+- **Depends on:** 13.2–13.5 and availability of Xcode 27 plus iOS 27 test devices/runtimes.
+
+### - [x] 13.7 Declare the current iOS export-compliance status
+
+- **Goal:** Declare the current native build's encryption status accurately without adding
+  cryptography solely to alter App Store Connect's questionnaire. Keep the declaration narrow so a
+  future sync, authentication, secure-storage, or cryptography dependency requires a fresh audit.
+- **Science:** n/a — release compliance and configuration accuracy.
+- **Quality:** `docs/product-quality.md` — Privacy and security; Build and release reproducibility.
+- **Files:** `ios/App/App/Info.plist`, `PLAN.md`.
+- **Done when:** The bundled runtime and native dependency audit finds no non-exempt encryption;
+  `ITSAppUsesNonExemptEncryption` is Boolean `false`; the source plist and built app plist validate;
+  a code-signing-free iOS Simulator build and `git diff --check` pass.
+- **Depends on:** 13.1.
+- **Closed (August 2026):** Audited Bloom's runtime dependencies and the Capacitor iOS package,
+  declared that the current build uses no non-exempt encryption, and validated the declaration in
+  both the source and built app property lists. This declaration does not remove the developer's
+  responsibility to reassess export compliance when the app's encryption use changes.
+
+### - [ ] 13.8 Show active focus sessions with ActivityKit Live Activities
+
+- **Goal:** Add a local-only ActivityKit Live Activity for an active work session, with concise Lock
+  Screen, Dynamic Island, StandBy, watch, and system presentations. The existing reducer remains the
+  lifecycle authority; the native bridge mirrors start, pause, resume, mode, and terminal state into
+  one Activity. Use a system timer interval so the displayed clock advances without per-second bridge
+  traffic. Do not add APNs, a server, tracking, or a new runtime network path.
+- **Science:** n/a — glanceable native timer state and background continuity.
+- **Quality:** `docs/product-quality.md` — Architecture changes; Privacy and security; Local-first and
+  offline behavior; Accessibility; Background/interrupt lifecycle; Error prevention and recovery;
+  Performance; integration and device testing. Apple recommends Live Activities for bounded tasks
+  with a clear start/end and requires them to end with the underlying activity.
+- **Files:** a WidgetKit/ActivityKit extension and shared attributes, Xcode project/entitlements and
+  app plist, native bridge/controller, typed web adapter, timer lifecycle integration/tests,
+  `docs/ios-liquid-glass.md`, release QA evidence.
+- **Done when:** Starting eligible Focus/Tiny work creates at most one Live Activity when the system
+  permits it; countdown text remains wall-clock accurate while the app is backgrounded; pause,
+  resume, completion, skip, reset, abandon, relaunch recovery, and data clear reconcile exactly once;
+  stale activities end; disabled/unavailable ActivityKit fails quietly with disclosed local behavior;
+  all compact/minimal/expanded/Lock Screen presentations are accessible and reveal no target text by
+  default; airplane-mode, background, simulator/device, lifecycle, test, and build checks pass.
+- **Depends on:** 7.4, 8.3, 8.4, 13.1.
+
 ## Step dependency sketch
 
 ```
@@ -1364,6 +1555,7 @@ Phase 10: 10.1 ← (9.2, 1.1) → 10.2 ← (10.1, 8.12, 4.2, 9.2)  |  10.3 ← (
           10.7 ← (9.2, 5.4, 1.2) → 10.8 ← (8.3, 8.4, 5.1) → 10.9 ← (9.5, 5.4) → 10.10 ← (3.1, 3.2, 5.3)  |  10.11 ← (9.3, 9.4, 2.3, 10.1, 10.7, 7.1 fixtures)  |  10.12 last ← (10.2–10.11, 0.2)
 Phase 11: 11.1 ← (8.11, 9.4, synced release slices through 10.11) → 11.2 ← (7.1, 9.4, 10.11) → 11.3  |  11.4 ← (8.4, 11.1, 11.3)  |  11.5 ← (11.2–11.4, 8.15) → 11.6 ← (7.1–7.4, 8.11, 8.15)
 Phase 12: 12.1 ← (8.4, 8.8, 8.9, 4.3, 5.3)  →  12.2
+Phase 13: 13.1 ← existing Capacitor 7 Android wrapper and local production build → 13.2 → 13.3 → 13.4 → 13.5 → 13.6  |  13.7 ← 13.1  |  13.8 ← (7.4, 8.3, 8.4, 13.1)
 ```
 
 ## What this plan deliberately does NOT include (per §Do not build)

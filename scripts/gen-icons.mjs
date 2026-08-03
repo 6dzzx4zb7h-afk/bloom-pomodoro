@@ -95,4 +95,25 @@ if (existsSync(androidRes)) {
   console.log('wrote android launcher icons');
 }
 
+// ---- iOS app icon + launch image ----
+const iosAssets = resolve(root, 'ios/App/App/Assets.xcassets');
+if (existsSync(iosAssets)) {
+  const splash = svg({ bleed: true, inset: 0.68 });
+  await Promise.all([
+    png(
+      bleed,
+      1024,
+      resolve(iosAssets, 'AppIcon.appiconset/AppIcon-512@2x.png'),
+    ),
+    ...[
+      'splash-2732x2732.png',
+      'splash-2732x2732-1.png',
+      'splash-2732x2732-2.png',
+    ].map((filename) =>
+      png(splash, 2732, resolve(iosAssets, 'Splash.imageset', filename)),
+    ),
+  ]);
+  console.log('wrote iOS app icon and launch images');
+}
+
 console.log('done');

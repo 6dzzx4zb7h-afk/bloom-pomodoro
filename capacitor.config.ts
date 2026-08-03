@@ -9,6 +9,10 @@ const config: CapacitorConfig = {
     // Keep the WebView background matching the app so there's no white flash.
     backgroundColor: '#fdf3fb',
   },
+  ios: {
+    // Keep launch and WebView surfaces aligned with Bloom's day-theme canvas.
+    backgroundColor: '#fdf3fb',
+  },
 };
 
 export default config;

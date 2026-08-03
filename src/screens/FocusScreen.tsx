@@ -46,6 +46,15 @@ import {
   companionPromptForSurface,
   resolveFocusSurface,
 } from '../store/surfaceCoordinator';
+import {
+  configureNativeIOSSegment,
+  hideNativeIOSSegment,
+  isNativeIOSTabsPlatform,
+  isNativeTimerMode,
+  listenForNativeIOSSegmentSelection,
+  observeNativeControlFrame,
+  type NativeControlFrame,
+} from '../native/iosTabs';
 
 const RING_R = 92;
 const RING_C = 2 * Math.PI * RING_R;
@@ -62,11 +71,13 @@ export function FocusScreen({
   companion,
   onOpenGuideArticle,
   onOpenGoals,
+  onNativeOverlayChange,
 }: {
   bloom: ReturnType<typeof useBloom>;
   companion: Companion;
   onOpenGuideArticle: (id: GuideArticleId) => void;
   onOpenGoals?: () => void;
+  onNativeOverlayChange?: (open: boolean) => void;
 }) {
   const { state, now, mood, statusLabel, palSprite, activeTask, actions, mmss, clock } = bloom;
   const [showSettings, setShowSettings] = useState(false);
@@ -75,6 +86,8 @@ export function FocusScreen({
   const [ritualSuggestionOpen, setRitualSuggestionOpen] = useState(false);
   const [woopOpen, setWoopOpen] = useState(false);
   const [targetDraft, setTargetDraft] = useState('');
+  const [nativeModeReady, setNativeModeReady] = useState(false);
+  const [nativeWebOverlayOpen, setNativeWebOverlayOpen] = useState(false);
   const [parkingDeferred, setParkingDeferred] = useState(false);
   const [dayTargetIndex, setDayTargetIndex] = useState(0);
   const [pendingTransition, setPendingTransition] = useState<{
@@ -84,6 +97,9 @@ export function FocusScreen({
   } | null>(null);
   const pendingTransitionAction = useRef<(() => void) | null>(null);
   const keepTransitionRef = useRef<HTMLButtonElement>(null);
+  const nativeModeSlotRef = useRef<HTMLDivElement>(null);
+  const nativeModeFrameRef = useRef<NativeControlFrame | null>(null);
+  const nativeModeSelectionRef = useRef<(value: string) => void>(() => undefined);
 
   // Post-session debrief (PLAN 2.1): watch the session log for a record
   // finalized while this screen is up. Seeding the ref with the log's current
@@ -273,19 +289,20 @@ export function FocusScreen({
     setTargetDraft('');
   }
 
-  function requestTransition(intent: TimerTransitionIntent, action: () => void) {
+  function requestTransition(intent: TimerTransitionIntent, action: () => void): boolean {
     const decision = timerTransitionPolicy(state, intent);
     if (decision.kind === 'allow') {
       action();
-      return;
+      return true;
     }
     if (decision.kind === 'discardFalseStart') {
       actions.discardFalseStart();
       action();
-      return;
+      return true;
     }
     pendingTransitionAction.current = action;
     setPendingTransition(decision);
+    return false;
   }
 
   function cancelTransition() {
@@ -435,6 +452,104 @@ export function FocusScreen({
     ritualSuggestion: showRitualSuggestion,
     companionPrompt: coordinatedCompanionPrompt,
   });
+
+  // Native views always composite above WKWebView, independent of web z-index.
+  // Dialogs portal to document.body, so observe that portal host (rather than
+  // the Focus <main>) to catch locally-owned presentations such as the
+  // foundations picker and clear native chrome.
+  useEffect(() => {
+    if (!isNativeIOSTabsPlatform()) return;
+    const root = document.body;
+    const update = () => setNativeWebOverlayOpen(Boolean(root.querySelector('.dialog-layer')));
+    const observer = new MutationObserver(update);
+    observer.observe(root, { childList: true, subtree: true });
+    update();
+    return () => observer.disconnect();
+  }, []);
+
+  const configureNativeModeControl = (frame = nativeModeFrameRef.current) => {
+    if (!frame) return Promise.resolve({ active: false });
+    return configureNativeIOSSegment({
+      kind: 'focusModes',
+      items: modes.map((modeOption) => ({
+        id: modeOption,
+        title: MODE_LABEL[modeOption],
+      })),
+      selected: state.mode,
+      enabled: !surface.blocksTimerControls,
+      visible: surface.owner === 'none' && !nativeWebOverlayOpen,
+      frame,
+    });
+  };
+
+  // Native views sit above WKWebView regardless of CSS z-index. Hide both the
+  // mode rail and native bottom navigation while a Focus overlay owns the UI.
+  useEffect(() => {
+    onNativeOverlayChange?.(surface.owner !== 'none' || nativeWebOverlayOpen);
+    return () => onNativeOverlayChange?.(false);
+  }, [nativeWebOverlayOpen, onNativeOverlayChange, surface.owner]);
+
+  nativeModeSelectionRef.current = (value) => {
+    if (!isNativeTimerMode(value) || !modes.includes(value)) return;
+    if (surface.blocksTimerControls) {
+      void configureNativeModeControl();
+      return;
+    }
+    const accepted = requestTransition('mode', () =>
+      value === 'tiny' ? actions.pickTiny(tinyMinutes) : actions.pick(value),
+    );
+    if (!accepted) void configureNativeModeControl();
+  };
+
+  // PLAN 13.3: a second system UITabBar owns the iOS 26 Liquid Glass rail
+  // (with UISegmentedControl on older iOS); the reducer still owns whether a
+  // requested mode change lands.
+  useEffect(() => {
+    if (!isNativeIOSTabsPlatform()) return;
+
+    let disposed = false;
+    let listener: Awaited<ReturnType<typeof listenForNativeIOSSegmentSelection>> | null = null;
+    void listenForNativeIOSSegmentSelection(({ kind, value }) => {
+      if (kind === 'focusModes') nativeModeSelectionRef.current(value);
+    })
+      .then((handle) => {
+        if (disposed) void handle.remove();
+        else listener = handle;
+      })
+      .catch(() => {
+        if (!disposed) setNativeModeReady(false);
+      });
+
+    return () => {
+      disposed = true;
+      if (listener) void listener.remove();
+      void hideNativeIOSSegment('focusModes');
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isNativeIOSTabsPlatform() || !nativeModeSlotRef.current) return;
+
+    let disposed = false;
+    return observeNativeControlFrame(nativeModeSlotRef.current, (frame) => {
+      nativeModeFrameRef.current = frame;
+      void configureNativeModeControl(frame)
+        .then(({ active }) => {
+          if (!disposed) setNativeModeReady(active);
+        })
+        .catch(() => {
+          if (!disposed) setNativeModeReady(false);
+        });
+    });
+  }, [
+    nativeWebOverlayOpen,
+    state.mode,
+    state.settings.flow,
+    surface.blocksTimerControls,
+    surface.owner,
+    tinyMinutes,
+  ]);
+
   const workSessionOpen =
     Boolean(isFlow ? state.openFlow : state.openFocus) &&
     (state.mode === 'focus' || state.mode === 'tiny' || state.mode === 'flow') &&
@@ -505,7 +620,7 @@ export function FocusScreen({
 
   return (
     <main
-      className={`screen focus-bg${freshWorkStart ? ' prestart-scroll' : ''}`}
+      className={`screen focus-bg${freshWorkStart ? ' prestart-scroll' : ''}${nativeModeReady ? ' native-mode-control' : ''}`}
       id="focus-screen"
       aria-labelledby="focus-heading"
     >
@@ -558,7 +673,10 @@ export function FocusScreen({
         </div>
       </div>
 
-      <div className="tabs">
+      <div
+        ref={nativeModeSlotRef}
+        className={`tabs${nativeModeReady ? ' native-segment-slot-ready' : ''}`}
+      >
         <div
           className="tabs-pill"
           style={{ width: pillW, transform: `translateX(${idx * 100}%)` }}

@@ -2605,6 +2605,29 @@ button.foundation-dot {
   transition: opacity 0.15s;
 }
 
+/* PLAN 13.2: the iOS wrapper overlays a real UIKit tab bar. This is clearance
+   for touchable web content, not a visual imitation of Apple's material. The
+   sky/content canvas still extends beneath the transparent native layer. */
+.phone.native-ios-tabs .screen {
+  padding-bottom: max(76px, calc(50px + env(safe-area-inset-bottom)));
+}
+
+/* UIKit is drawing these controls above the web view. The hidden elements
+   retain their measured layout slot and remain the browser/Android fallback;
+   iOS gets native segmented-control semantics and system rendering instead. */
+.native-segment-slot-ready {
+  visibility: hidden;
+}
+
+/* iOS WebKit treats a tapped text input as :focus-visible and was drawing the
+   desktop keyboard-focus outline shown in the reported screenshot. The field
+   keeps its focused border change, but the oversized outer ring is reserved
+   for browser/keyboard navigation where it carries useful modality context. */
+.native-mode-control .intention-input:focus-visible {
+  outline: none !important;
+  outline-offset: 0;
+}
+
 /* ---------- sky moods ----------
    One gradient layer per timer mode sits at the very back of .phone (below
    the animated sun/moon canvas); the active mode's layer fades in over 2.5s
@@ -4902,6 +4925,53 @@ body.night {
   .ring-wrap { --ring-scale: 0.56; }
   .readout-time { font-size: 36px; }
   .now-chip { margin-bottom: 4px; }
+}
+
+/* PLAN 13.3: compact portrait phones keep the complete fresh-session path on
+   one screen. Decoration and whitespace yield first; every interactive target
+   remains at least 44px. Focusing an input restores scrolling so the software
+   keyboard can never trap the field below its resized visual viewport. */
+@media (min-height: 621px) and (max-height: 700px) and (orientation: portrait) {
+  .focus-bg.prestart-scroll:not(:focus-within) {
+    overflow-y: hidden;
+  }
+  .greeting-row { padding-block: 3px; }
+  .tabs { margin-top: 4px; }
+  .prestart-scroll .ring-wrap { --ring-scale: 0.58; margin-top: 4px; }
+  .readout { margin-top: 3px; padding-block: 3px 5px; }
+  .readout-time { font-size: 40px; }
+  .prestart-stack { margin-top: 4px; padding-block: 6px; }
+  .prestart-stack .now-chip { padding-block: 4px; }
+  .prestart-target { margin-top: 4px; }
+  .prestart-target > span { margin-bottom: 2px; }
+  .prestart-prep { margin-top: 0; }
+  .prestart-prep .ifthen-ask,
+  .prestart-prep .ifthen-bar,
+  .prestart-prep .ifthen-panel { margin-top: 2px; }
+  .prestart-scroll .controls { margin-top: 4px; }
+  .ctrl-play { width: 60px; height: 60px; }
+}
+
+@media (min-height: 821px) and (max-height: 850px) and (orientation: portrait) {
+  .focus-bg.prestart-scroll:not(:focus-within) { overflow-y: hidden; }
+  .ring-wrap { margin-top: 12px; }
+  .prestart-stack { margin-top: 6px; }
+  .controls { margin-top: 8px; }
+}
+
+@media (min-height: 851px) and (max-height: 900px) and (orientation: portrait) {
+  .focus-bg.prestart-scroll:not(:focus-within) { overflow-y: hidden; }
+  .prestart-stack { margin-top: 8px; }
+  .controls { margin-top: 12px; }
+}
+
+/* A notched native viewport contributes roughly 50pt more top safe area than
+   the browser matrix. Recover that space from the decorative ring and gaps so
+   the transport row clears the floating UIKit tab rail. */
+@media (min-height: 701px) and (max-height: 900px) and (orientation: portrait) {
+  .phone.native-ios-tabs .ring-wrap { --ring-scale: 0.82; margin-top: 6px; }
+  .phone.native-ios-tabs .prestart-stack { margin-top: 5px; }
+  .phone.native-ios-tabs .controls { margin-top: 6px; }
 }
 
 /* PLAN 8.9: honor both contrast preference APIs. State remains visible via
