@@ -7,7 +7,11 @@ It runs entirely on your device.
 the native iOS wrapper all build and run.
 
 **Where it's going:** a real native app on **iOS and Android**, shipped publicly — not a web page in
-a shell. Browser and PWA are development and testing surfaces, not release targets.
+a shell. The approach is to keep the single React core and deepen the native layer around it, the
+way the native tab bar and segmented rails already do. Not a rewrite.
+
+The **web build stays** as a demo and landing surface (https://bloom-pomodoro.pages.dev), auto-deployed
+from `main`. It is not a release target, and it should never constrain a native decision.
 
 The detailed history of how Bloom got here — 73 completed build steps with their evidence, citations
 and verification notes — is archived in [`docs/archive/plan-2026.md`](docs/archive/plan-2026.md).
@@ -15,7 +19,31 @@ Step numbers below (`7.2`, `13.4`, …) cross-reference that archive.
 
 ---
 
-## Now — before a public release
+## Now — make it stop feeling like a web app
+
+The goal is for Bloom to read as a real app on iOS and Android. Before rewriting anything, fix the
+concrete tells — these are what people actually perceive as "web app", and they are cheap. A static
+pass over `src/styles.css` and `index.html` on August 3, 2026 found:
+
+- **No `-webkit-tap-highlight-color` anywhere.** Every tap in the WebView paints the default
+  translucent grey rectangle over the target. This is the single most recognizable web-app tell and
+  it fires on every button in the app.
+- **No `user-select: none` anywhere.** Long-pressing the timer readout, a label, or a task name
+  starts a text selection and raises the iOS selection magnifier and Copy/Look Up bar. Native apps
+  don't do this outside text fields.
+- **No `-webkit-touch-callout: none`.** Long-pressing the pet canvas or any image offers the
+  "Save Image / Copy" sheet.
+- **`touch-action: manipulation` appears once** (line 4742). Everywhere else, controls can still
+  carry double-tap-to-zoom and its associated tap delay.
+
+Already handled correctly, for reference: `overscroll-behavior` (7 uses, so no rubber-band chaining),
+`safe-area-inset` (16 uses), `100vh`/`100dvh` fallback pairs, and `viewport-fit=cover`.
+
+Beyond CSS, judge on device: scroll momentum and deceleration, keyboard avoidance, and whether
+screen transitions animate the way the platform's do. Verify on a real phone, not a simulator —
+the tap highlight and selection behaviors are exactly what a desktop browser will not show you.
+
+## Then — before a public release
 
 - **Local-only privacy audit** (`7.2`) — grep source and built bundles for `fetch`,
   `XMLHttpRequest`, `WebSocket` and external URLs; smoke a production build and confirm zero
