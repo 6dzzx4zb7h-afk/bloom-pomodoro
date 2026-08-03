@@ -87,6 +87,9 @@ export function FocusScreen({
   const [woopOpen, setWoopOpen] = useState(false);
   const [targetDraft, setTargetDraft] = useState('');
   const [nativeModeReady, setNativeModeReady] = useState(false);
+  // PLAN 13.10: the room UIKit reported it needs for the rail. The slot grows
+  // to match so the system is never handed a frame that clips its own labels.
+  const [nativeModeHeight, setNativeModeHeight] = useState(0);
   const [nativeWebOverlayOpen, setNativeWebOverlayOpen] = useState(false);
   const [parkingDeferred, setParkingDeferred] = useState(false);
   const [dayTargetIndex, setDayTargetIndex] = useState(0);
@@ -468,7 +471,7 @@ export function FocusScreen({
   }, []);
 
   const configureNativeModeControl = (frame = nativeModeFrameRef.current) => {
-    if (!frame) return Promise.resolve({ active: false });
+    if (!frame) return Promise.resolve({ active: false, height: 0 });
     return configureNativeIOSSegment({
       kind: 'focusModes',
       items: modes.map((modeOption) => ({
@@ -534,8 +537,14 @@ export function FocusScreen({
     return observeNativeControlFrame(nativeModeSlotRef.current, (frame) => {
       nativeModeFrameRef.current = frame;
       void configureNativeModeControl(frame)
-        .then(({ active }) => {
-          if (!disposed) setNativeModeReady(active);
+        .then(({ active, height }) => {
+          if (disposed) return;
+          setNativeModeReady(active);
+          // Converges: once the slot is at least as tall as the system needs,
+          // the reported height equals the slot's own height and stops moving.
+          setNativeModeHeight((current) =>
+            Math.abs(height - current) > 0.5 ? height : current,
+          );
         })
         .catch(() => {
           if (!disposed) setNativeModeReady(false);
@@ -676,6 +685,11 @@ export function FocusScreen({
       <div
         ref={nativeModeSlotRef}
         className={`tabs${nativeModeReady ? ' native-segment-slot-ready' : ''}`}
+        style={
+          nativeModeReady && nativeModeHeight > 0
+            ? { minHeight: `${Math.ceil(nativeModeHeight)}px` }
+            : undefined
+        }
       >
         <div
           className="tabs-pill"

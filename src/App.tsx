@@ -20,6 +20,7 @@ import {
   isNativeTabScreen,
   listenForNativeIOSTabSelection,
 } from './native/iosTabs';
+import { isNativeAppIconPlatform, selectNativeAppIcon } from './native/iosAppIcon';
 
 export default function App() {
   const bloom = useBloom();
@@ -37,6 +38,7 @@ export default function App() {
   });
 
   const needsName = !bloom.state.settings.name.trim();
+  const pal = bloom.state.settings.pal;
   const night = bloom.state.settings.night;
   const mode = bloom.state.mode;
   const showGoals = bloom.state.settings.planner;
@@ -157,6 +159,27 @@ export default function App() {
       disposed = true;
     };
   }, [focusOverlayOpen, needsName, night, screen, showGoals]);
+
+  // PLAN 13.9: the iOS home-screen icon shows whoever is on duty. The store
+  // stays the authority; this only mirrors its choice onto the app icon.
+  useEffect(() => {
+    if (!isNativeAppIconPlatform()) return;
+
+    let disposed = false;
+    const reconcile = () => {
+      if (disposed || document.visibilityState !== 'visible') return;
+      void selectNativeAppIcon(pal);
+    };
+
+    reconcile();
+    // iOS refuses an icon change while the app is in the background, so try
+    // again the next time Bloom comes forward.
+    document.addEventListener('visibilitychange', reconcile);
+    return () => {
+      disposed = true;
+      document.removeEventListener('visibilitychange', reconcile);
+    };
+  }, [pal]);
 
   // Flow and Tiny Start share Focus's sky mood — both are working modes.
   const skyMode = mode === 'flow' || mode === 'tiny' ? 'focus' : mode;

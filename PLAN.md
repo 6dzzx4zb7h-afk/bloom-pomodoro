@@ -1536,6 +1536,75 @@ Open-step gates, stated plainly: **9.2**'s `dayKeyFor` is load-bearing for every
   default; airplane-mode, background, simulator/device, lifecycle, test, and build checks pass.
 - **Depends on:** 7.4, 8.3, 8.4, 13.1.
 
+### - [x] 13.9 An app icon for each friend, following whoever is on duty
+
+- **Goal:** Give every friend their own iOS app icon and put the on-duty friend on the home screen.
+  Mochi the bunny is the primary icon, so the other five ship as bundled alternates. Draw each icon
+  from the same sprite grid the app renders, so a friend's home-screen face and their in-app face
+  cannot drift. The reducer stays the authority on who is on duty; the bridge only mirrors that
+  choice. Web and Android keep the blossom mark — neither platform can swap a launcher icon at
+  runtime without relaunching the app.
+- **Science:** n/a — platform icon capability and visual identity.
+- **Quality:** `docs/product-quality.md` — Local-first and offline behavior; Privacy and security;
+  Error prevention and recovery; Build and release reproducibility; integration and device testing.
+- **Files:** `src/engine/spriteData.ts`, `src/engine/pixelpals.ts`, `src/data/friends.ts`,
+  `scripts/gen-icons.mjs`, `ios/App/App/Assets.xcassets/AppIcon*.appiconset`,
+  `ios/App/App/BloomAppIconPlugin.swift`, `ios/App/App/BloomBridgeViewController.swift`,
+  `ios/App/App.xcodeproj/project.pbxproj`, `src/native/iosAppIcon.ts`, `src/App.tsx`, focused tests.
+- **Done when:** Every friend has a generated 1024px icon set and each alternate is declared to the
+  app target in both build configurations; a Release build emits `CFBundleAlternateIcons` for all
+  five alternates and passes store validation; choosing a friend changes the home-screen icon and
+  choosing Mochi restores the primary one; re-selecting the friend already shown asks iOS for no
+  change, so no redundant system alert appears; icons carry no alpha channel; the change makes no
+  network request and stays a quiet no-op on web, Android, and any system without alternate icons;
+  test, build, Capacitor sync, and Simulator checks pass.
+- **Depends on:** 13.1.
+- **Closed (August 2026):** Extracted the sprite grids into a dependency-free `spriteData.ts` that
+  both the app and the icon generator read, so the six icons are drawn from the shipped art rather
+  than redrawn by hand. `gen-icons.mjs` now writes one appiconset per friend — their own gradient, a
+  soft blossom watermark, and their sprite at whole-pixel cell sizes — flattened to drop the alpha
+  channel. `BloomAppIconPlugin` mirrors `settings.pal` onto `setAlternateIconName`, skipping the
+  call when the requested icon is already showing and resolving quietly when iOS refuses (which it
+  does while backgrounded); `App.tsx` reconciles on mount and on each return to the foreground. A
+  Release build for the iPhone 17 Pro Simulator passed `-validate-for-store` and emitted all five
+  alternates plus their loose icon files; on the running Simulator the icon followed Snappy → Luna →
+  Mochi, including the primary-icon path, and survived a device reboot. `npm test` (52 files, 518
+  tests) plus two new native suites, `npm run build`, `npx cap sync ios`, and `git diff --check`
+  passed. Alternate icons are iOS-only: Android and the PWA keep the blossom mark.
+
+### - [x] 13.10 Icon appearances, and stop cropping the native mode rail
+
+- **Goal:** Two fixes to what iOS draws for Bloom. First, give every friend icon the dark and tinted
+  appearances iOS composites against its own backdrop, so a dark home screen no longer shows a bright
+  pastel tile punched through it. Second, stop handing the native mode rail a frame shorter than its
+  own layout needs — `sizeThatFits` on a `UITabBar` reserves the bottom safe-area inset because a tab
+  bar normally sits at the screen's bottom edge, and this rail floats mid-screen.
+- **Science:** n/a — platform icon appearances and native control metrics.
+- **Quality:** `docs/product-quality.md` — Accessibility and semantics; Reduced motion/transparency/
+  contrast; Error prevention and recovery; integration and device testing.
+- **Files:** `scripts/gen-icons.mjs`, `ios/App/App/Assets.xcassets/AppIcon*.appiconset`,
+  `ios/App/App/BloomBridgeViewController.swift`, `src/native/iosTabs.ts`,
+  `src/screens/FocusScreen.tsx`, focused tests.
+- **Done when:** Every icon set compiles with light, dark, and tinted art and the dark/tinted images
+  carry no background; the rail's frame is the height UIKit reports minus the safe-area inset, never
+  a fixed ceiling; that height is reported back so the web slot reserves the same room and converges
+  in one step; a rail that cannot be placed reports inactive so the accessible web rail returns;
+  test, build, Capacitor sync, and Simulator checks pass.
+- **Depends on:** 13.3, 13.9.
+- **Closed (August 2026):** Instrumenting the bridge on an iPhone 13 mini Simulator showed the web
+  slot asking for 52pt while `sizeThatFits` reported 83pt — 49pt of items plus the 34pt home-indicator
+  inset. The old `min(systemHeight, 58)` therefore clamped every modern iPhone, and once a device's
+  items needed more than 58pt they were laid out for a taller bar and then cropped: labels cut off
+  along the bottom edge with the selection lens floating above them, as reported from TestFlight.
+  The bridge now subtracts the safe-area inset (49pt on that device), never caps the result, and
+  returns the height it used; `FocusScreen` reserves it on the slot and the exchange converges in one
+  round. For icons, `actool` accepts only `luminosity: dark` and `luminosity: tinted` — it silently
+  drops any other appearance value, including `clear`, so the iOS 26 Clear/Liquid Glass treatment
+  would need an Icon Composer `.icon` bundle and is not attempted here. A Release build compiled
+  `UIAppearanceDark` and `ISAppearanceTintable` for all six sets. `npm test` (52 files, 518 tests),
+  `npm run build`, `npx cap sync ios`, an Xcode Release Simulator build, live rail inspection, and
+  `git diff --check` passed.
+
 ## Step dependency sketch
 
 ```

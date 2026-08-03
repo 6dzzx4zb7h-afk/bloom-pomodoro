@@ -56,6 +56,7 @@ final class BloomBridgeViewController: CAPBridgeViewController, UITabBarDelegate
     private let bloomSegmentTabBar = UITabBar()
     private let bloomSegmentedControl = UISegmentedControl()
     private let navigationPlugin = BloomNavigationPlugin()
+    private let appIconPlugin = BloomAppIconPlugin()
     private var visibleTabs: [BloomTab] = []
     private var segmentKind: String?
     private var segmentItems: [BloomSegmentItem] = []
@@ -66,6 +67,7 @@ final class BloomBridgeViewController: CAPBridgeViewController, UITabBarDelegate
 
         navigationPlugin.tabsController = self
         bridge?.registerPluginInstance(navigationPlugin)
+        bridge?.registerPluginInstance(appIconPlugin)
         installNativeTabBar()
         installNativeSegmentedControl()
     }
@@ -173,7 +175,10 @@ final class BloomBridgeViewController: CAPBridgeViewController, UITabBarDelegate
         updateTabBarHeight()
     }
 
-    fileprivate func applySegmentConfiguration(_ configuration: BloomSegmentConfiguration) {
+    /// Returns the height the native control actually occupies, or nil when no
+    /// native control could be placed — the caller reports that back so the web
+    /// rail returns as the visible, accessible fallback (PLAN 13.10).
+    fileprivate func applySegmentConfiguration(_ configuration: BloomSegmentConfiguration) -> CGFloat? {
         let requestedFrame = CGRect(
             x: configuration.frame.x,
             y: configuration.frame.y,
@@ -190,7 +195,7 @@ final class BloomBridgeViewController: CAPBridgeViewController, UITabBarDelegate
         else {
             bloomSegmentedControl.isHidden = true
             bloomSegmentTabBar.isHidden = true
-            return
+            return nil
         }
 
         if #available(iOS 26.0, *) {
@@ -223,13 +228,24 @@ final class BloomBridgeViewController: CAPBridgeViewController, UITabBarDelegate
             bloomSegmentTabBar.isUserInteractionEnabled = configuration.enabled
             bloomSegmentTabBar.alpha = configuration.enabled ? 1 : 0.55
 
-            let systemHeight = bloomSegmentTabBar.sizeThatFits(
+            // PLAN 13.10: `sizeThatFits` on a UITabBar reserves the bottom
+            // safe-area inset, because a tab bar normally sits at the very
+            // bottom of the screen. This rail floats mid-screen, so that inset
+            // is dead space — subtract it to get the height the items really
+            // need. The old code instead clamped the whole thing to 58pt, which
+            // holds only while the system wants less. Once a larger text size
+            // pushed the items past 58 they were laid out for a taller bar and
+            // then cropped: labels cut off along the bottom edge with the
+            // selection lens floating above them. Take what UIKit asks for and
+            // report it back so the web slot reserves the same room.
+            let fittedHeight = bloomSegmentTabBar.sizeThatFits(
                 CGSize(
                     width: requestedFrame.width,
                     height: UIView.layoutFittingCompressedSize.height
                 )
             ).height
-            let controlHeight = max(requestedFrame.height, min(systemHeight, 58))
+            let systemHeight = max(0, fittedHeight - view.safeAreaInsets.bottom)
+            let controlHeight = max(requestedFrame.height, systemHeight)
             let controlFrame = CGRect(
                 x: requestedFrame.minX,
                 y: requestedFrame.midY - controlHeight / 2,
@@ -241,7 +257,7 @@ final class BloomBridgeViewController: CAPBridgeViewController, UITabBarDelegate
             if configuration.visible {
                 view.bringSubviewToFront(bloomSegmentTabBar)
             }
-            return
+            return controlHeight
         }
 
         let identifiersChanged =
@@ -269,11 +285,14 @@ final class BloomBridgeViewController: CAPBridgeViewController, UITabBarDelegate
         }
         bloomSegmentedControl.isEnabled = configuration.enabled
 
+        // Pre-iOS-26 `UISegmentedControl` sizes itself to the slot it is given,
+        // so the web layout already reserves the right room.
         bloomSegmentedControl.frame = requestedFrame.intersection(view.bounds)
         bloomSegmentedControl.isHidden = !configuration.visible
         if configuration.visible {
             view.bringSubviewToFront(bloomSegmentedControl)
         }
+        return requestedFrame.height
     }
 
     func hideSegmentedControl(kind: String) {
@@ -354,8 +373,14 @@ final class BloomNavigationPlugin: CAPPlugin, CAPBridgedPlugin {
         do {
             let configuration = try call.decode(BloomSegmentConfiguration.self)
             DispatchQueue.main.async {
-                tabsController.applySegmentConfiguration(configuration)
-                call.resolve(["active": true])
+                // A nil height means no native control could be placed, so the
+                // web rail has to come back rather than leaving the screen with
+                // no mode control at all (PLAN 13.10).
+                guard let height = tabsController.applySegmentConfiguration(configuration) else {
+                    call.resolve(["active": false, "height": 0])
+                    return
+                }
+                call.resolve(["active": true, "height": height])
             }
         } catch {
             call.reject("Invalid native segmented-control configuration", nil, error)

@@ -45,9 +45,20 @@ interface NativeSegmentSelection {
   value: string;
 }
 
+/**
+ * `height` is the room UIKit actually took for the control (PLAN 13.10). The
+ * web slot reserves it so the system can never be handed a frame shorter than
+ * its own layout needs — that clipped the rail's labels on devices whose text
+ * size or iOS version asked for more than the old hard-coded ceiling.
+ */
+export interface NativeSegmentResult {
+  active: boolean;
+  height: number;
+}
+
 interface BloomNavigationPlugin {
   configure(options: NativeTabConfiguration): Promise<{ active: boolean }>;
-  configureSegment(options: NativeSegmentConfiguration): Promise<{ active: boolean }>;
+  configureSegment(options: NativeSegmentConfiguration): Promise<NativeSegmentResult>;
   hideSegment(options: { kind: NativeSegmentKind }): Promise<void>;
   addListener(
     eventName: 'tabSelected',
@@ -91,7 +102,7 @@ export function listenForNativeIOSTabSelection(
 
 export function configureNativeIOSSegment(
   configuration: NativeSegmentConfiguration,
-): Promise<{ active: boolean }> {
+): Promise<NativeSegmentResult> {
   return bloomNavigation.configureSegment(configuration);
 }
 
