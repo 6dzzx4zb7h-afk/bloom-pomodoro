@@ -1,6 +1,6 @@
 # Bloom voice & copy guardrails
 
-*Every user-facing string added by PLAN.md steps must pass this page (plan step 0.2). This page owns
+*Every user-facing string must pass this page. This page owns
 voice and copy; [science.md](science.md) owns behavioral evidence and scientific claims, and
 [product-quality.md](product-quality.md) owns semantics, usability, accessibility, operational
 states, privacy, security, reliability, performance, and testing.*

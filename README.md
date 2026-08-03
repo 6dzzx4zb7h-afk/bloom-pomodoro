@@ -12,10 +12,14 @@ accessibility, privacy, security, reliability, performance, and engineering qual
 [docs/product-quality.md](docs/product-quality.md). Non-behavioral work may correctly state
 `Science: n/a` instead of inventing a behavioral rationale.
 
-**Roadmap:** optional account-based cross-device sync is the first planned network feature. Bloom
-will remain local-only by default; no account is required, the complete core stays offline-capable,
-and local-only sends no user data. Any later network feature needs its own plan step, explicit opt-in,
-endpoint/data inventory, local-only regression, and pause/export/deletion semantics.
+**Local-only, permanently.** Bloom makes no application-data requests and sends no user data. There
+is no account, no tracking, no telemetry, no CDN, and no remote runtime assets — everything bundles
+and the whole app works offline. Cross-device sync was planned and then deliberately dropped; use
+the built-in data export/import to move between devices.
+
+**Roadmap:** [ROADMAP.md](ROADMAP.md) — short, and honest about what was dropped. The retired
+93-step build plan is archived at [docs/archive/plan-2026.md](docs/archive/plan-2026.md); it's still
+the best explanation of why Bloom is shaped the way it is.
 
 Built with **Vite + React + TypeScript** — the current pixel-pal engine is Canvas 2D, and every
 animal is procedurally drawn from sprite data. Runtime assets such as fonts, images, and audio may
@@ -160,14 +164,23 @@ src/
     FocusScreen.tsx          # countdown modes + the opt-in flow stopwatch
     TasksScreen.tsx          # tasks + focus patterns + the attention recipe
     GoalsScreen.tsx          # opt-in deadline planner with pace insights
+    HistoryScreen.tsx        # calm per-day ledger of past sessions and completions
     CollectionScreen.tsx     # all friends, each with a level + XP bar
+  insights/                  # pure analysis over session records (why, weekly, cadence, triggers)
+  native/                    # typed two-way bridge to the native iOS tab bar and rails
   store/useBloom.ts          # state, wall-clock timer, versioned persistence
   store/companion.ts         # companion event log, insights + attention-recipe math
   store/useCompanion.ts      # live check-in scheduling / tab-away detection
   store/goals.ts             # goal types + deadline pace math
+  store/dailyTarget.ts       # optional per-day targets, planned vs actual
+  store/foundations.ts       # optional daily habit chips
+  store/historyArchive.ts    # compacts records past the 500-session cap instead of dropping them
+  store/sessionRepair.ts     # clamped fixes to wrong records — never re-grants XP or streak
+  store/exportImport.ts      # local data export / import
   styles.css                 # design tokens + screen styles
 scripts/gen-icons.mjs        # generates web + Android/iOS native art (sharp)
 android/                     # Capacitor native Android project
 ios/                         # Capacitor native iOS project (Swift Package Manager)
+docs/archive/plan-2026.md    # the retired 93-step build plan, kept for its reasoning
 capacitor.config.ts          # Capacitor config (appId dev.bloom.pomodoro)
 ```

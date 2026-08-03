@@ -1,5 +1,5 @@
 <!-- docs/science.md — source of truth for Bloom's behavioral evidence and scientific claims.
-     PLAN.md steps cite the anchors: #starting #staying #recovering #measurement
+     Cite the anchors: #starting #staying #recovering #measurement
      #measurement-integrity #feature-ranking #article-briefs #do-not-build
      Derived from "Science of Focus for Bloom" (corrected version, July 2026). -->
 
