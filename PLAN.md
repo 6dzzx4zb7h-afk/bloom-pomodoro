@@ -1480,23 +1480,98 @@ Open-step gates, stated plainly: **9.2**'s `dayKeyFor` is load-bearing for every
   install/launch/interaction, and `git diff --check` pass. The wider physical-device, iPad, iOS 27,
   Dynamic Type, and assistive-technology matrix remains in 13.6.
 
-### - [ ] 13.4b Complete the native iOS Settings sheet and remaining form inputs
+### - [x] 13.4b Present Settings natively from a React-owned form snapshot
 
-- **Goal:** Present Settings through a native sheet/Form and migrate durations, segmented choices,
-  pickers, text fields, permission/recovery states, and safe import/export/destructive operations to
-  their appropriate native equivalents. Reuse the validated control bridge from 13.4a without
-  duplicating persistence or weakening import/migration rules; retain the complete web Settings
-  implementation for browser and Android.
+- **Goal:** Give iOS a real Settings sheet — a native presentation containing a native form — without
+  duplicating Bloom's copy, product logic, or persistence in Swift. React stays the single source of
+  truth and emits a typed, validated *form snapshot* (sections of typed rows); the native layer is a
+  generic renderer with no product knowledge that returns typed actions. This is the seam 13.14
+  established was necessary: controls inside a scrolling web sheet cannot be native overlays, so the
+  whole sheet has to become native at once. Cover the sections that are plain control rows — You,
+  Sessions, Your day, Companion, Appearance. Timer lengths and Your data become native disclosure
+  rows that open the existing web sheet scoped to that one section, so no control is lost while
+  13.4c and 13.4d migrate them. Browser and Android keep the complete web sheet untouched.
 - **Science:** n/a — native platform controls, accessibility, and state integrity.
 - **Quality:** `docs/product-quality.md` — Accessibility and semantics; Error prevention and
-  recovery; Architecture changes; Privacy and security; migration/integration testing.
-- **Files:** native Settings presentation/views, typed snapshot/action bridge, `SettingsSheet.tsx`,
-  store action seam/tests, voice and migration fixtures only if the persisted shape changes.
-- **Done when:** Every remaining Settings control has a native semantic equivalent on iOS, including
-  loading/error/permission states; all mutations still flow through the reducer; VoiceOver,
-  keyboard, Dynamic Type, Reduced Motion/Transparency, day/night, cancellation, import/export, and
-  migration coverage pass with no duplicate web sheet.
-- **Depends on:** 13.4a.
+  recovery; Architecture changes; Privacy and security; integration testing.
+- **Files:** `src/native/iosSettings.ts`, native Settings presentation/form views,
+  `src/components/SettingsSheet.tsx`, focused tests, `docs/ios-liquid-glass.md`.
+- **Done when:** iOS presents one native Settings sheet and never a duplicate web sheet behind it;
+  every listed section's controls are native and semantically correct; all mutations still flow
+  through the reducer exactly once; malformed snapshots and stale actions cannot cross the bridge or
+  mutate state; dismissing by button, swipe, or programmatic close all settle in the same state;
+  day/night follows the app; browser and Android are unchanged; test, build, Capacitor sync, and
+  Simulator checks pass.
+- **Depends on:** 13.4a, 13.14.
+- **Closed (August 2026):** 13.4b as originally written covered seven sections, roughly fifty
+  controls, and the import state machine; it was split into 13.4b/13.4c/13.4d before implementation
+  so the riskiest data paths land last. The seam avoids a second copy of Settings in Swift: React
+  emits a validated snapshot of typed rows and `BloomSettingsPlugin` renders it as a generic SwiftUI
+  `Form` with no product knowledge, so every string still lives under `docs/voice.md` and a new
+  setting needs no Swift change. Steppers are real `UIStepper` views because SwiftUI's `Stepper`
+  cannot disable one arrow at a time. Two findings are recorded in `docs/ios-liquid-glass.md`: the
+  sheet carries an explicit `appearance` rather than inheriting the system theme, after it rendered
+  dark over a day-sky app on a dark-mode device; and booleans cross as a string-encoded `checked`
+  key, after a Swift `Bool` in a `JSObject` failed to arrive as a JavaScript boolean and made every
+  native switch a silent no-op while string-valued controls worked. Verified on an iPhone 13 Pro Max
+  iOS 26.5 Simulator: one native sheet with no web sheet behind it; native text field, segmented
+  control, menu picker, switches, steppers, notes, and disclosure rows; conditional rows appearing
+  as React re-sends the snapshot; actions reaching the reducer and persisting; the scoped web detail
+  opening and returning; and the sheet following Bloom's night mode. One known loss: the pet's wave
+  when Companion mode turns on has no native equivalent yet. `npm test` (62 files, 601 tests),
+  `npm run build`, `npx cap sync ios`, and an Xcode 26.6 Simulator build pass. Physical-device,
+  VoiceOver, and Dynamic Type coverage stays with 13.6.
+
+### - [x] 13.4c Render Timer lengths natively
+
+- **Goal:** Move the cadence surface into the native form: the learned-cadence card with its
+  reasoning line and three rungs, the one-tap history, the manual preset grid, and the three duration
+  steppers. Extend the 13.4b row vocabulary rather than teaching Swift what a cadence is — the
+  recommendation, its copy, and its staleness rule stay in `insights/cadence.ts`.
+- **Science:** the cadence card's claims already trace to `docs/science.md`; this step moves
+  presentation only and must not restate or strengthen them.
+- **Quality:** `docs/product-quality.md` — Accessibility and semantics; UX/UI correctness;
+  integration testing.
+- **Files:** `src/native/iosSettings.ts`, native form row views, `src/components/SettingsSheet.tsx`,
+  focused tests.
+- **Done when:** The Timer lengths disclosure row is gone and the section renders natively; applying
+  a preset, a history rung, or the recommendation still routes through `onApplyCadence`; the
+  already-set state is conveyed without relying on the ♡ glyph alone; steppers respect their min,
+  max, and step; VoiceOver announces each rung and preset as the web version does.
+- **Depends on:** 13.4b.
+- **Closed (August 2026):** The section needed two additions to the 13.4b vocabulary, both small
+  and both reusable. A `values` row shows read-only figures side by side and carries a spoken label
+  per item, so VoiceOver announces "shorter: 20 minutes focus, 4 minutes break" instead of reading
+  "20 slash 4" out of a run-together sentence. And `selected` may now be empty, because the preset
+  control genuinely has no selection when the user's own lengths match no pair — the same state the
+  web grid showed by pressing none of them. `insights/cadence.ts` is untouched: the recommendation,
+  its reasoning line, its rungs, and its staleness rule all still come from there. The already-set
+  cadence is conveyed by disabling the apply row rather than by the ♡ alone. Verified on an iPhone
+  13 Pro Max iOS 26.5 Simulator: the learned card, ladder, disabled apply row, preset segmented
+  control, and three `UIStepper` rows all render; choosing 40/8 applied the cadence, recomputed the
+  ladder, re-enabled "try 25/5 ♡", and made Previous rungs appear as 25/5 entered history; stepping
+  Focus to 45 min left the preset control correctly showing nothing selected. `npm test` (63 files,
+  609 tests), `npm run build`, `npx cap sync ios`, and an Xcode 26.6 Simulator build pass.
+
+### - [ ] 13.4d Run Your data through native document, share, and alert presentations
+
+- **Goal:** Migrate the highest-risk section last: JSON/CSV export through a share sheet, import
+  through `UIDocumentPickerViewController`, the read/prepare/save state machine with its cancel and
+  recovery paths, and clearing focus data behind a native destructive confirmation. Persistence,
+  parsing, merging, and migration stay exactly where they are — the native layer only picks files,
+  presents progress and outcomes, and confirms destructive intent.
+- **Science:** n/a — data stewardship and platform presentations.
+- **Quality:** `docs/product-quality.md` — Error prevention and recovery; Privacy and security;
+  Architecture changes; migration/integration testing.
+- **Files:** native document/share/alert presentations, `src/native/iosSettings.ts`,
+  `src/components/SettingsSheet.tsx`, `src/store/exportImport.ts` seam only if required, focused and
+  migration tests.
+- **Done when:** The Your data disclosure row is gone; export produces the same bytes as the web
+  path; import runs the same parse/prepare/commit path with cancellation, storage-failure recovery,
+  and the safety backup intact; a destructive clear cannot happen without explicit native
+  confirmation; no user data reaches any file or presentation the user did not choose; migration and
+  import fixtures pass unchanged.
+- **Depends on:** 13.4b, 9.x data-stewardship steps that touch the same fixtures.
 
 ### - [ ] 13.5 Adopt native iOS presentations and selectively glass remaining chrome
 
@@ -1727,6 +1802,157 @@ Open-step gates, stated plainly: **9.2**'s `dayKeyFor` is load-bearing for every
   Simulator compilation, physical-device locked/Silent/Focus checks, and `git diff --check` pass.
 - **Depends on:** 7.4, 8.4, 13.1, 13.8, 13.11.
 
+### - [x] 13.13 Draw the upper rails with the control that fits a mid-screen slot
+
+- **Goal:** Stop rendering the Focus mode rail and the Friends/Field Guide rail with a standalone
+  `UITabBar`. On iOS 26 a tab bar draws itself as a floating capsule inset inside its own bounds and
+  reserves the bottom safe area, because a tab bar is a bottom-anchored, full-width control — placed
+  mid-screen it renders narrower than its measured slot and crops its own labels along the bottom
+  edge, which is what TestFlight devices show. Use `UISegmentedControl` on every iOS version: it is
+  the control Apple provides for exactly this job, it fills the frame it is given, and iOS 26 gives
+  it the same Liquid Glass sliding selection indicator. Keep the measured-slot bridge, the
+  reducer-authoritative selection, the exactly-once events, and the web/Android rails unchanged.
+- **Science:** n/a — native control metrics and platform-appropriate control selection.
+- **Quality:** `docs/product-quality.md` — UX/UI correctness; Accessibility and semantics; Error
+  prevention and recovery; integration and device testing.
+- **Files:** `ios/App/App/BloomBridgeViewController.swift`, `docs/ios-liquid-glass.md`, focused tests.
+- **Done when:** No standalone `UITabBar` remains outside the bottom navigation; the rail occupies
+  the full measured slot width with no label cropping at the default and larger system text sizes;
+  the height the control reports is the height the web slot reserves and the exchange still
+  converges in one round; an unplaceable rail still reports inactive so the accessible web rail
+  returns; mode and section changes still pass the transition guard exactly once; test, build,
+  Capacitor sync, and Simulator checks pass, with the physical-device check recorded.
+- **Depends on:** 13.3, 13.10.
+- **Closed (August 2026):** The reported TestFlight rail was both narrower than its slot and cropped
+  along the bottom of its labels — the signature of an iOS 26 `UITabBar` drawing its floating capsule
+  inset inside a mid-screen frame. 13.10 had treated the symptom as a metric to negotiate and
+  subtracted the root view's bottom safe-area inset from `sizeThatFits`; that measured correctly on
+  one Simulator and still shipped a crop to hardware, because what a detached tab bar bakes into that
+  number is not stable across position, iOS version, and text size. Both rails are now one
+  `UISegmentedControl` on every iOS version, which removed the second `UITabBar`, its delegate
+  branch, and the safe-area arithmetic entirely. The height handshake stays as a floor rather than a
+  correction. On an iPhone 13 Pro Max iOS 26.5 Simulator the mode rail renders full-slot-width with
+  all four labels intact, grows cleanly to five when Flow is enabled, keeps the Liquid Glass lens,
+  and is unchanged at the largest accessibility text size; selecting Short still passed the
+  transition guard and moved the reducer once. Friends/Field Guide renders the same way. `npm test`
+  (60 files, 574 tests), `npm run build`, `npx cap sync ios`, and an Xcode 26.6 Simulator build pass.
+  Physical-device confirmation stays with 13.6.
+
+### - [x] 13.14 Return the Settings and foundations switches to the web layer
+
+- **Goal:** Stop overlaying `UISwitch` instances on the web Settings sheet and daily-foundations
+  dialog. Both live in DOM scroll containers, and a native view positioned from JavaScript-measured
+  rects cannot track WKWebView scrolling: the scroll is composited off the main thread while the
+  frame updates arrive a frame or more later, so each switch visibly drifts out of its row. Render
+  the existing accessible web switch on iOS as it already ships on browser and Android, and remove
+  the `switch` kind from the auxiliary-control bridge so the pattern cannot return by accident. The
+  Settings glyph keeps its native `UIButton`: it sits in fixed header chrome, not in a scroller.
+  Real `UISwitch` semantics return with 13.4b's native Settings presentation, where the switches
+  live inside a UIKit sheet instead of on top of a scrolling web page.
+- **Science:** n/a — native/web composition limits and interaction quality.
+- **Quality:** `docs/product-quality.md` — UX/UI correctness; Accessibility and semantics;
+  Architecture changes; responsive/scroll lifecycle; integration testing.
+- **Files:** `src/components/SystemSwitch.tsx`, `src/native/iosTabs.ts`,
+  `ios/App/App/BloomBridgeViewController.swift`, focused tests, `docs/ios-liquid-glass.md`.
+- **Done when:** Every switch scrolls locked to its row on a physical iPhone; no `UISwitch` or
+  `switch` control kind remains in the bridge or the native controller; switch state, VoiceOver
+  switch semantics, disabled state, and reducer mutations are unchanged on every platform; no
+  orphaned native control survives an unmount; test, build, Capacitor sync, and Simulator checks
+  pass, with the physical-device scroll check recorded.
+- **Depends on:** 13.4a.
+- **Closed (August 2026):** 13.4a's `UISwitch` overlay could not have worked in a scrolling sheet:
+  WKWebView composites scrolling off the main thread while the JavaScript-measured frame arrives a
+  frame or more later, so each native switch trailed its row. `SystemSwitch` now renders only the
+  accessible web switch it already shipped on browser and Android, and the `switch` kind is gone from
+  both the TypeScript bridge and the controller, along with `BloomNativeSwitch` and its tint and
+  teardown paths. The Settings glyph keeps its native `UIButton` because it sits in fixed header
+  chrome. `nativeId` stays on the props as the stable control identity for 13.4b. On the iPhone 13
+  Pro Max iOS 26.5 Simulator every switch stayed locked to its row through a scroll — including one
+  clipping with its own row at the sheet's edge, which an overlay cannot do — and toggling Flow timer
+  still reached the reducer and added the Flow segment to the rail. Focused tests now prove the
+  bridge is never called; `npm test` (60 files, 574 tests), `npm run build`, `npx cap sync ios`, and
+  an Xcode 26.6 Simulator build pass. Physical-device confirmation stays with 13.6.
+
+### - [x] 13.15 Say what actually happens on a phone
+
+- **Goal:** Bloom's Companion notices when you leave and come back. The wording for that was written
+  for a browser tab, and it followed the app onto iPhone and iPad, where there are no tabs. Name the
+  event for the device it happened on, and — more importantly — stop handing a phone a suggestion it
+  cannot follow: "try fullscreen or a separate desktop for sessions" is not an available action
+  there. Keep one behavioural mechanism and one evidence trail; only the words change.
+- **Science:** the leave-and-return suggestion keeps its existing `docs/science.md` evidence key,
+  because the behaviour change it recommends — make leaving a real trip rather than one flick — is
+  the same on both surfaces. No new claim is introduced.
+- **Quality:** `docs/product-quality.md` — UX/UI correctness; `docs/voice.md` for every new string.
+- **Files:** `src/content/platformWords.ts`, `src/store/companion.ts`,
+  `src/components/SettingsSheet.tsx`, `src/screens/TasksScreen.tsx`, focused tests.
+- **Done when:** No user-visible string says "tab" on a Capacitor surface; the leave/return switch,
+  the Flow subtitle, the clear-history scope, the Focus Patterns count, and the attention suggestion
+  all read correctly on phone and in a browser; the suggestion's evidence key is unchanged; browser
+  wording is untouched; test and build pass.
+- **Depends on:** 13.4b.
+- **Closed (August 2026):** The reported worry was that leave/return could not be measured on a
+  phone. It can: `visibilitychange` fires when an iOS app backgrounds, and `useCompanion` measures
+  time away against the wall clock on return rather than running a timer while hidden, so the
+  feature is sound and only its vocabulary was wrong. `wordsFor(surface)` is a pure lookup and
+  `computeAttentionPlan` takes the surface alongside its existing context argument, so the insight
+  layer stays testable. On a Capacitor surface the switch reads "Notice when you leave", Flow is a
+  "mode" rather than a "tab", counts read "3 quiet moments away", and the suggestion offers setting
+  the phone down or turning on a Focus instead of fullscreen and a second desktop. A test asserts no
+  app-surface string contains "tab". `npm test` and `npm run build` pass. Still browser-worded and
+  left for a copy pass: the Field Guide's "distracting tabs closed" in `src/content/guide.ts`.
+
+### - [x] 13.16 Float the upper rail on real Liquid Glass
+
+- **Goal:** The mode rail is the correct control since 13.13, but a
+  `UISegmentedControl` draws its own opaque track, so sitting a few hundred points above the system
+  tab bar it read as flat plastic against the glass. Give it the real material — a `UIGlassEffect`
+  the rail floats on — without reintroducing 13.13's cropped labels, and without Bloom drawing any
+  material of its own.
+- **Science:** n/a — platform material and control appearance.
+- **Quality:** `docs/product-quality.md` — UX/UI correctness; Reduced motion/transparency/contrast
+  (the system adapts the effect, so no Bloom-drawn substitute may bypass it).
+- **Files:** `ios/App/App/BloomBridgeViewController.swift`, `docs/ios-liquid-glass.md`.
+- **Done when:** The rail renders the system glass material on iOS 26 and later and the selected
+  segment keeps its own indicator; labels are still uncropped at every text size; pre-iOS-26 is
+  unchanged; hiding, clearing, and re-showing the rail leaves nothing behind; build and Simulator
+  checks pass.
+- **Depends on:** 13.13.
+- **Closed (August 2026):** The rail is now a `UISegmentedControl` inside a `UIVisualEffectView`
+  carrying `UIGlassEffect`, with only the control's own `backgroundColor` cleared so the sky
+  refracts through. One wrong turn is worth recording: also blanking the control's `.normal`
+  background image cleared the *selected* segment's indicator too, so every mode looked identically
+  unselected — worse than the flat look being fixed. Clearing just the view's fill keeps the system
+  lens. Glass and control are hidden and fronted together, so no orphan survives a mode switch or a
+  modal. Verified on an iPhone 13 Pro Max iOS 26.5 Simulator: stars visible through the rail, the
+  selected capsule intact, labels uncropped, and the material matching the tab bar below it.
+- **Depends on:** 13.13.
+
+### - [x] 13.17 Fold optional session prep so the transport always fits
+
+- **Goal:** A fresh Focus screen stacked the task chip, the session target, the opening move, and the
+  environment reset above the transport controls, and with the ritual on the Start button slid under
+  the native tab bar. Keep the session target on the screen — naming one doable thing is the part
+  with a behaviour-change reason behind it — and fold the rest behind one row that opens in a tap.
+- **Science:** the session target stays visible precisely because `docs/science.md` supports
+  implementation-intention prompting; nothing that fold hides carries a stronger claim than the
+  target it keeps.
+- **Quality:** `docs/product-quality.md` — UX/UI correctness; Accessibility and semantics
+  (`aria-expanded`/`aria-controls`); responsive layout.
+- **Files:** `src/screens/FocusScreen.tsx`, `src/styles.css`, lifecycle test.
+- **Done when:** The collapsed state fits with the transport clear of the tab bar; the fold is a
+  labelled control with correct expanded state; a surface that takes the screen (WOOP) is never
+  hidden by it; the expanded state also fits, and scrolls where it cannot; the fresh-session
+  ordering test still proves task → target → prep → Start once expanded.
+- **Depends on:** 13.3, 13.13.
+- **Closed (August 2026):** Collapsed is the default and shows the chip, the target, and one
+  "a little more prep · optional" row. Expanding restores the previous content in the same order,
+  tightens its spacing, and scrolls if a shorter phone still needs it. WOOP forces the fold open so
+  it can never hide a surface that owns the screen. The lifecycle ordering test now taps the fold
+  first and additionally asserts the prep is absent before it does. Verified on an iPhone 13 Pro Max
+  iOS 26.5 Simulator with the ritual enabled — the state that produced the reported clipping — and
+  the transport is fully clear in both the collapsed and expanded states.
+
 ## Step dependency sketch
 
 ```
@@ -1746,7 +1972,7 @@ Phase 10: 10.1 ← (9.2, 1.1) → 10.2 ← (10.1, 8.12, 4.2, 9.2)  |  10.3 ← (
           10.7 ← (9.2, 5.4, 1.2) → 10.8 ← (8.3, 8.4, 5.1) → 10.9 ← (9.5, 5.4) → 10.10 ← (3.1, 3.2, 5.3)  |  10.11 ← (9.3, 9.4, 2.3, 10.1, 10.7, 7.1 fixtures)  |  10.12 last ← (10.2–10.11, 0.2)
 Phase 11: 11.1 ← (8.11, 9.4, synced release slices through 10.11) → 11.2 ← (7.1, 9.4, 10.11) → 11.3  |  11.4 ← (8.4, 11.1, 11.3)  |  11.5 ← (11.2–11.4, 8.15) → 11.6 ← (7.1–7.4, 8.11, 8.15)
 Phase 12: 12.1 ← (8.4, 8.8, 8.9, 4.3, 5.3)  →  12.2
-Phase 13: 13.1 ← existing Capacitor 7 Android wrapper and local production build → 13.2 → 13.3 → 13.4a → 13.4b → 13.5 → 13.6  |  13.7 ← 13.1  |  13.8 ← (7.4, 8.3, 8.4, 13.1)  |  13.11 ← (7.4, 8.4, 13.1) → 13.12 → 13.6
+Phase 13: 13.1 ← existing Capacitor 7 Android wrapper and local production build → 13.2 → 13.3 → 13.4a → 13.4b → 13.5 → 13.6  |  13.7 ← 13.1  |  13.8 ← (7.4, 8.3, 8.4, 13.1)  |  13.11 ← (7.4, 8.4, 13.1) → 13.12 → 13.6  |  13.13 ← (13.3, 13.10) → 13.16  |  13.14 ← 13.4a → 13.4b → (13.4c, 13.4d, 13.15) → 13.5  |  13.17 ← (13.3, 13.13)
 ```
 
 ## What this plan deliberately does NOT include (per §Do not build)

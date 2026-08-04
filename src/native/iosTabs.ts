@@ -36,7 +36,15 @@ export interface NativeSegmentConfiguration {
   frame: NativeControlFrame;
 }
 
-export type NativeAuxiliaryControlKind = 'settingsButton' | 'switch';
+/**
+ * PLAN 13.14 removed the `switch` kind. A native view positioned from
+ * JavaScript-measured rects cannot follow WKWebView scrolling — the scroll is
+ * composited off the main thread while the new frame arrives a frame or more
+ * later — so overlaid switches drifted out of their rows inside the scrolling
+ * Settings sheet. Only fixed chrome may be handed to a native overlay; real
+ * `UISwitch` semantics return with 13.4b's native Settings presentation.
+ */
+export type NativeAuxiliaryControlKind = 'settingsButton';
 
 export interface NativeAuxiliaryControlConfiguration {
   id: string;
@@ -44,7 +52,6 @@ export interface NativeAuxiliaryControlConfiguration {
   label: string;
   enabled: boolean;
   visible: boolean;
-  checked?: boolean;
   frame: NativeControlFrame;
 }
 
@@ -66,7 +73,9 @@ interface NativeSegmentSelection {
  * `height` is the room UIKit actually took for the control (PLAN 13.10). The
  * web slot reserves it so the system can never be handed a frame shorter than
  * its own layout needs — that clipped the rail's labels on devices whose text
- * size or iOS version asked for more than the old hard-coded ceiling.
+ * size asked for more than the slot reserved. Since PLAN 13.13 the rail is a
+ * `UISegmentedControl`, which fills its frame, so the reported height is
+ * normally the slot's own and the exchange settles without a second round.
  */
 export interface NativeSegmentResult {
   active: boolean;
@@ -182,21 +191,38 @@ export function isNativeCollectionSection(
   return value === 'friends' || value === 'guide';
 }
 
+/** How often the settle poll re-measures, in milliseconds. */
+const FRAME_POLL_INTERVAL = 250;
+
 export function observeNativeControlFrame(
   element: HTMLElement,
   listener: (frame: NativeControlFrame) => void,
 ): () => void {
   let animationFrame: number | null = null;
+  let lastFrame: NativeControlFrame | null = null;
 
   const emit = () => {
     animationFrame = null;
     const rect = element.getBoundingClientRect();
-    listener({
+    const frame = {
       x: rect.left,
       y: rect.top,
       width: rect.width,
       height: rect.height,
-    });
+    };
+    // Most triggers below fire far more often than the slot actually moves,
+    // and a repeated frame would re-cross the bridge for nothing.
+    if (
+      lastFrame &&
+      Math.abs(lastFrame.x - frame.x) < 0.5 &&
+      Math.abs(lastFrame.y - frame.y) < 0.5 &&
+      Math.abs(lastFrame.width - frame.width) < 0.5 &&
+      Math.abs(lastFrame.height - frame.height) < 0.5
+    ) {
+      return;
+    }
+    lastFrame = frame;
+    listener(frame);
   };
   const schedule = () => {
     if (animationFrame !== null) cancelAnimationFrame(animationFrame);
@@ -222,10 +248,26 @@ export function observeNativeControlFrame(
     subtree: true,
     attributeFilter: ['aria-hidden', 'class', 'hidden', 'inert', 'open', 'style'],
   });
+
+  // A ResizeObserver fires when the slot's own box changes, never when the slot
+  // is *moved* by something above it resizing. Bundled display fonts swapping in
+  // during launch did exactly that: the rail and the Settings glyph stayed at
+  // the rect measured against the fallback font and sat over the greeting card
+  // until an unrelated re-render happened to re-measure. Fonts are one cause;
+  // a settling image or a finishing transition are others, so poll for movement
+  // rather than enumerating them. Emitting is already change-gated, so a still
+  // page costs one `getBoundingClientRect` every 250ms and no bridge traffic.
+  document.fonts?.ready.then(schedule).catch(() => undefined);
+  const poll = window.setInterval(() => {
+    if (document.visibilityState === 'visible') schedule();
+  }, FRAME_POLL_INTERVAL);
+  document.addEventListener('visibilitychange', schedule);
   schedule();
 
   return () => {
     if (animationFrame !== null) cancelAnimationFrame(animationFrame);
+    window.clearInterval(poll);
+    document.removeEventListener('visibilitychange', schedule);
     resizeObserver?.disconnect();
     window.removeEventListener('resize', schedule);
     window.visualViewport?.removeEventListener('resize', schedule);

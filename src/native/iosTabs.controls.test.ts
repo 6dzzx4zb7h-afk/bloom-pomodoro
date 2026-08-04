@@ -52,12 +52,11 @@ describe('native iOS auxiliary control bridge', () => {
 
   it('passes a valid configuration to the plugin unchanged', async () => {
     const configuration = {
-      id: 'settings.sound',
-      kind: 'switch' as const,
-      label: 'Ring when done',
+      id: 'settings',
+      kind: 'settingsButton' as const,
+      label: 'Settings',
       enabled: true,
       visible: true,
-      checked: false,
       frame,
     };
 
@@ -75,11 +74,10 @@ describe('native iOS auxiliary control bridge', () => {
   ])('rejects %s before crossing the native boundary', async (_case, id) => {
     await expect(configureNativeIOSAuxiliaryControl({
       id,
-      kind: 'switch',
-      label: 'Ring when done',
+      kind: 'settingsButton',
+      label: 'Settings',
       enabled: true,
       visible: true,
-      checked: true,
       frame,
     })).resolves.toEqual({ active: false });
     expect(plugin.configureControl).not.toHaveBeenCalled();
@@ -87,11 +85,10 @@ describe('native iOS auxiliary control bridge', () => {
 
   it('rejects blank, overlong, and non-finite configuration values', async () => {
     const base = {
-      id: 'settings.sound',
-      kind: 'switch' as const,
+      id: 'settings',
+      kind: 'settingsButton' as const,
       enabled: true,
       visible: true,
-      checked: true,
       frame,
     };
 
@@ -103,7 +100,7 @@ describe('native iOS auxiliary control bridge', () => {
     })).resolves.toEqual({ active: false });
     await expect(configureNativeIOSAuxiliaryControl({
       ...base,
-      label: 'Ring when done',
+      label: 'Settings',
       frame: { ...frame, x: Number.NaN },
     })).resolves.toEqual({ active: false });
     expect(plugin.configureControl).not.toHaveBeenCalled();
@@ -225,5 +222,50 @@ describe('native control slot visibility', () => {
     slot.dispatchEvent(new Event('scroll', { bubbles: true }));
     flushAnimationFrames();
     expect(listener).toHaveBeenCalledTimes(2);
+  });
+
+  it('reports a slot that moves without resizing, and repeats nothing', () => {
+    vi.useFakeTimers();
+    let nextFrame = { ...frame };
+    const slot = document.createElement('button');
+    Object.defineProperty(slot, 'getBoundingClientRect', {
+      configurable: true,
+      value: () => ({
+        ...nextFrame,
+        top: nextFrame.y,
+        right: nextFrame.x + nextFrame.width,
+        bottom: nextFrame.y + nextFrame.height,
+        left: nextFrame.x,
+        toJSON: () => ({}),
+      }),
+    });
+    document.body.append(slot);
+    // A display font swapping in resizes the header above the slot: the slot's
+    // own box never changes, so no ResizeObserver or mutation fires.
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+      callback(0);
+      return 1;
+    });
+    vi.stubGlobal('cancelAnimationFrame', () => undefined);
+    vi.stubGlobal('ResizeObserver', undefined);
+    vi.stubGlobal('MutationObserver', undefined);
+    const listener = vi.fn();
+
+    const stop = observeNativeControlFrame(slot, listener);
+    expect(listener).toHaveBeenCalledExactlyOnceWith(frame);
+
+    vi.advanceTimersByTime(1000);
+    expect(listener).toHaveBeenCalledOnce();
+
+    nextFrame = { ...frame, y: frame.y + 36 };
+    vi.advanceTimersByTime(250);
+    expect(listener).toHaveBeenLastCalledWith({ ...frame, y: frame.y + 36 });
+    expect(listener).toHaveBeenCalledTimes(2);
+
+    stop();
+    nextFrame = { ...frame, y: 400 };
+    vi.advanceTimersByTime(1000);
+    expect(listener).toHaveBeenCalledTimes(2);
+    vi.useRealTimers();
   });
 });

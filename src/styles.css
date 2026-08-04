@@ -3339,6 +3339,33 @@ button.foundation-dot {
   font-weight: 600;
 }
 
+/* PLAN 13.17: one row standing in for the rest of the optional preparation.
+   Matches the affordance it opens, so expanding reads as the same surface
+   continuing rather than a different control appearing. */
+.prestart-prep-toggle {
+  display: block;
+  width: min(300px, 100%);
+  min-height: 44px;
+  margin: 7px auto 0;
+  padding: 7px 10px;
+  border: 1px dashed rgba(199, 159, 230, 0.55);
+  border-radius: 12px;
+  background: transparent;
+  color: var(--soft);
+  font: 700 11.5px var(--font-body);
+  cursor: pointer;
+}
+.prestart-prep-toggle > span:last-child {
+  display: block;
+  margin-top: 2px;
+  color: var(--soft3);
+  font-size: 10px;
+  font-weight: 600;
+}
+.night .prestart-prep-toggle {
+  border-color: rgba(199, 159, 230, 0.4);
+}
+
 /* Optional session target: a quiet line before Start, faint echo while the
    session runs. It also feeds Companion's intention when that mode is on. */
 .intention-input {
@@ -5227,4 +5254,26 @@ body.night {
     justify-content: center;
     gap: 64px;
   }
+}
+
+/* PLAN 13.17: collapsed is the default and fits without scrolling. Opening the
+   optional preparation is the user asking for more than the screen holds, so
+   that state tightens its spacing first and then scrolls, rather than pushing
+   the transport under the tab bar. Declared last so it also wins inside the
+   per-height bands above. */
+.focus-bg.prep-open,
+.focus-bg.prestart-scroll.prep-open,
+.focus-bg.prestart-scroll.prep-open:not(:focus-within) {
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+}
+.focus-bg.prep-open .controls {
+  margin-top: 6px;
+}
+.focus-bg.prep-open .prestart-stack {
+  padding-bottom: 6px;
+}
+/* Whatever is left over can always be scrolled clear of the native tab bar. */
+.phone.native-ios-tabs .focus-bg.prep-open {
+  padding-bottom: max(96px, calc(70px + env(safe-area-inset-bottom)));
 }

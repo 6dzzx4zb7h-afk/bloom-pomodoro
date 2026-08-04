@@ -99,6 +99,7 @@ export function FocusScreen({
   const [showSettings, setShowSettings] = useState(false);
   const [tinyMinutes, setTinyMinutes] = useState<TinyStartMinutes>(TINY_START_OPTIONS[0]);
   const [ritualOpen, setRitualOpen] = useState(false);
+  const [prepOpen, setPrepOpen] = useState(false);
   const [ritualSuggestionOpen, setRitualSuggestionOpen] = useState(false);
   const [woopOpen, setWoopOpen] = useState(false);
   const [targetDraft, setTargetDraft] = useState('');
@@ -213,6 +214,11 @@ export function FocusScreen({
   // a paused session already has its record (and plan) stamped.
   const showPlanner =
     state.mode === 'focus' && !state.running && !state.openFocus && !state.justDone;
+  // PLAN 13.17: everything below the session target folds behind one row, so a
+  // fresh Focus screen fits on a phone without the transport sliding under the
+  // tab bar. Only worth offering when there is something in there to open.
+  const prepCollapsible =
+    showPlanner || (state.mode === 'focus' && state.ritual.enabled);
   const activeTaskId = activeTask?.id;
   // Remembered per task: default to the plan this task last started with.
   const rememberedPlanId = useMemo(() => {
@@ -478,6 +484,10 @@ export function FocusScreen({
     companionPrompt: coordinatedCompanionPrompt,
   });
 
+  // PLAN 13.17: WOOP takes the screen when it opens, so the fold can never be
+  // what hides it.
+  const prepExpanded = prepOpen || surface.owner === 'woop';
+
   // Native views always composite above WKWebView, independent of web z-index.
   // Dialogs portal to document.body, so observe that portal host (rather than
   // the Focus <main>) to catch locally-owned presentations such as the
@@ -726,7 +736,9 @@ export function FocusScreen({
 
   return (
     <main
-      className={`screen focus-bg${freshWorkStart ? ' prestart-scroll' : ''}${nativeModeReady ? ' native-mode-control' : ''}`}
+      className={`screen focus-bg${freshWorkStart ? ' prestart-scroll' : ''}${
+        prepExpanded ? ' prep-open' : ''
+      }${nativeModeReady ? ' native-mode-control' : ''}`}
       id="focus-screen"
       aria-labelledby="focus-heading"
     >
@@ -951,7 +963,30 @@ export function FocusScreen({
             </label>
           )}
 
-          <div className="prestart-prep" aria-label="Optional preparation">
+          {/* PLAN 13.17: the target keeps its place — naming one doable thing
+              is the part with a behaviour-change reason behind it. The rest of
+              the preparation folds into one row so the transport controls are
+              never pushed under the tab bar on a phone. Opening it is one tap,
+              and a surface that owns the screen (WOOP) opens it itself. */}
+          {prepCollapsible && !prepExpanded && (
+            <button
+              type="button"
+              className="prestart-prep-toggle"
+              aria-expanded={false}
+              aria-controls="prestart-prep"
+              onClick={() => setPrepOpen(true)}
+            >
+              <span aria-hidden="true">✦</span> a little more prep
+              <span>optional</span>
+            </button>
+          )}
+
+          <div
+            className="prestart-prep"
+            id="prestart-prep"
+            aria-label="Optional preparation"
+            hidden={prepCollapsible && !prepExpanded}
+          >
             {showPlanner && !woopOpen && (
               <IfThenPlanner
                 plans={state.ifThenPlans}

@@ -18,6 +18,7 @@
 		B10000000000000000000001 /* BloomBridgeViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000002 /* BloomBridgeViewController.swift */; };
 		B10000000000000000000003 /* BloomAppIconPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000004 /* BloomAppIconPlugin.swift */; };
 		B10000000000000000000005 /* BloomCompletionAlertPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000006 /* BloomCompletionAlertPlugin.swift */; };
+		B10000000000000000000015 /* BloomSettingsPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000016 /* BloomSettingsPlugin.swift */; };
 		B10000000000000000000007 /* BloomCompletion.wav in Resources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000008 /* BloomCompletion.wav */; };
 		C13800000000000000000001 /* BloomLiveActivityPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = C13800000000000000000011 /* BloomLiveActivityPlugin.swift */; };
 		C13800000000000000000002 /* BloomLiveActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = C13800000000000000000012 /* BloomLiveActivityAttributes.swift */; };
@@ -69,6 +70,7 @@
 		B10000000000000000000002 /* BloomBridgeViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BloomBridgeViewController.swift; sourceTree = "<group>"; };
 		B10000000000000000000004 /* BloomAppIconPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BloomAppIconPlugin.swift; sourceTree = "<group>"; };
 		B10000000000000000000006 /* BloomCompletionAlertPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BloomCompletionAlertPlugin.swift; sourceTree = "<group>"; };
+		B10000000000000000000016 /* BloomSettingsPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BloomSettingsPlugin.swift; sourceTree = "<group>"; };
 		B10000000000000000000008 /* BloomCompletion.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; path = BloomCompletion.wav; sourceTree = "<group>"; };
 		C13800000000000000000011 /* BloomLiveActivityPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BloomLiveActivityPlugin.swift; sourceTree = "<group>"; };
 		C13800000000000000000012 /* BloomLiveActivityAttributes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BloomLiveActivityAttributes.swift; sourceTree = "<group>"; };
@@ -133,6 +135,7 @@
 				B10000000000000000000002 /* BloomBridgeViewController.swift */,
 				B10000000000000000000004 /* BloomAppIconPlugin.swift */,
 				B10000000000000000000006 /* BloomCompletionAlertPlugin.swift */,
+				B10000000000000000000016 /* BloomSettingsPlugin.swift */,
 				C13800000000000000000011 /* BloomLiveActivityPlugin.swift */,
 				B10000000000000000000008 /* BloomCompletion.wav */,
 				504EC30B1FED79650016851F /* Main.storyboard */,
@@ -292,6 +295,7 @@
 				B10000000000000000000001 /* BloomBridgeViewController.swift in Sources */,
 				B10000000000000000000003 /* BloomAppIconPlugin.swift in Sources */,
 				B10000000000000000000005 /* BloomCompletionAlertPlugin.swift in Sources */,
+				B10000000000000000000015 /* BloomSettingsPlugin.swift in Sources */,
 				C13800000000000000000001 /* BloomLiveActivityPlugin.swift in Sources */,
 				C13800000000000000000002 /* BloomLiveActivityAttributes.swift in Sources */,
 			);
