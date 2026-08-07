@@ -16,8 +16,11 @@ import WidgetKit
 struct BloomAlarmWidget: Widget {
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: AlarmAttributes<BloomAlarmMetadata>.self) { context in
+            // No `activityBackgroundTint` — see BloomLiveActivityWidget for
+            // why: a dynamic UIColor can resolve against different traits than
+            // the text beside it, which is what produced the washed-out iPad
+            // card that fixed itself on the next re-render.
             BloomAlarmLockScreenView(context: context)
-                .activityBackgroundTint(BloomAlarmPalette.background)
                 .activitySystemActionForegroundColor(BloomAlarmStyle.tint)
         } dynamicIsland: { context in
             DynamicIsland {
@@ -70,28 +73,10 @@ struct BloomAlarmWidget: Widget {
     }
 }
 
-/// Only the extension needs this: `Color(uiColor:)` is iOS 15, and the shared
-/// file is also compiled into the app target, which deploys further back.
 private enum BloomAlarmPalette {
-    static let background = Color(
-        uiColor: UIColor { traits in
-            traits.userInterfaceStyle == .dark
-                ? UIColor(red: 0.13, green: 0.09, blue: 0.12, alpha: 1)
-                : UIColor(red: 0.99, green: 0.95, blue: 0.97, alpha: 1)
-        }
-    )
-
-    /// `BloomAlarmStyle.tint` is one fixed pink because its file also compiles
-    /// into the app target, which deploys before `Color(uiColor:)` existed. On
-    /// the near-white light background above that pink was too pale to read, so
-    /// this surface uses the same adaptive accent as the PLAN 13.8 activity.
-    static let accent = Color(
-        uiColor: UIColor { traits in
-            traits.userInterfaceStyle == .dark
-                ? UIColor(red: 0.95, green: 0.53, blue: 0.69, alpha: 1)
-                : UIColor(red: 0.68, green: 0.16, blue: 0.37, alpha: 1)
-        }
-    )
+    /// One fixed mid-tone, shared with the PLAN 13.8 activity. See
+    /// BloomLiveActivityStyle for why this is not a light/dark pair.
+    static let accent = BloomAlarmStyle.tint
 }
 
 @available(iOS 26.0, *)

@@ -11,8 +11,15 @@ import AppIntents
 struct BloomLiveActivityWidget: Widget {
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: BloomFocusActivityAttributes.self) { context in
+            // No `activityBackgroundTint`. A dynamic `UIColor` resolves against
+            // whatever trait collection the render pass happens to carry, and
+            // in a Live Activity that is not guaranteed to be the environment
+            // SwiftUI hands `.primary` and `.secondary`. On an iPad Lock Screen
+            // the tint resolved light while the text resolved for a dark
+            // context — white on near-white, correcting itself only on the next
+            // re-render. Letting the system own the background makes the two
+            // agree by construction.
             BloomLockScreenView(context: context)
-                .activityBackgroundTint(BloomLiveActivityStyle.background)
                 .activitySystemActionForegroundColor(BloomLiveActivityStyle.accent)
         } dynamicIsland: { context in
             DynamicIsland {
@@ -429,18 +436,10 @@ private struct BloomStatusGlyph: View {
 }
 
 private enum BloomLiveActivityStyle {
-    static let accent = Color(
-        uiColor: UIColor { traits in
-            traits.userInterfaceStyle == .dark
-                ? UIColor(red: 0.95, green: 0.53, blue: 0.69, alpha: 1)
-                : UIColor(red: 0.68, green: 0.16, blue: 0.37, alpha: 1)
-        }
-    )
-    static let background = Color(
-        uiColor: UIColor { traits in
-            traits.userInterfaceStyle == .dark
-                ? UIColor(red: 0.13, green: 0.09, blue: 0.12, alpha: 1)
-                : UIColor(red: 0.99, green: 0.95, blue: 0.97, alpha: 1)
-        }
-    )
+    /// Deliberately one fixed mid-tone rather than a light/dark pair. A dynamic
+    /// `UIColor` cannot be trusted to resolve against the same traits the rest
+    /// of this view is rendered with, and a decorative accent that disagrees
+    /// with the text beside it is worse than one that is merely a compromise.
+    /// This reads against both the light and dark system backgrounds.
+    static let accent = BloomAlarmStyle.tint
 }
