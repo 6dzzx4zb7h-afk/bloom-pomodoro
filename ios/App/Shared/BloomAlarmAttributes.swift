@@ -15,8 +15,24 @@ struct BloomAlarmMetadata: AlarmMetadata {
     /// One of `focus`, `tiny`, `short`, `long`. Flow has no predetermined
     /// finish, so it never schedules an alarm.
     let mode: String
+    /// The reducer's open-session id, so PLAN 13.19's controls can address the
+    /// same session from this surface (PLAN 13.18's commands are keyed by it).
+    /// Empty for breaks, which open no session and therefore show no control.
+    /// This is an opaque identifier, exactly as PLAN 13.8's attributes already
+    /// carry — it names nothing about the person or the work.
+    var sessionId: String = ""
 }
 #endif
+
+/// PLAN 13.12 — the one alarm identity for the whole app. A stable id is what
+/// makes every deadline change a replacement rather than a growing pile of
+/// alarms. It lives here rather than beside the plugin because PLAN 13.19's
+/// controls run in the widget extension and address the same alarm.
+enum BloomAlarm {
+    static let identifier = "B1005A1A-B10E-4A17-9C3E-0DEC0DEDBEEF"
+    /// The same bundled cue PLAN 13.11 delivers through UserNotifications.
+    static let soundName = "BloomCompletion.wav"
+}
 
 /// Shared by the app target and the widget extension so the system countdown
 /// matches the rest of Bloom's native chrome.

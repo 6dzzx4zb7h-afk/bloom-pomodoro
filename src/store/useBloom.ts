@@ -3234,7 +3234,7 @@ export function useBloom() {
   // from being created and dismissed again in the same moment.
   const alarmSnapshotKey = `${state.mode}:${state.running ? 1 : 0}:${
     state.settings.sound ? 1 : 0
-  }:${state.endsAt ?? 'none'}`;
+  }:${state.endsAt ?? 'none'}:${state.openFocus?.id ?? 'none'}`;
   const [alarmDecision, setAlarmDecision] = useState<{
     key: string;
     owns: boolean;
@@ -3292,6 +3292,9 @@ export function useBloom() {
       running: state.running,
       mode: state.mode,
       deadlineMs: state.endsAt,
+      // PLAN 13.19: the AlarmKit surface's controls address this session.
+      // Breaks open none, so they send '' and render no control.
+      sessionId: state.openFocus?.id ?? '',
     }).then((result) => {
       setAlarmDecision({ key, owns: result.owns });
       setAlarmStatus((current) =>

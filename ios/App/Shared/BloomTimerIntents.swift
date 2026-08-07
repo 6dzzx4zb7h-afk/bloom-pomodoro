@@ -68,6 +68,75 @@ enum BloomTimerCommand {
     }
 }
 
+/// PLAN 13.19 — the same two controls on PLAN 13.12's AlarmKit surface.
+///
+/// On a phone with alarms authorized this is the presentation people actually
+/// see: an authorized alarm ends the generic activity and owns the countdown.
+/// The controls therefore have to exist on both, or they effectively do not
+/// exist at all.
+///
+/// These additionally pause AlarmKit's own countdown, because this surface's
+/// state belongs to AlarmKit and cannot be redrawn the way the generic activity
+/// can. The reducer still decides: the recorded command is what changes the
+/// session when the WebView next runs.
+#if canImport(AlarmKit)
+import AlarmKit
+
+@available(iOS 26.0, *)
+enum BloomAlarmTransport {
+    static func apply(paused: Bool) {
+        guard let id = UUID(uuidString: BloomAlarm.identifier) else { return }
+        if paused {
+            try? AlarmManager.shared.pause(id: id)
+        } else {
+            try? AlarmManager.shared.resume(id: id)
+        }
+    }
+}
+
+@available(iOS 26.0, *)
+struct BloomAlarmPauseIntent: LiveActivityIntent {
+    static var title: LocalizedStringResource = "Pause Bloom timer"
+    static var isDiscoverable: Bool = false
+
+    @Parameter(title: "Session")
+    var sessionId: String
+
+    init() {}
+    init(sessionId: String) {
+        self.sessionId = sessionId
+    }
+
+    func perform() async throws -> some IntentResult {
+        let pressedAt = Date()
+        BloomTimerCommand.record(kind: "pause", sessionId: sessionId, at: pressedAt)
+        BloomAlarmTransport.apply(paused: true)
+        return .result()
+    }
+}
+
+@available(iOS 26.0, *)
+struct BloomAlarmResumeIntent: LiveActivityIntent {
+    static var title: LocalizedStringResource = "Resume Bloom timer"
+    static var isDiscoverable: Bool = false
+
+    @Parameter(title: "Session")
+    var sessionId: String
+
+    init() {}
+    init(sessionId: String) {
+        self.sessionId = sessionId
+    }
+
+    func perform() async throws -> some IntentResult {
+        let pressedAt = Date()
+        BloomTimerCommand.record(kind: "resume", sessionId: sessionId, at: pressedAt)
+        BloomAlarmTransport.apply(paused: false)
+        return .result()
+    }
+}
+#endif
+
 @available(iOS 17.0, *)
 struct BloomPauseIntent: LiveActivityIntent {
     static var title: LocalizedStringResource = "Pause Bloom timer"

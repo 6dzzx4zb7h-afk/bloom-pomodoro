@@ -34,6 +34,7 @@ interface BloomAlarmPlugin {
   reconcile(options: {
     deadlineMs: number;
     mode: Exclude<TimerMode, 'flow'>;
+    sessionId: string;
     countdownTitle: string;
     alertTitle: string;
     stopLabel: string;
@@ -142,6 +143,11 @@ export interface IOSAlarmSnapshot {
   running: boolean;
   mode: TimerMode;
   deadlineMs: number | null;
+  /**
+   * The open session this alarm mirrors, so PLAN 13.19's controls on the
+   * AlarmKit surface can address it. Breaks open no session and send ''.
+   */
+  sessionId?: string;
 }
 
 export interface IOSAlarmReconcileResult {
@@ -210,6 +216,7 @@ export function reconcileIOSAlarm(
       const result = await alarmPlugin.reconcile({
         deadlineMs: snapshot.deadlineMs!,
         mode: snapshot.mode as Exclude<TimerMode, 'flow'>,
+        sessionId: snapshot.sessionId ?? '',
         ...copy!,
       });
       if (isStale()) return NOT_OWNED;

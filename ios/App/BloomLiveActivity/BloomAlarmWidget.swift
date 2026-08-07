@@ -43,19 +43,29 @@ struct BloomAlarmWidget: Widget {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
             } compactLeading: {
-                BloomAlarmGlyph(systemName: context.state.mode.bloomSymbolName)
-                    .foregroundStyle(BloomAlarmStyle.tint)
-                    .accessibilityElement(children: .ignore)
-                    .accessibilityLabel(context.state.mode.bloomStatusLabel)
+                // Same fill as the PLAN 13.19 activity: iOS gives an active
+                // timer the full status-bar width regardless, so this slot
+                // names the mode rather than leaving an empty span.
+                HStack(spacing: 4) {
+                    BloomAlarmGlyph(systemName: context.state.mode.bloomSymbolName)
+                        .font(.caption2)
+                        .frame(width: 14, height: 14)
+                    Text(context.bloomCompactLabel)
+                        .font(.caption2.weight(.semibold))
+                        .lineLimit(1)
+                }
+                .foregroundStyle(BloomAlarmPalette.accent)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(context.state.mode.bloomStatusLabel)
             } compactTrailing: {
                 BloomAlarmClock(mode: context.state.mode, compact: true)
             } minimal: {
                 BloomAlarmGlyph(systemName: context.state.mode.bloomSymbolName)
-                    .foregroundStyle(BloomAlarmStyle.tint)
+                    .foregroundStyle(BloomAlarmPalette.accent)
                     .accessibilityElement(children: .ignore)
                     .accessibilityLabel(context.state.mode.bloomStatusLabel)
             }
-            .keylineTint(BloomAlarmStyle.tint)
+            .keylineTint(BloomAlarmPalette.accent)
         }
     }
 }
@@ -70,6 +80,18 @@ private enum BloomAlarmPalette {
                 : UIColor(red: 0.99, green: 0.95, blue: 0.97, alpha: 1)
         }
     )
+
+    /// `BloomAlarmStyle.tint` is one fixed pink because its file also compiles
+    /// into the app target, which deploys before `Color(uiColor:)` existed. On
+    /// the near-white light background above that pink was too pale to read, so
+    /// this surface uses the same adaptive accent as the PLAN 13.8 activity.
+    static let accent = Color(
+        uiColor: UIColor { traits in
+            traits.userInterfaceStyle == .dark
+                ? UIColor(red: 0.95, green: 0.53, blue: 0.69, alpha: 1)
+                : UIColor(red: 0.68, green: 0.16, blue: 0.37, alpha: 1)
+        }
+    )
 }
 
 @available(iOS 26.0, *)
@@ -77,30 +99,120 @@ private struct BloomAlarmLockScreenView: View {
     let context: ActivityViewContext<AlarmAttributes<BloomAlarmMetadata>>
 
     var body: some View {
-        HStack(spacing: 14) {
-            BloomAlarmGlyph(systemName: context.state.mode.bloomSymbolName)
-                .font(.title3.weight(.semibold))
-                .foregroundStyle(BloomAlarmStyle.tint)
-                .frame(width: 34, height: 34)
-                .background(BloomAlarmStyle.tint.opacity(0.14), in: Circle())
-                .accessibilityHidden(true)
+        HStack(alignment: .center, spacing: 14) {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 8) {
+                    BloomAlarmGlyph(systemName: context.state.mode.bloomSymbolName)
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(BloomAlarmPalette.accent)
+                        .frame(width: 26, height: 26)
+                        .background(BloomAlarmPalette.accent.opacity(0.16), in: Circle())
+                        .accessibilityHidden(true)
 
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Bloom")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                Text(context.bloomModeLabel)
-                    .font(.headline)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(context.bloomModeLabel)
+                            .font(.subheadline.weight(.semibold))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
+                        Text(context.state.mode.bloomStatusLabel)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                }
+
+                BloomAlarmClock(mode: context.state.mode, compact: false)
+                    .font(.system(size: 34, weight: .semibold, design: .rounded).monospacedDigit())
+
+                BloomAlarmProgressBar(mode: context.state.mode)
             }
 
-            Spacer(minLength: 8)
+            Spacer(minLength: 4)
 
-            BloomAlarmClock(mode: context.state.mode, compact: false)
+            BloomAlarmTransportControl(
+                sessionId: context.attributes.metadata?.sessionId ?? "",
+                mode: context.state.mode
+            )
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 12)
+        .padding(.vertical, 14)
+    }
+}
+
+/// The same pause/resume affordance PLAN 13.19 put on the generic activity.
+///
+/// PLAN 13.12 shipped this surface with no control, because at the time a
+/// second pause site would have meant a second authority. PLAN 13.18's channel
+/// removed that objection: the press records intent for the reducer, and
+/// AlarmKit's own pause keeps this surface honest in the meantime.
+@available(iOS 26.0, *)
+private struct BloomAlarmTransportControl: View {
+    let sessionId: String
+    let mode: AlarmPresentationState.Mode
+
+    var body: some View {
+        // Breaks open no session, so there is nothing to address and no
+        // control. An alerting alarm is dismissed by the system's own button.
+        if #available(iOS 17.0, *), !sessionId.isEmpty, let pausing = pauseIntent {
+            Group {
+                if pausing {
+                    Button(intent: BloomAlarmPauseIntent(sessionId: sessionId)) { label(paused: false) }
+                } else {
+                    Button(intent: BloomAlarmResumeIntent(sessionId: sessionId)) { label(paused: true) }
+                }
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(pausing ? "Pause timer" : "Resume timer")
+        }
+    }
+
+    /// True while running, false while paused, nil when neither applies.
+    private var pauseIntent: Bool? {
+        switch mode {
+        case .countdown: return true
+        case .paused: return false
+        default: return nil
+        }
+    }
+
+    private func label(paused: Bool) -> some View {
+        Image(systemName: paused ? "play.fill" : "pause.fill")
+            .font(.body.weight(.bold))
+            .foregroundStyle(BloomAlarmPalette.accent)
+            .frame(minWidth: 52, minHeight: 52)
+            .background(BloomAlarmPalette.accent.opacity(0.16), in: Capsule())
+            .contentShape(Capsule())
+    }
+}
+
+/// System-advanced fill, matching the PLAN 13.19 activity.
+@available(iOS 26.0, *)
+private struct BloomAlarmProgressBar: View {
+    let mode: AlarmPresentationState.Mode
+
+    var body: some View {
+        Group {
+            switch mode {
+            case .countdown(let countdown):
+                ProgressView(
+                    timerInterval: countdown.startDate...countdown.fireDate,
+                    countsDown: false
+                ) { EmptyView() } currentValueLabel: { EmptyView() }
+            case .paused(let paused):
+                ProgressView(
+                    value: paused.totalCountdownDuration > 0
+                        ? min(1, max(0, paused.previouslyElapsedDuration / paused.totalCountdownDuration))
+                        : 0
+                )
+            default:
+                ProgressView(value: 1)
+            }
+        }
+        .progressViewStyle(.linear)
+        .tint(BloomAlarmPalette.accent)
+        .frame(height: 4)
+        // The clock beside it already announces the time.
+        .accessibilityHidden(true)
     }
 }
 
@@ -113,10 +225,13 @@ private struct BloomAlarmClock: View {
         Group {
             switch mode {
             case .countdown(let countdown):
+                // `showsHours` only when the countdown can actually reach an
+                // hour: left always on it reserves room for a leading "0:"
+                // that never appears and stretches the compact island.
                 Text(
                     timerInterval: countdown.startDate...countdown.fireDate,
                     countsDown: true,
-                    showsHours: true
+                    showsHours: countdown.fireDate.timeIntervalSince(countdown.startDate) >= 3_600
                 )
             case .paused(let paused):
                 Text(
@@ -138,6 +253,7 @@ private struct BloomAlarmClock: View {
         .lineLimit(1)
         .minimumScaleFactor(0.72)
         .foregroundStyle(.primary)
+        .modifier(BloomAlarmCompactClockWidth(active: compact, mode: mode))
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(mode.bloomClockAccessibilityLabel)
         .accessibilityValue(mode.bloomClockAccessibilityValue)
@@ -152,6 +268,32 @@ private struct BloomAlarmClock: View {
             return String(format: "%d:%02d:%02d", hours, minutes, remainingSeconds)
         }
         return String(format: "%d:%02d", minutes, remainingSeconds)
+    }
+}
+
+/// Pins the compact clock to the width its own format needs.
+@available(iOS 26.0, *)
+private struct BloomAlarmCompactClockWidth: ViewModifier {
+    let active: Bool
+    let mode: AlarmPresentationState.Mode
+
+    func body(content: Content) -> some View {
+        if active {
+            content.frame(width: needsHours ? 58 : 40, alignment: .trailing)
+        } else {
+            content
+        }
+    }
+
+    private var needsHours: Bool {
+        switch mode {
+        case .countdown(let countdown):
+            return countdown.fireDate.timeIntervalSince(countdown.startDate) >= 3_600
+        case .paused(let paused):
+            return paused.totalCountdownDuration >= 3_600
+        default:
+            return false
+        }
     }
 }
 
@@ -180,6 +322,21 @@ private extension ActivityViewContext<AlarmAttributes<BloomAlarmMetadata>> {
         case "short": return "Short break"
         case "long": return "Long break"
         default: return "Focus"
+        }
+    }
+
+    /// One short word for the compact island, sharing a narrow slot.
+    var bloomCompactLabel: String {
+        switch state.mode {
+        case .paused: return "Paused"
+        case .alert: return "Done"
+        default:
+            switch attributes.metadata?.mode {
+            case "tiny": return "Tiny"
+            case "short": return "Break"
+            case "long": return "Break"
+            default: return "Focus"
+            }
         }
     }
 }

@@ -151,6 +151,9 @@ describe('useBloom AlarmKit reconciliation (PLAN 13.12)', () => {
         running: true,
         mode: 'focus',
         deadlineMs: bloom.state.endsAt,
+        // PLAN 13.19: the open session, so the controls on the AlarmKit
+        // surface address the same session the reducer owns.
+        sessionId: bloom.state.openFocus?.id,
       }),
     );
 

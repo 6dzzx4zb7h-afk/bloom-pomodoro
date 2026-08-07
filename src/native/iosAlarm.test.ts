@@ -103,8 +103,18 @@ describe('native iOS alarm bridge (PLAN 13.12)', () => {
       countdownTitle: 'Focus',
       alertTitle: 'Focus timer finished',
       stopLabel: 'done',
+      // PLAN 13.19: absent on this fixture, so the AlarmKit surface renders no
+      // control rather than one addressing a session that does not exist.
+      sessionId: '',
     });
     expect(cancel).not.toHaveBeenCalled();
+  });
+
+  it('forwards the open session so the alarm surface can address it', async () => {
+    await reconcileIOSAlarm({ ...running, sessionId: 'sess-42' });
+    expect(reconcile).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: 'sess-42' }),
+    );
   });
 
   it('never schedules for Flow, which has no predetermined finish', async () => {

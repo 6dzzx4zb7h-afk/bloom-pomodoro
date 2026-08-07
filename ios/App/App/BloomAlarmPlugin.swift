@@ -8,14 +8,6 @@ import AlarmKit
 import SwiftUI
 #endif
 
-enum BloomAlarm {
-    /// One alarm identity for the whole app. A stable id is what makes every
-    /// deadline change a replacement rather than a growing pile of alarms.
-    static let identifier = "B1005A1A-B10E-4A17-9C3E-0DEC0DEDBEEF"
-    /// The same bundled cue PLAN 13.11 delivers through UserNotifications.
-    static let soundName = "BloomCompletion.wav"
-}
-
 private struct BloomAlarmBridgeResult {
     let supported: Bool
     let authorization: String
@@ -49,6 +41,7 @@ private struct BloomAlarmRequest {
     let deadlineMs: Double
     let mode: String
     let countdownTitle: String
+    let sessionId: String
     let alertTitle: String
     let stopLabel: String
 }
@@ -225,7 +218,10 @@ private actor BloomAlarmCoordinator {
             duration: duration,
             attributes: AlarmAttributes(
                 presentation: AlarmPresentation(alert: alert, countdown: countdown),
-                metadata: BloomAlarmMetadata(mode: request.mode),
+                metadata: BloomAlarmMetadata(
+                    mode: request.mode,
+                    sessionId: request.sessionId
+                ),
                 tintColor: BloomAlarmStyle.tint
             ),
             // No stop or secondary intent. Silencing the system alarm must not
@@ -376,6 +372,7 @@ final class BloomAlarmPlugin: CAPPlugin, CAPBridgedPlugin {
             deadlineMs: deadlineMs,
             mode: mode,
             countdownTitle: String(countdownTitle.prefix(48)),
+            sessionId: String((call.getString("sessionId") ?? "").prefix(64)),
             alertTitle: String(alertTitle.prefix(80)),
             stopLabel: String(stopLabel.prefix(24))
         )
