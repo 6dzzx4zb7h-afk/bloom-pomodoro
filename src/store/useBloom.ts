@@ -30,6 +30,12 @@ import {
   type IOSAlarmStatus,
 } from '../native/iosAlarm';
 import {
+  acknowledgeIOSCommands,
+  clearIOSCommands,
+  drainIOSCommands,
+  isIOSCommandPlatform,
+} from '../native/iosCommands';
+import {
   EMPTY_PRE_SLUMP_CAPS,
   PRE_SLUMP_DAILY_CAP,
   type PreSlumpCaps,
@@ -1619,7 +1625,10 @@ export type Action =
   | { type: 'replaceState'; state: BloomState }
   | { type: 'tick'; at?: number }
   | { type: 'rollOverDay'; at: number }
-  | { type: 'toggle'; ifThenPlanId?: string; targetText?: string }
+  // `at` (PLAN 13.18): the wall clock this toggle actually happened at. A
+  // control pressed in system UI while the WebView was suspended replays with
+  // its recorded instant, never with the instant the queue was drained.
+  | { type: 'toggle'; ifThenPlanId?: string; targetText?: string; at?: number }
   | { type: 'reset' }
   | { type: 'discardFalseStart' }
   | { type: 'pick'; mode: TimerMode; tinyMinutes?: TinyStartMinutes }
@@ -1740,6 +1749,10 @@ export function reducer(s: BloomState, a: Action): BloomState {
     case 'rollOverDay':
       return rollOverDay(s, a.at);
     case 'toggle': {
+      // PLAN 13.18: a replayed command carries the instant it was pressed, so
+      // the arithmetic below is identical whether the press happened live or on
+      // a locked screen thirty seconds before the WebView woke up.
+      const now = a.at ?? Date.now();
       if (s.mode === 'flow') {
         if (s.running) {
           const acc = flowElapsed(s);
@@ -1758,11 +1771,11 @@ export function reducer(s: BloomState, a: Action): BloomState {
             ...newOpenSession('flow', null, flowTask?.id, undefined, undefined, armedGoalId),
             targetText: a.targetText,
           };
-        return { ...s, running: true, flowStart: Date.now(), remaining: Math.floor(s.flowAcc), justDone: false, openFlow };
+        return { ...s, running: true, flowStart: now, remaining: Math.floor(s.flowAcc), justDone: false, openFlow };
       }
       if (s.running) {
         const remaining = s.endsAt
-          ? Math.max(0, Math.ceil((s.endsAt - Date.now()) / 1000))
+          ? Math.max(0, Math.ceil((s.endsAt - now) / 1000))
           : s.remaining;
         // Snapshot pause progress so the boot sweep can estimate actual time.
         const openFocus = s.openFocus
@@ -1775,7 +1788,7 @@ export function reducer(s: BloomState, a: Action): BloomState {
           ? TINY_START_OPTIONS[0] * 60
           : dur[s.mode];
       const rem = s.remaining > 0 ? s.remaining : fallbackSec;
-      const endsAt = Date.now() + rem * 1000;
+      const endsAt = now + rem * 1000;
       // Focus and tiny sessions are recorded; breaks never open a record.
       let openFocus = s.openFocus;
       let ifThenPlans = s.ifThenPlans;
@@ -3365,6 +3378,81 @@ export function useBloom() {
     state.settings.sound,
   ]);
 
+  // PLAN 13.18: drain commands left by controls in system UI.
+  //
+  // A `LiveActivityIntent` runs in the app's process while this WebView is
+  // suspended, so it can only record intent. Replay happens here, against the
+  // wall clock each command carries — never against the instant it was read —
+  // which is what keeps the reducer the single timer authority instead of
+  // making the native layer a second one. See docs/adr/0001.
+  const commandStateRef = useRef(state);
+  commandStateRef.current = state;
+  const appliedCommandIdsRef = useRef<Set<string>>(new Set());
+  const drainingCommandsRef = useRef(false);
+
+  const drainCommands = useCallback(async () => {
+    // One drain at a time: resume and visibilitychange routinely fire together,
+    // and a command applied twice from overlapping reads is exactly what the
+    // idempotency guard below exists to prevent.
+    if (!isIOSCommandPlatform() || drainingCommandsRef.current) return;
+    drainingCommandsRef.current = true;
+    try {
+      const commands = await drainIOSCommands();
+      if (commands.length === 0) return;
+
+      const current = commandStateRef.current;
+      const openSessionId = current.openFocus?.id ?? null;
+      // Dispatches in this loop do not re-render before the next iteration, so
+      // track the running state we are steering toward rather than re-reading
+      // a ref that is still one render behind.
+      let projectedRunning = current.running;
+      const handled: string[] = [];
+
+      for (const command of commands) {
+        // Acknowledge everything read, including commands deliberately dropped:
+        // a command that can never apply should not be re-delivered forever.
+        handled.push(command.id);
+        if (appliedCommandIdsRef.current.has(command.id)) continue;
+        appliedCommandIdsRef.current.add(command.id);
+        // A command whose session is gone is dropped, so a queue that survived
+        // a force-quit can never revive a session the boot sweep already closed
+        // as interrupted.
+        if (openSessionId == null || openSessionId !== command.sessionId) continue;
+        const wantsRunning = command.kind === 'resume';
+        // Already in the state this command asks for — replaying it would
+        // invert the timer rather than confirm it.
+        if (projectedRunning === wantsRunning) continue;
+        dispatch({ type: 'toggle', at: command.occurredAt });
+        projectedRunning = wantsRunning;
+      }
+
+      // The set only has to cover the window before acknowledgement lands;
+      // after a relaunch, session matching drops anything stale.
+      if (appliedCommandIdsRef.current.size > 64) {
+        appliedCommandIdsRef.current = new Set(
+          [...appliedCommandIdsRef.current].slice(-32),
+        );
+      }
+      await acknowledgeIOSCommands(handled);
+    } finally {
+      drainingCommandsRef.current = false;
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!isIOSCommandPlatform()) return;
+    void drainCommands();
+    const onResume = () => {
+      if (!document.hidden) void drainCommands();
+    };
+    document.addEventListener('visibilitychange', onResume);
+    window.addEventListener('focus', onResume);
+    return () => {
+      document.removeEventListener('visibilitychange', onResume);
+      window.removeEventListener('focus', onResume);
+    };
+  }, [drainCommands]);
+
   // PLAN 13.8: mirror only reducer lifecycle changes into one local Live
   // Activity. Running snapshots use the wall-clock deadline; paused snapshots
   // use the frozen remaining seconds. Neither dependency changes on the
@@ -3645,6 +3733,9 @@ export function useBloom() {
         // The one place a ringing alarm is silenced on Bloom's initiative: the
         // person explicitly asked for everything here to be cleared.
         void cancelIOSAlarm(true);
+        // PLAN 13.18: pending intent for erased data is not intent worth
+        // replaying into the fresh state.
+        void clearIOSCommands();
       },
       linkDriftEvent: (eventId: string, sessionId: string) =>
         dispatch({ type: 'linkDrift', eventId, sessionId }),

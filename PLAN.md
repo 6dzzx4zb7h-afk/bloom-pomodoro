@@ -2054,6 +2054,30 @@ Open-step gates, stated plainly: **9.2**'s `dayKeyFor` is load-bearing for every
   `SessionRecord`; the full test/build suite, Capacitor sync, an Xcode Simulator build, and
   `git diff --check` pass.
 - **Depends on:** 7.4, 13.1, 13.8.
+- **Implementation evidence (August 2026):** Added `docs/adr/0001-native-command-channel.md`, a
+  durable bounded queue (`BloomCommandQueue.swift`, compiled into both the app and the widget
+  extension so 13.19's shared intents can write to it), a Capacitor bridge exposing
+  drain/acknowledge/clear plus a `#if DEBUG` producer, a total typed adapter, and reducer-owned
+  replay. `toggle` gained an optional `at`, and every `Date.now()` inside that case now reads it, so
+  a press recorded on a locked screen produces exactly the state that pressing it live would have —
+  proven directly: pausing with twenty minutes left yields `remaining === 1200` no matter when the
+  drain runs, and a resume lands its deadline on the press instant so time spent asleep still counts
+  against the session. Delivery is at-least-once with acknowledgement separate from reading, so a
+  crash between applying and acknowledging re-delivers rather than loses; replay is idempotent by
+  `id`, drops commands whose `sessionId` is gone (a queue surviving force-quit cannot revive a
+  session the boot sweep closed), ignores a command asking for the state the timer is already in
+  rather than inverting it, and tracks a projected running state through a multi-command drain so a
+  pause and a resume read together apply in press order. No command path writes or upgrades a
+  `SessionRecord` (asserted). The confirmed data clear drops pending intent. Storage is the app's own
+  container rather than an App Group, since `LiveActivityIntent` performs in the app's process — the
+  ADR records the exact future trigger that would force an App Group. No persisted state changed, so
+  `SCHEMA_VERSION` is unchanged. `npm test` passes 67 files/664 tests (29 new), `npm run build`,
+  `npx cap sync ios`, and `git diff --check` pass; a code-signing-free Xcode 26.6 Debug Simulator
+  build against the iOS 26.5 SDK succeeds with the extension embedded and validated, and object
+  files confirm the plugin compiled into the app target and the queue into both. **Still open:** no
+  command has yet made the real trip from a suspended process, because nothing produces one until
+  13.19's intents exist — the `#if DEBUG` producer is a seam for that verification, not a substitute
+  for it. This step closes when 13.19 exercises it end to end on a device.
 
 ### - [ ] 13.19 A Live Activity worth looking at, with controls that work
 

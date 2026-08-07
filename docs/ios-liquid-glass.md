@@ -71,6 +71,7 @@ visible destination. If the native plugin is unavailable or stale, Bloom keeps t
 | Timer ring, pixel pet, sky, task/history cards, and other content | Keep as web content; do not glaze | intentional |
 | Active focus countdown outside the app | WidgetKit extension and local ActivityKit Live Activity | 13.8 |
 | Prominent finish alarm on iOS 26+ | AlarmKit, authorized once; owns the countdown surface while scheduled | 13.12 |
+| A control pressed in system UI | Records timestamped intent; the reducer replays it and stays the only authority | 13.18 |
 
 Moving all of these surfaces in one change would duplicate too much state and make timer/settings
 regressions hard to isolate. Each later step must preserve cancellation, navigation guards,
