@@ -46,8 +46,12 @@ struct BloomLiveActivityWidget: Widget {
                     .padding(.top, 2)
                 }
             } compactLeading: {
+                // The compact island grows to fit whatever each region claims,
+                // so both sides are pinned to the space they actually need.
                 BloomStatusGlyph(systemName: context.state.symbolName)
+                    .font(.caption2)
                     .foregroundStyle(BloomLiveActivityStyle.accent)
+                    .frame(width: 14, height: 14)
                     .accessibilityElement(children: .ignore)
                     .accessibilityLabel(
                         context.state.statusLabel(isStale: context.isStale)
@@ -270,10 +274,14 @@ private struct BloomActivityClock: View {
             if state.phase == .running && isStale {
                 Text("0:00")
             } else if state.phase == .running {
+                // `showsHours` is asked for only when the session really runs
+                // past an hour. Left always-on it reserves room for a leading
+                // "0:" that never appears, which is what stretched the compact
+                // Dynamic Island wider than its content.
                 Text(
                     timerInterval: state.timerStart...state.timerEnd,
                     countsDown: true,
-                    showsHours: true
+                    showsHours: state.needsHours
                 )
             } else {
                 Text(Self.formattedRemaining(state.pausedRemainingSeconds ?? 0))
@@ -283,6 +291,10 @@ private struct BloomActivityClock: View {
         .lineLimit(1)
         .minimumScaleFactor(0.72)
         .foregroundStyle(.primary)
+        // A self-advancing timer string still reserves layout width for the
+        // widest value it can reach, so the compact slot is given exactly the
+        // width its own format needs and no more.
+        .modifier(BloomCompactClockWidth(active: compact, needsHours: state.needsHours))
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(state.clockAccessibilityLabel(isStale: isStale))
         .accessibilityValue(state.clockAccessibilityValue(isStale: isStale))
@@ -300,7 +312,29 @@ private struct BloomActivityClock: View {
     }
 }
 
+/// Pins the compact Dynamic Island clock to the width its format needs.
+private struct BloomCompactClockWidth: ViewModifier {
+    let active: Bool
+    let needsHours: Bool
+
+    func body(content: Content) -> some View {
+        if active {
+            content.frame(width: needsHours ? 58 : 40, alignment: .trailing)
+        } else {
+            content
+        }
+    }
+}
+
 private extension BloomFocusActivityAttributes.ContentState {
+    /// True only when this session can actually show an hours component.
+    var needsHours: Bool {
+        if let paused = pausedRemainingSeconds {
+            return paused >= 3_600
+        }
+        return timerEnd.timeIntervalSince(timerStart) >= 3_600
+    }
+
     var symbolName: String {
         switch phase {
         case .running:

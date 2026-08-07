@@ -2137,14 +2137,24 @@ Open-step gates, stated plainly: **9.2**'s `dayKeyFor` is load-bearing for every
   and the Lock Screen rendered the new layout with the glyph, mode, status line, clock, progress bar,
   and pause button, revealing no task text. Across two screenshots the countdown advanced 24→23 and
   the progress bar visibly filled with no app traffic, confirming both system-driven surfaces.
-  **Two things remain unproven and are not claimed:** (1) the Lock Screen rendered the clock as
-  `23:––`, seconds elided — the clock font was reduced from 42pt to 34pt in case width was the cause,
-  but the Simulator also had a pending "Allow Live Activities from Bloom?" consent prompt that
-  injected taps cannot dismiss, so which of the two explains it needs a device; the user's own
-  pre-change device screenshot showed full seconds, so this is a real regression risk, not a
-  certainty. (2) No button has been pressed end to end, for the same input limitation — so 13.18's
-  channel still has not carried a command from a suspended process. Both belong to the device pass,
-  and 13.18 stays open until the second one lands.
+  **Compact Dynamic Island follow-up (same day, from user device feedback):** the compact
+  presentation stretched far wider than its content, with a large empty span between the glyph and
+  the clock. Cause: `Text(timerInterval:)` reserves layout width for the widest value it can reach,
+  and `showsHours: true` was passed unconditionally, so every session reserved room for an hours
+  component that only a session over an hour can ever show — while the leading glyph had no frame at
+  all. `showsHours` is now asked for only when the interval genuinely reaches an hour, the glyph is
+  pinned to 14pt, and the compact clock gets exactly the width its own format needs (40pt for mm:ss,
+  58pt for h:mm:ss). Re-verified on the same Simulator: the compact island is now proportionate to
+  its content.
+  **That run also resolved the earlier open question:** the compact clock rendered `24:38` with
+  seconds intact, so the `23:––` seen before was the pending "Allow Live Activities from Bloom?"
+  consent prompt, **not** a width or font problem. The defensive 42pt→34pt reduction is kept because
+  it costs nothing and leaves room for `1:04:59`, but it was not the fix and the earlier regression
+  risk is retired.
+  **One thing remains unproven and is not claimed:** no button has been pressed end to end, because
+  injected taps cannot reach controls in system UI on Simulator — so 13.18's channel still has not
+  carried a command from a suspended process. That belongs to the device pass, and 13.18 stays open
+  until it lands.
 
 ### - [ ] 13.20 Ask the check-in where the person actually is
 
