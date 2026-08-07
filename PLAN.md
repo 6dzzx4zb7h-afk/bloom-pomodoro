@@ -1737,7 +1737,7 @@ Open-step gates, stated plainly: **9.2**'s `dayKeyFor` is load-bearing for every
   `npm run build`, `npx cap sync ios`, an Xcode Release Simulator build, live rail inspection, and
   `git diff --check` passed.
 
-### - [ ] 13.11 Deliver reliable local iOS timer completion alerts
+### - [x] 13.11 Deliver reliable local iOS timer completion alerts
 
 - **Goal:** Mirror each active Focus, Tiny, Short, or Long countdown into one native local
   notification so the finish cue still arrives after Bloom is backgrounded, locked, or suspended.
@@ -1778,6 +1778,16 @@ Open-step gates, stated plainly: **9.2**'s `dayKeyFor` is load-bearing for every
   permitted`, and the available Computer Use route timed out against Simulator, so actual locked
   system delivery remains intentionally unchecked for user/device verification rather than being
   claimed from an injected push payload.
+- **Closed (August 7, 2026) — on the user's direction, with the record kept honest:** The user
+  closed this step after 13.12's device run. Recorded precisely: AlarmKit's prominent alarm was
+  confirmed on device through Silent Mode, an active Focus, and a locked screen, and 13.12's
+  handoff means the notification path is deliberately withheld whenever that alarm is authorized —
+  so on iOS 26+ the finish cue this step exists to guarantee is demonstrably arriving. What was
+  **not** independently observed is the notification path *in isolation* (alarm permission off,
+  phone locked, bundled Bloom cue playing) — the check that covers pre-26 systems and anyone who
+  declines alarm authorization. That observation belongs to 13.6's release matrix; this step is
+  closed on the user's call rather than on that evidence, and the distinction is recorded here so a
+  later reader is not misled about what was proven.
 
 ### - [x] 13.12 Use AlarmKit for prominent finish alarms on supported iOS versions
 
