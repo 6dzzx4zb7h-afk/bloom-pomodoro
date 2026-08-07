@@ -30,6 +30,12 @@
 		C13800000000000000000008 /* ActivityKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C13800000000000000000017 /* ActivityKit.framework */; };
 		C13800000000000000000009 /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C13800000000000000000018 /* WidgetKit.framework */; };
 		C1380000000000000000000A /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C13800000000000000000019 /* SwiftUI.framework */; };
+		C1380000000000000000000B /* BloomAlarmPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1380000000000000000001A /* BloomAlarmPlugin.swift */; };
+		C1380000000000000000000C /* BloomAlarmAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1380000000000000000001B /* BloomAlarmAttributes.swift */; };
+		C1380000000000000000000D /* BloomAlarmAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1380000000000000000001B /* BloomAlarmAttributes.swift */; };
+		C1380000000000000000000E /* BloomAlarmWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1380000000000000000001C /* BloomAlarmWidget.swift */; };
+		C1380000000000000000000F /* AlarmKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C1380000000000000000001D /* AlarmKit.framework */; settings = {ATTRIBUTES = (Weak, ); }; };
+		C13800000000000000000010 /* AlarmKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C1380000000000000000001D /* AlarmKit.framework */; settings = {ATTRIBUTES = (Weak, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -81,6 +87,10 @@
 		C13800000000000000000017 /* ActivityKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = ActivityKit.framework; path = System/Library/Frameworks/ActivityKit.framework; sourceTree = SDKROOT; };
 		C13800000000000000000018 /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = System/Library/Frameworks/WidgetKit.framework; sourceTree = SDKROOT; };
 		C13800000000000000000019 /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
+		C1380000000000000000001A /* BloomAlarmPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BloomAlarmPlugin.swift; sourceTree = "<group>"; };
+		C1380000000000000000001B /* BloomAlarmAttributes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BloomAlarmAttributes.swift; sourceTree = "<group>"; };
+		C1380000000000000000001C /* BloomAlarmWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BloomAlarmWidget.swift; sourceTree = "<group>"; };
+		C1380000000000000000001D /* AlarmKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AlarmKit.framework; path = System/Library/Frameworks/AlarmKit.framework; sourceTree = SDKROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -90,6 +100,7 @@
 			files = (
 				4D22ABE92AF431CB00220026 /* CapApp-SPM in Frameworks */,
 				C13800000000000000000007 /* ActivityKit.framework in Frameworks */,
+				C1380000000000000000000F /* AlarmKit.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -98,6 +109,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				C13800000000000000000008 /* ActivityKit.framework in Frameworks */,
+				C13800000000000000000010 /* AlarmKit.framework in Frameworks */,
 				C1380000000000000000000A /* SwiftUI.framework in Frameworks */,
 				C13800000000000000000009 /* WidgetKit.framework in Frameworks */,
 			);
@@ -137,6 +149,7 @@
 				B10000000000000000000006 /* BloomCompletionAlertPlugin.swift */,
 				B10000000000000000000016 /* BloomSettingsPlugin.swift */,
 				C13800000000000000000011 /* BloomLiveActivityPlugin.swift */,
+				C1380000000000000000001A /* BloomAlarmPlugin.swift */,
 				B10000000000000000000008 /* BloomCompletion.wav */,
 				504EC30B1FED79650016851F /* Main.storyboard */,
 				504EC30E1FED79650016851F /* Assets.xcassets */,
@@ -152,6 +165,7 @@
 			isa = PBXGroup;
 			children = (
 				C13800000000000000000012 /* BloomLiveActivityAttributes.swift */,
+				C1380000000000000000001B /* BloomAlarmAttributes.swift */,
 			);
 			path = Shared;
 			sourceTree = "<group>";
@@ -161,6 +175,7 @@
 			children = (
 				C13800000000000000000014 /* BloomLiveActivityBundle.swift */,
 				C13800000000000000000013 /* BloomLiveActivityWidget.swift */,
+				C1380000000000000000001C /* BloomAlarmWidget.swift */,
 				C13800000000000000000015 /* Info.plist */,
 			);
 			path = BloomLiveActivity;
@@ -170,6 +185,7 @@
 			isa = PBXGroup;
 			children = (
 				C13800000000000000000017 /* ActivityKit.framework */,
+				C1380000000000000000001D /* AlarmKit.framework */,
 				C13800000000000000000019 /* SwiftUI.framework */,
 				C13800000000000000000018 /* WidgetKit.framework */,
 			);
@@ -298,6 +314,8 @@
 				B10000000000000000000015 /* BloomSettingsPlugin.swift in Sources */,
 				C13800000000000000000001 /* BloomLiveActivityPlugin.swift in Sources */,
 				C13800000000000000000002 /* BloomLiveActivityAttributes.swift in Sources */,
+				C1380000000000000000000B /* BloomAlarmPlugin.swift in Sources */,
+				C1380000000000000000000C /* BloomAlarmAttributes.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -308,6 +326,8 @@
 				C13800000000000000000005 /* BloomLiveActivityBundle.swift in Sources */,
 				C13800000000000000000004 /* BloomLiveActivityWidget.swift in Sources */,
 				C13800000000000000000003 /* BloomLiveActivityAttributes.swift in Sources */,
+				C1380000000000000000000E /* BloomAlarmWidget.swift in Sources */,
+				C1380000000000000000000D /* BloomAlarmAttributes.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

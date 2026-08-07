@@ -26,6 +26,8 @@
 	<false/>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>NSAlarmKitUsageDescription</key>
+	<string>Bloom uses an alarm so your timer can still ring when it finishes, even in Silent Mode or while a Focus is on.</string>
 	<key>NSSupportsLiveActivities</key>
 	<true/>
 	<key>UILaunchStoryboardName</key>

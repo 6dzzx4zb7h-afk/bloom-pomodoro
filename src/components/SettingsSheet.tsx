@@ -22,6 +22,7 @@ import {
 import type { SessionRecord } from '../store/sessions';
 import type { IOSCompletionAlertStatus } from '../native/iosCompletionAlerts';
 import type { IOSLiveActivityStatus } from '../native/iosLiveActivity';
+import type { IOSAlarmStatus } from '../native/iosAlarm';
 import { Dialog } from './Dialog';
 import { Sheet } from './Sheet';
 import { SystemSwitch } from './SystemSwitch';
@@ -74,6 +75,9 @@ interface SettingsSheetProps {
   /** Present only in the native iOS wrapper; this setting remains system-owned. */
   liveActivityStatus?: IOSLiveActivityStatus;
   liveActivityChecking?: boolean;
+  /** PLAN 13.12 — AlarmKit authorization, also system-owned and iOS-only. */
+  alarmStatus?: IOSAlarmStatus;
+  onRequestAlarmAuthorization?: () => Promise<IOSAlarmStatus>;
   /** Open the weekly review card on demand (PLAN 2.3); closes the sheet. */
   onShowWeekly?: () => void;
 }
@@ -190,6 +194,24 @@ function RitualItemEditor({
   );
 }
 
+/**
+ * PLAN 13.12 — one source for the alarm wording so the native sheet and the web
+ * sheet cannot drift apart. Every state names precisely which cue still remains,
+ * and none of them claims that a ring means Bloom recorded a finished session.
+ */
+const ALARM_COPY = {
+  prompt:
+    'iOS can ring a full alarm when a timer finishes — even in Silent Mode or while a Focus is on. Bloom asks once, and you can turn alarms off in iOS Settings whenever you like.',
+  granted:
+    'Timer alarms are on. A finished countdown can ring through Silent Mode and an active Focus. Flow has no set finish, so it never rings.',
+  denied:
+    'Alarms are off in iOS Settings. Bloom still sends its ordinary timer notification, and it chimes while it’s open.',
+  unavailable:
+    'Alarms aren’t available right now. Bloom’s ordinary timer notification and chime still work.',
+} as const;
+
+const ALARM_NOTE_TITLE = 'Ring through Silent Mode';
+
 export function SettingsSheet({
   settings,
   records,
@@ -211,6 +233,8 @@ export function SettingsSheet({
   onRequestCompletionAlertPermission,
   liveActivityStatus,
   liveActivityChecking = false,
+  alarmStatus,
+  onRequestAlarmAuthorization,
   onShowWeekly,
 }: SettingsSheetProps) {
   // PLAN 13.15: iPhone and iPad have no tabs; the same leave-and-return event
@@ -218,6 +242,12 @@ export function SettingsSheet({
   const words = platformWords();
   // 'unknown' until asked; used to nudge the user if they blocked notifications.
   const [notifyDenied, setNotifyDenied] = useState(false);
+  // PLAN 13.12 — which alarm note the finish cue currently warrants. Nothing is
+  // said while the state is still being read, or on a system without AlarmKit.
+  const alarmNote: keyof typeof ALARM_COPY | null =
+    settings.sound && alarmStatus && alarmStatus.authorization in ALARM_COPY
+      ? (alarmStatus.authorization as keyof typeof ALARM_COPY)
+      : null;
   const [nameDraft, setNameDraft] = useState(settings.name);
   const companion = settings.companion;
   // The pal gives a happy little wave when Companion Mode turns on.
@@ -581,6 +611,18 @@ export function SettingsSheet({
         status: true,
       });
     }
+    if (alarmNote) {
+      rows.push({
+        kind: 'note',
+        id: `note.alarm.${alarmNote}`,
+        ...(alarmNote === 'prompt' ? { title: ALARM_NOTE_TITLE } : {}),
+        body: ALARM_COPY[alarmNote],
+        status: alarmNote !== 'prompt',
+      });
+      if (alarmNote === 'prompt') {
+        rows.push({ kind: 'button', id: 'action.allowAlarms', title: 'allow alarms' });
+      }
+    }
     return rows;
   }
 
@@ -906,6 +948,9 @@ export function SettingsSheet({
         return;
       case 'action.allowNotifications':
         void onRequestCompletionAlertPermission();
+        return;
+      case 'action.allowAlarms':
+        void onRequestAlarmAuthorization?.();
         return;
       case 'settings.dayStartHour': {
         if (text === undefined || !text.startsWith(HOUR_OPTION_PREFIX)) return;
@@ -1344,6 +1389,24 @@ export function SettingsSheet({
               open; you can adjust banners, sound, and Lock Screen alerts in iOS Settings.
             </div>
           )}
+        {alarmNote && (
+          <div
+            className="set-note"
+            {...(alarmNote === 'prompt' ? {} : { role: 'status' as const })}
+          >
+            {alarmNote === 'prompt' && <strong>{ALARM_NOTE_TITLE}</strong>}
+            <span>{ALARM_COPY[alarmNote]}</span>
+            {alarmNote === 'prompt' && (
+              <button
+                className="mini-btn completion-alert-permission"
+                type="button"
+                onClick={() => void onRequestAlarmAuthorization?.()}
+              >
+                allow alarms
+              </button>
+            )}
+          </div>
+        )}
         </SettingSection>
 
         <SettingSection title="Your day" hidden={!showSection('day')}>

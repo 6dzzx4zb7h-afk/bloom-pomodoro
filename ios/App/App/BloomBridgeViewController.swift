@@ -70,6 +70,7 @@ final class BloomBridgeViewController: CAPBridgeViewController, UITabBarDelegate
     private let appIconPlugin = BloomAppIconPlugin()
     private let completionAlertPlugin = BloomCompletionAlertPlugin()
     private let liveActivityPlugin = BloomLiveActivityPlugin()
+    private let alarmPlugin = BloomAlarmPlugin()
     private let settingsPlugin = BloomSettingsPlugin()
     private var visibleTabs: [BloomTab] = []
     private var segmentKind: String?
@@ -84,6 +85,7 @@ final class BloomBridgeViewController: CAPBridgeViewController, UITabBarDelegate
         bridge?.registerPluginInstance(appIconPlugin)
         bridge?.registerPluginInstance(completionAlertPlugin)
         bridge?.registerPluginInstance(liveActivityPlugin)
+        bridge?.registerPluginInstance(alarmPlugin)
         bridge?.registerPluginInstance(settingsPlugin)
         installNativeTabBar()
         installNativeSegmentedControl()

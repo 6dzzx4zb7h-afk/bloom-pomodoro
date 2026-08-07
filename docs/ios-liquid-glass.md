@@ -33,7 +33,7 @@ adaptations. Browser and Android builds continue to use the accessible web contr
 - [`Text(timerInterval:)`](https://developer.apple.com/documentation/swiftui/text/init(timerinterval:pausetime:countsdown:showshours:))
   lets the system advance a wall-clock countdown without per-second app updates.
 - [Scheduling an alarm with AlarmKit](https://developer.apple.com/documentation/alarmkit/scheduling-an-alarm-with-alarmkit)
-  documents the separate iOS 26 authorization and prominent-alert behavior scoped in PLAN 13.12.
+  documents the separate iOS 26 authorization and prominent-alert behavior implemented in PLAN 13.12.
 - [What's new in SwiftUI 2026](https://developer.apple.com/videos/play/wwdc2026/269/) confirms that
   apps using standard controls receive the refreshed iOS 27 appearance when built with Xcode 27.
 
@@ -70,6 +70,7 @@ visible destination. If the native plugin is unavailable or stale, Bloom keeps t
 | Exceptional custom control chrome | Consider `UIGlassEffect` only when no standard control fits | 13.5 |
 | Timer ring, pixel pet, sky, task/history cards, and other content | Keep as web content; do not glaze | intentional |
 | Active focus countdown outside the app | WidgetKit extension and local ActivityKit Live Activity | 13.8 |
+| Prominent finish alarm on iOS 26+ | AlarmKit, authorized once; owns the countdown surface while scheduled | 13.12 |
 
 Moving all of these surfaces in one change would duplicate too much state and make timer/settings
 regressions hard to isolate. Each later step must preserve cancellation, navigation guards,
@@ -172,7 +173,11 @@ reducer and persist, the scoped web detail opens and returns, and the sheet foll
 mode rather than the device's. Physical-device
 and iPad testing, VoiceOver/Switch Control, Dynamic Type, Reduced Motion, Reduced Transparency,
 Increased Contrast, rotation, and
-airplane-mode QA remain part of PLAN 13.6. The current machine has Xcode 26, so iOS 27's refreshed
+airplane-mode QA remain part of PLAN 13.6. PLAN 13.12 compiles against the iOS 26.5 SDK with the
+extension embedded and AlarmKit weak-linked, and its authorization, race, lifecycle, handoff, and
+copy behavior is covered by focused tests; the alarm sounding through Silent Mode, through an active
+Focus, and on a locked screen was confirmed on a physical device (August 7, 2026), which closed
+PLAN 13.12. The current machine has Xcode 26, so iOS 27's refreshed
 system rendering must be verified later with Xcode 27 rather than approximated locally.
 
 ## Completion-alert boundary
@@ -243,7 +248,44 @@ Settings discloses that only mode and remaining time appear, reports when Live A
 unavailable, and leaves the timer fully usable. Availability remains system-owned rather than a new
 persisted Bloom setting, so PLAN 13.8 does not change the storage schema.
 
-PLAN 13.12 now scopes AlarmKit after the user explicitly requested prominent finish alarms. On
-iOS/iPadOS 26+, its authorized system countdown will replace—not sit beside—the generic Activity for
-the same timer and will cover Focus, Tiny, Short, and Long. Older, denied, or unavailable systems
-retain this ActivityKit presentation plus PLAN 13.11's ordinary notification without duplication.
+PLAN 13.12 implements that scoping with AlarmKit. On iOS/iPadOS 26+, its authorized system countdown
+replaces—not sits beside—the generic Activity for the same timer, and it covers Focus, Tiny, Short,
+and Long. Older, denied, or unavailable systems retain this ActivityKit presentation plus PLAN
+13.11's ordinary notification without duplication.
+
+## Prominent alarm boundary
+
+PLAN 13.12 adds `AlarmKit` so a bounded finish can ring through Silent Mode and an active Focus —
+the one thing an ordinary notification deliberately cannot do. The app target keeps its iOS 14
+deployment floor and weak-links the framework behind `@available(iOS 26.0, *)`; the built binary
+carries `LC_LOAD_WEAK_DYLIB` for AlarmKit, so earlier systems launch and simply never see it. There
+is no APNs endpoint, server, account, analytics, background mode, or Critical Alert entitlement, and
+`NSAlarmKitUsageDescription` states the single purpose.
+
+Authorization is explicit, one-time, and system-owned. Bloom never asks at timer start: the request
+comes only from the **allow alarms** action in Settings, shown while **Ring when done** is on, under
+copy that says plainly what a prominent alarm does. iOS asks once; the person reverses it in iOS
+Settings, and Bloom re-reads the state on return rather than persisting a copy. No schema change.
+
+The reducer stays the only session authority. One fixed alarm identity mirrors the current `endsAt`,
+so every deadline change is a replacement rather than a queue. The countdown presentation ships
+**without a pause button** on purpose: AlarmKit must not become a second place a Bloom session can
+be paused. Pausing therefore cancels the alarm and hands the countdown surface back to the 13.8
+activity, which the reducer already drives — one system surface throughout, never two.
+
+Ordinary reconciliation never silences an alarm that is already ringing; only a replacement or the
+confirmed data clear does. That matters because the reducer closes the session within 250 ms of the
+deadline, and cancelling there would silence the cue the person asked for. At completion Bloom asks
+the bridge whether an alarm for that exact deadline is genuinely `alerting`. Only then does it skip
+its own chime — an alarm the person stopped early still leaves them a finish cue, which is the safer
+bias. Stopping the system alarm silences it and nothing more: it never writes or upgrades a record.
+
+The alert says the timer finished, never that a session was recorded, because a person can dismiss
+it from a locked screen with Bloom not running. System UI receives only the bounded mode name and
+clock data — never task, target, goal, or reflection text. The cue is the bundled `BloomCompletion.wav`
+already used by 13.11, so nothing is downloaded at runtime. Flow is excluded throughout: it has no
+predetermined finish, so it schedules no alarm.
+
+Ownership is a single flag returned by the bridge. While an authorized alarm holds the deadline, the
+13.11 notification is cancelled and the 13.8 activity is ended. When authorization is missing, the
+framework is absent, or scheduling fails, ownership is false and both fallbacks resume unchanged.

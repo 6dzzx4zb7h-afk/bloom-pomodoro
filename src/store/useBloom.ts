@@ -20,6 +20,16 @@ import {
   type IOSLiveActivityStatus,
 } from '../native/iosLiveActivity';
 import {
+  cancelIOSAlarm,
+  consumeIOSAlarmDelivery,
+  isIOSAlarmPlatform,
+  readIOSAlarmStatus,
+  reconcileIOSAlarm,
+  requestIOSAlarmAuthorization,
+  UNSUPPORTED_ALARM_STATUS,
+  type IOSAlarmStatus,
+} from '../native/iosAlarm';
+import {
   EMPTY_PRE_SLUMP_CAPS,
   PRE_SLUMP_DAILY_CAP,
   type PreSlumpCaps,
@@ -3195,6 +3205,99 @@ export function useBloom() {
   const [completionAlertPrimerOpen, setCompletionAlertPrimerOpen] = useState(false);
   const completionAlertPrimerOfferedRef = useRef(false);
 
+  // PLAN 13.12: on iOS 26 and later an authorized alarm can sound a bounded
+  // finish through Silent Mode and an active Focus. Authorization is explicit
+  // and system-owned; until it exists, and on every system without AlarmKit,
+  // PLAN 13.11's ordinary notification and the foreground chime stay in charge.
+  const alarmPlatform = isIOSAlarmPlatform();
+  const [alarmStatus, setAlarmStatus] = useState<IOSAlarmStatus>(() =>
+    alarmPlatform
+      ? { supported: false, authorization: 'checking' }
+      : UNSUPPORTED_ALARM_STATUS,
+  );
+  // Keyed by the exact snapshot the answer belongs to, so `alarmOwnsCue` reads
+  // as `null` — undecided — the instant the timer changes and before the native
+  // answer arrives. That distinction is what keeps the generic Live Activity
+  // from being created and dismissed again in the same moment.
+  const alarmSnapshotKey = `${state.mode}:${state.running ? 1 : 0}:${
+    state.settings.sound ? 1 : 0
+  }:${state.endsAt ?? 'none'}`;
+  const [alarmDecision, setAlarmDecision] = useState<{
+    key: string;
+    owns: boolean;
+  } | null>(null);
+  const alarmOwnsCue =
+    alarmDecision && alarmDecision.key === alarmSnapshotKey
+      ? alarmDecision.owns
+      : null;
+  // An authorized alarm is expected to take this bounded countdown. Holding the
+  // surface for it costs one native round trip; not holding it flashes a second
+  // countdown into the Dynamic Island at every start.
+  const alarmHoldsSurface =
+    alarmOwnsCue === true ||
+    (alarmOwnsCue === null &&
+      alarmPlatform &&
+      alarmStatus.authorization === 'granted' &&
+      state.settings.sound &&
+      state.running &&
+      state.endsAt != null &&
+      state.mode !== 'flow');
+
+  const refreshAlarmStatus = useCallback(async () => {
+    const status = await readIOSAlarmStatus();
+    setAlarmStatus(status);
+    return status;
+  }, []);
+
+  const requestAlarmAuthorization = useCallback(async () => {
+    const status = await requestIOSAlarmAuthorization();
+    setAlarmStatus(status);
+    return status;
+  }, []);
+
+  // Authorization stays outside persisted Bloom data. Re-read it on return so
+  // a change made in iOS Settings is reflected without a stored copy.
+  useEffect(() => {
+    if (!alarmPlatform) return;
+    const refresh = () => {
+      if (document.visibilityState === 'visible') void refreshAlarmStatus();
+    };
+    refresh();
+    document.addEventListener('visibilitychange', refresh);
+    return () => document.removeEventListener('visibilitychange', refresh);
+  }, [alarmPlatform, refreshAlarmStatus]);
+
+  // Mirror the reducer-owned deadline into one alarm. The returned ownership is
+  // the handoff: while AlarmKit holds this exact deadline, the notification and
+  // the generic Live Activity below stand down, so one finish never produces two
+  // sounds or two system countdowns. Nothing here completes or records anything.
+  useEffect(() => {
+    if (!alarmPlatform) return;
+    const key = alarmSnapshotKey;
+    void reconcileIOSAlarm({
+      enabled: state.settings.sound,
+      running: state.running,
+      mode: state.mode,
+      deadlineMs: state.endsAt,
+    }).then((result) => {
+      setAlarmDecision({ key, owns: result.owns });
+      setAlarmStatus((current) =>
+        current.supported === result.supported &&
+        current.authorization === result.authorization
+          ? current
+          : { supported: result.supported, authorization: result.authorization },
+      );
+    });
+  }, [
+    alarmPlatform,
+    alarmSnapshotKey,
+    alarmStatus.authorization,
+    state.endsAt,
+    state.mode,
+    state.running,
+    state.settings.sound,
+  ]);
+
   const refreshCompletionAlertStatus = useCallback(async () => {
     const status = await readIOSCompletionAlertStatus();
     setCompletionAlertStatus(status);
@@ -3241,14 +3344,20 @@ export function useBloom() {
   // PLAN 13.11: mirror the reducer-owned deadline into one native local
   // request. This effect never completes or persists a session; after process
   // termination, the existing boot sweep remains the source of record truth.
+  // PLAN 13.12 hands this cue to AlarmKit whenever an authorized alarm mirrors
+  // the same deadline, so the two never sound together.
   useEffect(() => {
+    // Undecided keeps the notification scheduled: a duplicate pending request
+    // that gets cancelled seconds later is a far smaller failure than a finish
+    // with no cue at all if the alarm turns out not to be scheduled.
     void reconcileIOSCompletionAlert({
-      enabled: state.settings.sound,
+      enabled: state.settings.sound && alarmOwnsCue !== true,
       running: state.running,
       mode: state.mode,
       deadlineMs: state.endsAt,
     });
   }, [
+    alarmOwnsCue,
     completionAlertStatus.permission,
     state.endsAt,
     state.mode,
@@ -3333,7 +3442,11 @@ export function useBloom() {
     if (
       liveActivitySessionId &&
       liveActivityMode &&
-      liveActivityStartedAtMs != null
+      liveActivityStartedAtMs != null &&
+      // PLAN 13.12: an authorized alarm brings its own countdown presentation.
+      // Yield the surface to it rather than stacking a second Bloom activity;
+      // pausing cancels the alarm and hands this one straight back.
+      !alarmHoldsSurface
     ) {
       snapshot =
         liveActivityPhase === 'running' && liveActivityDeadlineMs != null
@@ -3357,6 +3470,7 @@ export function useBloom() {
     }
     mirrorLiveActivity(snapshot);
   }, [
+    alarmHoldsSurface,
     liveActivityDeadlineMs,
     liveActivityMode,
     liveActivityPhase,
@@ -3394,11 +3508,23 @@ export function useBloom() {
     if (handledCompletionCueRef.current !== completionCueToken) {
       handledCompletionCueRef.current = completionCueToken;
       void (async () => {
+        // PLAN 13.12: only an alarm that is genuinely alerting replaces this
+        // chime. One the person stopped early still leaves them a finish cue.
+        const systemAlarmSounded =
+          completedDeadline != null && isIOSAlarmPlatform()
+            ? (await consumeIOSAlarmDelivery(completedDeadline)) === 'system-alarm'
+            : false;
         const presentation =
           completedDeadline != null && isIOSCompletionAlertPlatform()
             ? await consumeIOSCompletionAlertDelivery(completedDeadline)
             : 'none';
-        if (!soundRef.current || presentation === 'background-system') return;
+        if (
+          !soundRef.current ||
+          systemAlarmSounded ||
+          presentation === 'background-system'
+        ) {
+          return;
+        }
         audioEngine.playRing();
         // Native iOS owns its system notification. This legacy browser path
         // must never create an unfiltered duplicate inside WKWebView.
@@ -3516,6 +3642,9 @@ export function useBloom() {
         // Settings only exposes this action with no open work session. End any
         // orphaned system presentation as part of the same confirmed cleanup.
         void reconcileIOSLiveActivity(null);
+        // The one place a ringing alarm is silenced on Bloom's initiative: the
+        // person explicitly asked for everything here to be cleared.
+        void cancelIOSAlarm(true);
       },
       linkDriftEvent: (eventId: string, sessionId: string) =>
         dispatch({ type: 'linkDrift', eventId, sessionId }),
@@ -3729,6 +3858,13 @@ export function useBloom() {
       status: liveActivityStatus,
       checking: liveActivityStatusChecking,
       refreshStatus: refreshLiveActivityStatus,
+    },
+    alarms: {
+      isIOS: alarmPlatform,
+      status: alarmStatus,
+      owns: alarmOwnsCue === true,
+      requestAuthorization: requestAlarmAuthorization,
+      refreshStatus: refreshAlarmStatus,
     },
     mmss,
     clock,
