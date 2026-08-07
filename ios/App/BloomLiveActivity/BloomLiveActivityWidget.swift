@@ -4,6 +4,10 @@ import SwiftUI
 import UIKit
 import WidgetKit
 
+#if canImport(AppIntents)
+import AppIntents
+#endif
+
 struct BloomLiveActivityWidget: Widget {
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: BloomFocusActivityAttributes.self) { context in
@@ -13,7 +17,12 @@ struct BloomLiveActivityWidget: Widget {
         } dynamicIsland: { context in
             DynamicIsland {
                 DynamicIslandExpandedRegion(.leading) {
-                    BloomModeLabel(mode: context.state.mode, compact: false)
+                    HStack(spacing: 8) {
+                        BloomStatusGlyph(systemName: context.state.symbolName)
+                            .foregroundStyle(BloomLiveActivityStyle.accent)
+                            .accessibilityHidden(true)
+                        BloomModeLabel(mode: context.state.mode, compact: false)
+                    }
                 }
 
                 DynamicIslandExpandedRegion(.trailing) {
@@ -25,15 +34,16 @@ struct BloomLiveActivityWidget: Widget {
                 }
 
                 DynamicIslandExpandedRegion(.bottom) {
-                    HStack(spacing: 6) {
-                        BloomStatusGlyph(systemName: context.state.symbolName)
-                            .accessibilityHidden(true)
-                        Text(context.state.statusLabel(isStale: context.isStale))
-                            .font(.caption.weight(.semibold))
-                            .lineLimit(1)
+                    VStack(spacing: 10) {
+                        BloomProgressBar(state: context.state, isStale: context.isStale)
+                        BloomTransportControl(
+                            sessionId: context.attributes.sessionId,
+                            state: context.state,
+                            isStale: context.isStale,
+                            style: .wide
+                        )
                     }
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.top, 2)
                 }
             } compactLeading: {
                 BloomStatusGlyph(systemName: context.state.symbolName)
@@ -64,42 +74,177 @@ struct BloomLiveActivityWidget: Widget {
     }
 }
 
+/// PLAN 13.19 — the Lock Screen presentation.
+///
+/// The clock is the focal point, the mode names itself under it, and a quiet
+/// bar carries the progress the old single-row layout left to imagination. Task
+/// text and session targets stay absent by construction (PLAN 13.8): the
+/// attributes never carry them, so no layout change here can leak them.
 private struct BloomLockScreenView: View {
     let context: ActivityViewContext<BloomFocusActivityAttributes>
 
     var body: some View {
-        HStack(spacing: 14) {
-            BloomStatusGlyph(systemName: context.state.symbolName)
-                .font(.title3.weight(.semibold))
-                .foregroundStyle(BloomLiveActivityStyle.accent)
-                .frame(width: 34, height: 34)
-                .background(BloomLiveActivityStyle.accent.opacity(0.14), in: Circle())
-                .accessibilityHidden(true)
+        HStack(alignment: .center, spacing: 14) {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 8) {
+                    BloomStatusGlyph(systemName: context.state.symbolName)
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(BloomLiveActivityStyle.accent)
+                        .frame(width: 26, height: 26)
+                        .background(
+                            BloomLiveActivityStyle.accent.opacity(0.16),
+                            in: Circle()
+                        )
+                        .accessibilityHidden(true)
 
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Bloom")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                if context.isStale && context.state.phase == .running {
-                    Text("Timer reached zero — open Bloom")
-                        .font(.headline)
-                        .lineLimit(2)
-                        .minimumScaleFactor(0.8)
-                } else {
-                    BloomModeLabel(mode: context.state.mode, compact: false)
+                    if context.isStale && context.state.phase == .running {
+                        Text("Timer reached zero — open Bloom")
+                            .font(.subheadline.weight(.semibold))
+                            .lineLimit(2)
+                            .minimumScaleFactor(0.8)
+                    } else {
+                        VStack(alignment: .leading, spacing: 1) {
+                            BloomModeLabel(mode: context.state.mode, compact: false)
+                            Text(context.state.statusLabel(isStale: context.isStale))
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
+                    }
                 }
+
+                BloomActivityClock(
+                    state: context.state,
+                    compact: false,
+                    isStale: context.isStale
+                )
+                // Large enough to be the focal point, conservative enough that
+                // "1:04:59" still has room — iOS drops to a minutes-only
+                // rendering when a timer string cannot fit its slot.
+                .font(.system(size: 34, weight: .semibold, design: .rounded).monospacedDigit())
+
+                BloomProgressBar(state: context.state, isStale: context.isStale)
             }
 
-            Spacer(minLength: 8)
+            Spacer(minLength: 4)
 
-            BloomActivityClock(
+            BloomTransportControl(
+                sessionId: context.attributes.sessionId,
                 state: context.state,
-                compact: false,
-                isStale: context.isStale
+                isStale: context.isStale,
+                style: .tall
             )
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 12)
+        .padding(.vertical, 14)
+    }
+}
+
+/// Pause and resume, over PLAN 13.18's channel.
+///
+/// Deliberately the only controls here. Skip ends a session, and PLAN 8.14
+/// established that Bloom guards a running timer against accidental
+/// destruction — a control that cannot be confirmed and sits under a thumb on a
+/// Lock Screen is the wrong home for it. Pause is safe precisely because a
+/// mis-tap costs nothing and undoes itself.
+private struct BloomTransportControl: View {
+    enum Style {
+        case tall
+        case wide
+    }
+
+    let sessionId: String
+    let state: BloomFocusActivityAttributes.ContentState
+    let isStale: Bool
+    let style: Style
+
+    var body: some View {
+        #if canImport(AppIntents)
+        if #available(iOS 17.0, *), state.phase != .finished, !isStale {
+            let pausing = state.phase == .running
+            Group {
+                if pausing {
+                    Button(intent: BloomPauseIntent(sessionId: sessionId)) {
+                        label
+                    }
+                } else {
+                    Button(intent: BloomResumeIntent(sessionId: sessionId)) {
+                        label
+                    }
+                }
+            }
+            .buttonStyle(.plain)
+            .tint(BloomLiveActivityStyle.accent)
+            .accessibilityLabel(pausing ? "Pause timer" : "Resume timer")
+        }
+        #endif
+    }
+
+    @ViewBuilder
+    private var label: some View {
+        let pausing = state.phase == .running
+        Group {
+            // The Lock Screen slot is narrow, so it carries the glyph alone;
+            // the expanded Dynamic Island has room to name the action.
+            if style == .tall {
+                Image(systemName: pausing ? "pause.fill" : "play.fill")
+                    .font(.body.weight(.bold))
+            } else {
+                Label {
+                    Text(pausing ? "Pause" : "Resume")
+                        .font(.footnote.weight(.semibold))
+                } icon: {
+                    Image(systemName: pausing ? "pause.fill" : "play.fill")
+                        .font(.footnote.weight(.bold))
+                }
+            }
+        }
+        .foregroundStyle(BloomLiveActivityStyle.accent)
+        .frame(
+            minWidth: style == .tall ? 52 : 96,
+            minHeight: style == .tall ? 52 : 34
+        )
+        .background(
+            BloomLiveActivityStyle.accent.opacity(0.16),
+            in: Capsule()
+        )
+        .contentShape(Capsule())
+    }
+}
+
+/// A quiet, system-advanced progress bar.
+///
+/// `ProgressView(timerInterval:)` lets the system fill it without per-second
+/// bridge traffic, exactly as `Text(timerInterval:)` advances the clock.
+private struct BloomProgressBar: View {
+    let state: BloomFocusActivityAttributes.ContentState
+    let isStale: Bool
+
+    var body: some View {
+        Group {
+            if state.phase == .running && !isStale {
+                ProgressView(timerInterval: state.timerStart...state.timerEnd, countsDown: false) {
+                    EmptyView()
+                } currentValueLabel: {
+                    EmptyView()
+                }
+            } else {
+                ProgressView(value: fractionElapsed)
+            }
+        }
+        .progressViewStyle(.linear)
+        .tint(BloomLiveActivityStyle.accent)
+        .frame(height: 4)
+        // The clock beside it already announces the time; a second spoken
+        // progress value would just be noise in VoiceOver.
+        .accessibilityHidden(true)
+    }
+
+    private var fractionElapsed: Double {
+        let total = state.timerEnd.timeIntervalSince(state.timerStart)
+        guard total > 0 else { return isStale ? 1 : 0 }
+        guard let remaining = state.pausedRemainingSeconds else { return isStale ? 1 : 0 }
+        return min(1, max(0, 1 - Double(remaining) / total))
     }
 }
 
@@ -109,7 +254,7 @@ private struct BloomModeLabel: View {
 
     var body: some View {
         Text(mode == "tiny" ? "Tiny focus" : "Focus")
-            .font(compact ? .caption2.weight(.semibold) : .headline)
+            .font(compact ? .caption2.weight(.semibold) : .subheadline.weight(.semibold))
             .lineLimit(1)
             .minimumScaleFactor(0.8)
     }

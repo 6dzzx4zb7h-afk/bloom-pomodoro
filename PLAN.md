@@ -2113,6 +2113,38 @@ Open-step gates, stated plainly: **9.2**'s `dayKeyFor` is load-bearing for every
   Live Activities fall back to the read-only presentation; suite, build, Capacitor sync, Simulator
   build, and device check pass.
 - **Depends on:** 13.8, 13.18; respects 8.14 and 13.12's single-pause-site rule.
+- **Implementation evidence (August 2026):** Rebuilt the Lock Screen presentation around the clock as
+  focal point — friend glyph in a tinted circle, mode name over a status line, a large rounded
+  monospaced-digit clock, and a system-advanced `ProgressView(timerInterval:)` — and gave the
+  expanded Dynamic Island the same progress bar plus a labelled control. Added `BloomPauseIntent` and
+  `BloomResumeIntent` as `LiveActivityIntent`s in `Shared/`, compiled into both targets, writing to
+  13.18's queue and then optimistically redrawing the activity so the button feels instant. Both are
+  `isDiscoverable = false`: they serve one button on one Live Activity, and exposing them to
+  Shortcuts would create a way to drive the timer from outside the app. **Skip is deliberately not
+  shipped.** It ends a session and writes a record, 8.14 guards a running timer against accidental
+  destruction, and a Lock Screen control cannot be confirmed — so the step's own "or not at all"
+  branch applies pending the device check. Pause is safe precisely because a mis-tap undoes itself.
+  The ADR's optimistic-render clause was corrected in the same change: it previously claimed the
+  native layer "computes nothing", and the redraw does re-apply one `timerEnd − pressedAt`
+  subtraction. It now states the real boundary — same arithmetic, same published inputs, no clock or
+  state of its own — because the honest constraint is what makes it safe, not the overclaim.
+  `npm test` passes 67 files/664 tests, `npm run build`, `npx cap sync ios`, and `git diff --check`
+  pass; a code-signing-free Xcode 26.6 Debug Simulator build against the iOS 26.5 SDK succeeds with
+  **no warnings**, both intents compile into the app and extension targets, and `Metadata.appintents`
+  now lists `BloomPauseIntent` and `BloomResumeIntent` for both — the registration that was absent
+  before this step. On an iPhone 17 Pro iOS 26.5 Simulator the app installed and launched, starting
+  Focus created exactly one activity of `BloomFocusActivityAttributes` targeting Bloom's own widget,
+  and the Lock Screen rendered the new layout with the glyph, mode, status line, clock, progress bar,
+  and pause button, revealing no task text. Across two screenshots the countdown advanced 24→23 and
+  the progress bar visibly filled with no app traffic, confirming both system-driven surfaces.
+  **Two things remain unproven and are not claimed:** (1) the Lock Screen rendered the clock as
+  `23:––`, seconds elided — the clock font was reduced from 42pt to 34pt in case width was the cause,
+  but the Simulator also had a pending "Allow Live Activities from Bloom?" consent prompt that
+  injected taps cannot dismiss, so which of the two explains it needs a device; the user's own
+  pre-change device screenshot showed full seconds, so this is a real regression risk, not a
+  certainty. (2) No button has been pressed end to end, for the same input limitation — so 13.18's
+  channel still has not carried a command from a suspended process. Both belong to the device pass,
+  and 13.18 stays open until the second one lands.
 
 ### - [ ] 13.20 Ask the check-in where the person actually is
 

@@ -36,6 +36,8 @@
 		C13800000000000000000060 /* BloomCommandsPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1380000000000000000001E /* BloomCommandsPlugin.swift */; };
 		C13800000000000000000061 /* BloomCommandQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1380000000000000000001F /* BloomCommandQueue.swift */; };
 		C13800000000000000000062 /* BloomCommandQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1380000000000000000001F /* BloomCommandQueue.swift */; };
+		C13800000000000000000063 /* BloomTimerIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = C13800000000000000000023 /* BloomTimerIntents.swift */; };
+		C13800000000000000000064 /* BloomTimerIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = C13800000000000000000023 /* BloomTimerIntents.swift */; };
 		C1380000000000000000000E /* BloomAlarmWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1380000000000000000001C /* BloomAlarmWidget.swift */; };
 		C1380000000000000000000F /* AlarmKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C1380000000000000000001D /* AlarmKit.framework */; settings = {ATTRIBUTES = (Weak, ); }; };
 		C13800000000000000000010 /* AlarmKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C1380000000000000000001D /* AlarmKit.framework */; settings = {ATTRIBUTES = (Weak, ); }; };
@@ -94,6 +96,7 @@
 		C1380000000000000000001B /* BloomAlarmAttributes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BloomAlarmAttributes.swift; sourceTree = "<group>"; };
 		C1380000000000000000001E /* BloomCommandsPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BloomCommandsPlugin.swift; sourceTree = "<group>"; };
 		C1380000000000000000001F /* BloomCommandQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BloomCommandQueue.swift; sourceTree = "<group>"; };
+		C13800000000000000000023 /* BloomTimerIntents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BloomTimerIntents.swift; sourceTree = "<group>"; };
 		C1380000000000000000001C /* BloomAlarmWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BloomAlarmWidget.swift; sourceTree = "<group>"; };
 		C1380000000000000000001D /* AlarmKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AlarmKit.framework; path = System/Library/Frameworks/AlarmKit.framework; sourceTree = SDKROOT; };
 /* End PBXFileReference section */
@@ -173,6 +176,7 @@
 				C13800000000000000000012 /* BloomLiveActivityAttributes.swift */,
 				C1380000000000000000001B /* BloomAlarmAttributes.swift */,
 				C1380000000000000000001F /* BloomCommandQueue.swift */,
+				C13800000000000000000023 /* BloomTimerIntents.swift */,
 			);
 			path = Shared;
 			sourceTree = "<group>";
@@ -325,6 +329,7 @@
 				C1380000000000000000000C /* BloomAlarmAttributes.swift in Sources */,
 				C13800000000000000000060 /* BloomCommandsPlugin.swift in Sources */,
 				C13800000000000000000061 /* BloomCommandQueue.swift in Sources */,
+				C13800000000000000000063 /* BloomTimerIntents.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -338,6 +343,7 @@
 				C1380000000000000000000E /* BloomAlarmWidget.swift in Sources */,
 				C1380000000000000000000D /* BloomAlarmAttributes.swift in Sources */,
 				C13800000000000000000062 /* BloomCommandQueue.swift in Sources */,
+				C13800000000000000000064 /* BloomTimerIntents.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -76,10 +76,16 @@ local-first constraint is untouched. The queue is transport, not user data, so n
 bump and nothing new to export, migrate, or delete.
 
 **Costs.** A control's effect on Bloom's own state is not immediate: it lands when the WebView next
-runs. 13.19 covers this by rendering the Live Activity optimistically so the button still feels
-instant, with the reducer's next mirror as the correction. That optimistic render is a display
-concession, and it is allowed exactly because it computes nothing — it never derives remaining time
-of its own.
+runs. 13.19 covers this by redrawing the Live Activity optimistically so the button still feels
+instant, with the reducer's next mirror as the correction.
+
+That redraw is a display concession with one precise boundary: it may re-apply the **same**
+`timerEnd − pressedAt` arithmetic to the **same** values the reducer already published, and nothing
+else. It holds no clock of its own, keeps no state between presses, and starts from figures it
+received rather than figures it derived — so it cannot reach a different answer than the reducer
+does from the same command, and the reducer's next mirror overwrites it either way. A native
+surface that tracked elapsed time independently would be the second authority this ADR exists to
+prevent; re-doing one subtraction on published values is not.
 
 **Risk accepted.** A command applied late is applied with its original timestamp, so a user who
 pauses and immediately force-quits gets the correct paused time on next launch, but the session is
