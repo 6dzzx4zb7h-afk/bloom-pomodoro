@@ -46,16 +46,22 @@ struct BloomLiveActivityWidget: Widget {
                     .padding(.top, 2)
                 }
             } compactLeading: {
-                // The compact island grows to fit whatever each region claims,
-                // so both sides are pinned to the space they actually need.
-                BloomStatusGlyph(systemName: context.state.symbolName)
-                    .font(.caption2)
-                    .foregroundStyle(BloomLiveActivityStyle.accent)
-                    .frame(width: 14, height: 14)
-                    .accessibilityElement(children: .ignore)
-                    .accessibilityLabel(
-                        context.state.statusLabel(isStale: context.isStale)
-                    )
+                // iOS gives an active timer activity the full status-bar width
+                // whatever these regions ask for, so the leading slot names the
+                // mode rather than leaving a wide empty span beside the glyph.
+                HStack(spacing: 4) {
+                    BloomStatusGlyph(systemName: context.state.symbolName)
+                        .font(.caption2)
+                        .frame(width: 14, height: 14)
+                    Text(context.state.compactLabel(isStale: context.isStale))
+                        .font(.caption2.weight(.semibold))
+                        .lineLimit(1)
+                }
+                .foregroundStyle(BloomLiveActivityStyle.accent)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(
+                    context.state.statusLabel(isStale: context.isStale)
+                )
             } compactTrailing: {
                 BloomActivityClock(
                     state: context.state,
@@ -343,6 +349,20 @@ private extension BloomFocusActivityAttributes.ContentState {
             return "pause.fill"
         case .finished:
             return "checkmark"
+        }
+    }
+
+    /// One short word for the compact island — it shares a narrow slot with the
+    /// glyph, so it names the state rather than describing it.
+    func compactLabel(isStale: Bool) -> String {
+        switch phase {
+        case .running:
+            if isStale { return "Done" }
+            return mode == "tiny" ? "Tiny" : "Focus"
+        case .paused:
+            return "Paused"
+        case .finished:
+            return "Done"
         }
     }
 

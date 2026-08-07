@@ -2144,8 +2144,17 @@ Open-step gates, stated plainly: **9.2**'s `dayKeyFor` is load-bearing for every
   component that only a session over an hour can ever show — while the leading glyph had no frame at
   all. `showsHours` is now asked for only when the interval genuinely reaches an hour, the glyph is
   pinned to 14pt, and the compact clock gets exactly the width its own format needs (40pt for mm:ss,
-  58pt for h:mm:ss). Re-verified on the same Simulator: the compact island is now proportionate to
-  its content.
+  58pt for h:mm:ss). **That first attempt was declared fixed on one screenshot and was wrong.**
+  Watching the same build over a longer run showed the island back at full status-bar width with a
+  shorter clock string than the frame that had looked tight — width rising while content shrank,
+  which ruled out the content as its cause. iOS gives an active timer activity the full status-bar
+  width whatever the compact regions ask for, so shrinking them could never have worked: the defect
+  was never the pill's width, it was the empty span inside it. The leading slot now carries a short
+  state word beside the glyph — "Focus"/"Tiny", "Paused", "Done" — and the gap is gone. Re-verified
+  on a clean install across two frames 25 seconds apart, both steady: `🍃 Focus · 24:23`, with the
+  status bar's own clock, Wi-Fi, and battery visible again beside a pill at roughly 59% of the
+  screen. The `showsHours` and glyph-frame changes are kept — over-reserving width for an hours
+  component that never appears is a real bug — but they were not what the user reported.
   **That run also resolved the earlier open question:** the compact clock rendered `24:38` with
   seconds intact, so the `23:––` seen before was the pending "Allow Live Activities from Bloom?"
   consent prompt, **not** a width or font problem. The defensive 42pt→34pt reduction is kept because
