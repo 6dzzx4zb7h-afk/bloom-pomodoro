@@ -3,10 +3,7 @@ import Foundation
 import SwiftUI
 import UIKit
 import WidgetKit
-
-#if canImport(AppIntents)
 import AppIntents
-#endif
 
 struct BloomLiveActivityWidget: Widget {
     var body: some WidgetConfiguration {
@@ -176,8 +173,7 @@ private struct BloomTransportControl: View {
     let style: Style
 
     var body: some View {
-        #if canImport(AppIntents)
-        if #available(iOS 17.0, *), state.phase != .finished, !isStale {
+        if state.phase != .finished, !isStale {
             let pausing = state.phase == .running
             Group {
                 if pausing {
@@ -194,7 +190,6 @@ private struct BloomTransportControl: View {
             .tint(BloomLiveActivityStyle.accent)
             .accessibilityLabel(pausing ? "Pause timer" : "Resume timer")
         }
-        #endif
     }
 
     @ViewBuilder

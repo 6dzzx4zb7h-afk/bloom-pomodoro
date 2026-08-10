@@ -3,7 +3,6 @@ import Capacitor
 import Foundation
 import UIKit
 
-@available(iOS 16.2, *)
 private struct BloomLiveActivitySnapshot {
     let sessionId: String
     let mode: String
@@ -68,7 +67,6 @@ private struct BloomLiveActivityBridgeResult {
     )
 }
 
-@available(iOS 16.2, *)
 private actor BloomLiveActivityCoordinator {
     static let shared = BloomLiveActivityCoordinator()
     private static let lastRequestedSessionKey =
@@ -290,11 +288,6 @@ final class BloomLiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
     ]
 
     @objc func status(_ call: CAPPluginCall) {
-        guard #available(iOS 16.2, *) else {
-            call.resolve(BloomLiveActivityBridgeResult.unavailable.jsObject)
-            return
-        }
-
         Task {
             let result = await BloomLiveActivityCoordinator.shared.status()
             call.resolve(result.jsObject)
@@ -302,11 +295,6 @@ final class BloomLiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
     }
 
     @objc func reconcile(_ call: CAPPluginCall) {
-        guard #available(iOS 16.2, *) else {
-            call.resolve(BloomLiveActivityBridgeResult.unavailable.jsObject)
-            return
-        }
-
         guard let snapshot = validatedSnapshot(call) else {
             call.reject("A valid Focus or Tiny session snapshot is required")
             return
@@ -325,11 +313,6 @@ final class BloomLiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
     }
 
     @objc func end(_ call: CAPPluginCall) {
-        guard #available(iOS 16.2, *) else {
-            call.resolve(BloomLiveActivityBridgeResult.unavailable.jsObject)
-            return
-        }
-
         let rawSessionId = call.getString("sessionId")?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         if let rawSessionId, !rawSessionId.isEmpty, !isValidSessionId(rawSessionId) {
@@ -359,8 +342,7 @@ final class BloomLiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
         }
     }
 
-    @available(iOS 16.2, *)
-    private func validatedSnapshot(_ call: CAPPluginCall) -> BloomLiveActivitySnapshot? {
+        private func validatedSnapshot(_ call: CAPPluginCall) -> BloomLiveActivitySnapshot? {
         guard
             let sessionId = call.getString("sessionId")?
                 .trimmingCharacters(in: .whitespacesAndNewlines),

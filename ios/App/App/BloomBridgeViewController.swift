@@ -222,10 +222,6 @@ final class BloomBridgeViewController: CAPBridgeViewController, UITabBarDelegate
     }
 
     private func updateAuxiliaryControlTint(_ accentColor: UIColor) {
-        guard #available(iOS 15.0, *) else {
-            bloomSettingsButton.tintColor = accentColor
-            return
-        }
         guard var configuration = bloomSettingsButton.configuration else {
             bloomSettingsButton.tintColor = accentColor
             return
@@ -299,22 +295,17 @@ final class BloomBridgeViewController: CAPBridgeViewController, UITabBarDelegate
         let configuredImage = image.applyingSymbolConfiguration(
             UIImage.SymbolConfiguration(pointSize: 20, weight: .semibold)
         ) ?? image
-        if #available(iOS 26.0, *) {
-            var configuration = UIButton.Configuration.glass()
-            configuration.image = configuredImage
-            configuration.baseForegroundColor = view.tintColor
-            bloomSettingsButton.configuration = configuration
-        } else if #available(iOS 15.0, *) {
-            var configuration = UIButton.Configuration.tinted()
-            configuration.image = configuredImage
-            configuration.baseForegroundColor = view.tintColor
-            bloomSettingsButton.configuration = configuration
+        // Liquid Glass where the system has it, an ordinary tinted button
+        // everywhere else. Both are `UIButton.Configuration`, which the iOS 17
+        // floor guarantees.
+        var configuration = if #available(iOS 26.0, *) {
+            UIButton.Configuration.glass()
         } else {
-            bloomSettingsButton.setImage(configuredImage, for: .normal)
-            bloomSettingsButton.tintColor = view.tintColor
-            bloomSettingsButton.backgroundColor = .secondarySystemBackground
-            bloomSettingsButton.layer.cornerRadius = 12
+            UIButton.Configuration.tinted()
         }
+        configuration.image = configuredImage
+        configuration.baseForegroundColor = view.tintColor
+        bloomSettingsButton.configuration = configuration
         return true
     }
 

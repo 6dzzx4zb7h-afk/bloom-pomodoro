@@ -6,7 +6,6 @@ import Foundation
 /// The React reducer owns the session. ActivityKit receives only the opaque
 /// local session identifier, mode, and clock state needed to mirror it. Task
 /// text is intentionally absent so it cannot leak onto the Lock Screen.
-@available(iOS 16.2, *)
 struct BloomFocusActivityAttributes: ActivityAttributes {
     struct ContentState: Codable, Hashable {
         enum Phase: String, Codable, Hashable {

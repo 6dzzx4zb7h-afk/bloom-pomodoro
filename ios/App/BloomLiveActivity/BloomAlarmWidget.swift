@@ -138,7 +138,7 @@ private struct BloomAlarmTransportControl: View {
     var body: some View {
         // Breaks open no session, so there is nothing to address and no
         // control. An alerting alarm is dismissed by the system's own button.
-        if #available(iOS 17.0, *), !sessionId.isEmpty, let pausing = pauseIntent {
+        if !sessionId.isEmpty, let pausing = pauseIntent {
             Group {
                 if pausing {
                     Button(intent: BloomAlarmPauseIntent(sessionId: sessionId)) { label(paused: false) }

@@ -1,6 +1,4 @@
 import Foundation
-
-#if canImport(AppIntents)
 import ActivityKit
 import AppIntents
 
@@ -15,7 +13,6 @@ import AppIntents
 /// Nothing here decides anything. No session is opened, closed, or recorded,
 /// and no elapsed time is invented — the optimistic redraw below re-uses the
 /// deadline the reducer already published rather than tracking its own clock.
-@available(iOS 17.0, *)
 enum BloomTimerCommand {
     static func record(kind: String, sessionId: String, at: Date) {
         BloomCommandQueue.append(
@@ -137,7 +134,6 @@ struct BloomAlarmResumeIntent: LiveActivityIntent {
 }
 #endif
 
-@available(iOS 17.0, *)
 struct BloomPauseIntent: LiveActivityIntent {
     static var title: LocalizedStringResource = "Pause Bloom timer"
     /// Not a Shortcuts action. This exists to serve one button on one Live
@@ -161,7 +157,6 @@ struct BloomPauseIntent: LiveActivityIntent {
     }
 }
 
-@available(iOS 17.0, *)
 struct BloomResumeIntent: LiveActivityIntent {
     static var title: LocalizedStringResource = "Resume Bloom timer"
     static var isDiscoverable: Bool = false
@@ -181,4 +176,3 @@ struct BloomResumeIntent: LiveActivityIntent {
         return .result()
     }
 }
-#endif

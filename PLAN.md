@@ -2210,6 +2210,121 @@ Open-step gates, stated plainly: **9.2**'s `dayKeyFor` is load-bearing for every
   and device check pass.
 - **Depends on:** 1.5, 4.5, 13.18, 13.19 (Live Activity path only).
 
+### - [x] 13.21 Stop the icon reading as a period tracker
+
+- **Goal:** Bloom's mark is a pink-to-lavender gradient behind a five-petal cherry blossom, and the
+  first thing a stranger reads from it on a home screen is a cycle-tracking app, not a focus timer.
+  Replace the mark itself — not the friends, who stay — with a timer dial: a full ring track with an
+  accent arc starting at twelve o'clock, which is the one shape that says "timer" without a word of
+  copy. Retire the blossom and the pink from every generated surface, including the three friend
+  gradients that were themselves pink, so switching to Snappy or Coral does not put the old
+  impression straight back on the home screen. Every icon a phone can ask for is regenerated from
+  the same source: light, dark, and tinted for all six iOS sets, the maskable and adaptive
+  variants, the Android launcher and its adaptive background colour, the PWA and favicon sizes, and
+  the launch image.
+- **Science:** n/a — visual identity and first-impression legibility.
+- **Quality:** `docs/product-quality.md` — Visual design and consistency; Build and release
+  reproducibility; integration and device testing. Apple HIG *App Icons*: one recognisable shape
+  that survives down to Spotlight and Settings sizes, and dark/tinted art that lets the system own
+  the backdrop.
+- **Files:** `scripts/gen-icons.mjs`, `src/data/friends.ts`,
+  `ios/App/App/Assets.xcassets/AppIcon*.appiconset`, `ios/App/App/Assets.xcassets/Splash.imageset`,
+  `android/app/src/main/res/mipmap-*`, `android/app/src/main/res/values/ic_launcher_background.xml`,
+  `public/icon-*.png`, `public/apple-touch-icon.png`, `public/favicon-32.png`, `resources/icon*.png`.
+- **Done when:** No generated icon contains the blossom or a pink hue; the dial is legible at 40px
+  as well as 1024px; light icons still carry no alpha channel and dark/tinted ones still do; every
+  appiconset keeps its light/dark/tinted triple so `iosAppIconAssets.test.ts` passes unchanged; the
+  launch image stays on the app's canvas colour so there is no colour seam when the WebView
+  appears; suite, build, and Capacitor sync pass.
+- **Depends on:** 13.9, 13.10.
+- **Closed (August 2026):** `gen-icons.mjs` lost `blossom()` and gained `dial()`, drawn once and
+  reused by the plain mark, the six friend icons, and the launch image. The plain mark is a cream
+  dial on Bloom's new teal-to-deep-blue gradient; each friend keeps their own gradient — recoloured
+  to teal, violet, amber, night blue, brick, and moss, none of them pink — with the same dial
+  framing their sprite, which is what makes the six read as one app. Dark art drops the background
+  and keeps the cream dial; tinted art draws the dial in flat greys instead of translucent white so
+  it survives iOS's luminance mapping instead of dissolving. The launch image deliberately does not
+  use the icon gradient: it stays on the app's own canvas colour with the dial in Bloom's ink, so
+  the launch screen no longer cross-fades from a saturated tile into a near-white app. Verified at
+  1024, 180, 120, 80, 60, and 40px, on the simulated launch-screen crop, and against the
+  no-alpha-in-light-art rule; `npm test`, `npm run build`, and `npx cap sync ios` passed.
+
+### - [x] 13.22 Raise the iOS deployment floor to Apple's Spring 2027 minimum
+
+- **Goal:** App Store Connect warns that from Spring 2027 it will refuse any upload declaring a
+  `MinimumOSVersion` below 15.0, and Bloom's app target declares 14.0. Move the app target to 15.0.
+  This is a compliance change, not a decision about who Bloom supports: iOS 15 runs on exactly the
+  hardware iOS 14 ran on (iPhone 6s and later), so the floor moves without dropping a single device.
+  Do not take the opportunity to go higher — iOS 16 drops the iPhone 6s, 7, and first-generation SE,
+  which is a product decision needing its own step, and every modern surface is already behind an
+  `@available` guard rather than the floor.
+- **Science:** n/a — platform submission requirement.
+- **Quality:** `docs/product-quality.md` — Build and release reproducibility; Supported devices.
+- **Files:** `ios/App/App.xcodeproj/project.pbxproj`, `docs/ios-liquid-glass.md`.
+- **Done when:** The app target declares 15.0 in both configurations and the built `Info.plist`
+  reports it; the widget extension keeps its 16.2 floor; a Release build passes
+  `-validate-for-store`; `npx cap sync ios` does not revert the setting; the recorded floor in
+  `docs/ios-liquid-glass.md` matches the project.
+- **Depends on:** 13.1.
+- **Closed (August 2026):** All four `IPHONEOS_DEPLOYMENT_TARGET = 14.0` entries (project-level and
+  app-target, Debug and Release) moved to 15.0; the extension's 16.2 was left alone. A Release build
+  for the iPhone Simulator succeeded, ran `builtin-validationUtility -validate-for-store`, and the
+  built `App.app/Info.plist` reports `MinimumOSVersion 15.0`. `npx cap sync ios` leaves the
+  pbxproj setting untouched and regenerated `CapApp-SPM/Package.swift` to `.iOS(.v15)` on its own —
+  the CLI derives that platform from the app target — so the two stay in step without hand-editing
+  a generated file. `docs/ios-liquid-glass.md` gained a §Deployment floor section and its two stale
+  "iOS 14 deployment floor" sentences now point at it.
+- **Known remaining exposure (upstream, not fixable here):** the embedded `Capacitor.framework` and
+  `Cordova.framework` still report `MinimumOSVersion 14.0`. They are prebuilt XCFramework
+  `binaryTarget`s downloaded from `capacitor-swift-pm` 7.6.8, so the value is baked into binaries
+  this project never compiles, and rewriting their `Info.plist` would break their code signature.
+  App Store Connect has historically validated embedded frameworks as well as the app binary, so
+  this must be cleared before Spring 2027 by bumping to a Capacitor release built against iOS 15+.
+  Treat that bump as a dependency change under CLAUDE.md §Dependency and CI toolchain changes.
+
+### - [x] 13.23 Stop paying for old iOS: one floor, one availability axis
+
+- **Goal:** Bloom carried five availability axes and two implementations of some surfaces so that
+  systems almost nobody runs would still see something. The worst of it was user-facing: below iOS
+  17 the Live Activity rendered a running countdown with **no pause or resume buttons**, and below
+  iOS 16 Settings fell back to an entirely separate web-rendered form. Raise both targets to iOS
+  17.0 and delete every guard the floor makes dead, so the only remaining availability axis in
+  Bloom's own code is AlarmKit's — which must stay, because iOS 26 is recent and the fallback to
+  PLAN 13.11's ordinary notification is real. Do not touch the web layer's platform fallbacks: they
+  serve browser and Android, not old iOS.
+- **Science:** n/a — platform floor and code-path reduction.
+- **Quality:** `docs/product-quality.md` — Build and release reproducibility; Supported devices;
+  Error prevention and recovery; integration and device testing.
+- **Files:** `ios/App/App.xcodeproj/project.pbxproj`, `ios/App/App/BloomBridgeViewController.swift`,
+  `ios/App/App/BloomCompletionAlertPlugin.swift`, `ios/App/App/BloomSettingsPlugin.swift`,
+  `ios/App/App/BloomLiveActivityPlugin.swift`, `ios/App/Shared/BloomLiveActivityAttributes.swift`,
+  `ios/App/Shared/BloomTimerIntents.swift`,
+  `ios/App/BloomLiveActivity/BloomLiveActivityWidget.swift`,
+  `ios/App/BloomLiveActivity/BloomAlarmWidget.swift`, `docs/ios-liquid-glass.md`.
+- **Done when:** Both targets declare 17.0 and the built app and `.appex` `Info.plist`s report it;
+  no `@available`/`#available` below 26.0 remains anywhere in `ios/App`; `canImport(AppIntents)` is
+  gone while `canImport(AlarmKit)` stays; a clean Release build emits **zero warnings from Bloom's
+  own sources**; the JS suite, `npm run build`, and `npx cap sync ios` pass.
+- **Depends on:** 13.22.
+- **Closed (August 2026):** Nineteen guards deleted — 4 dead iOS-14 branches, 4 iOS 16.0 (the
+  duplicate web Settings path), 6 iOS 16.2 (Live Activity), and 5 iOS 17.0 (the Lock Screen
+  transport controls) — plus the three `canImport(AppIntents)` conditionals, which an iOS 17 floor
+  makes always-true. `configureSettingsButtonImage` collapsed its three-way branch into an
+  `if #available` *expression* choosing `.glass()` or `.tinted()`. The clean Release build then
+  surfaced a genuine legacy API the guards had been hiding — SwiftUI's `onChange(of:perform:)`,
+  deprecated in iOS 17 — and its three call sites moved to the two-parameter closure; the build now
+  emits no warnings from Bloom's own sources (the only two left are `WKProcessPool` deprecations
+  inside Cordova's own headers). Verified: 26 availability sites remain, every one of them iOS 26.0
+  or 26.1; app and extension `Info.plist` both report `MinimumOSVersion 17.0`; `npm test` (67 files,
+  665 tests), `npm run build`, and `npx cap sync ios` — which rewrote `CapApp-SPM/Package.swift` to
+  `.iOS(.v17)` by itself — all passed.
+- **Deliberately not changed:** the web layer. Vite emits a byte-identical bundle at `safari14`
+  through `safari17` (473.2 kB raw / 144.50 kB gzip in all four), so there was nothing to win and no
+  build target was configured. `src/styles.css`'s only `-webkit-` prefixes are `::-webkit-scrollbar`,
+  `::-webkit-details-marker`, and `-webkit-font-smoothing` — WebKit-only APIs with no standard
+  equivalent. `src/native/*.ts` keeps its `supported: false` paths because they serve web and
+  Android. Android's own `minSdk` was out of scope.
+
 ## Step dependency sketch
 
 ```
@@ -2230,7 +2345,7 @@ Phase 10: 10.1 ← (9.2, 1.1) → 10.2 ← (10.1, 8.12, 4.2, 9.2)  |  10.3 ← (
 Phase 11: 11.1 ← (8.11, 9.4, synced release slices through 10.11) → 11.2 ← (7.1, 9.4, 10.11) → 11.3  |  11.4 ← (8.4, 11.1, 11.3)  |  11.5 ← (11.2–11.4, 8.15) → 11.6 ← (7.1–7.4, 8.11, 8.15)
 Phase 12: 12.1 ← (8.4, 8.8, 8.9, 4.3, 5.3)  →  12.2
 Phase 13: 13.1 ← existing Capacitor 7 Android wrapper and local production build → 13.2 → 13.3 → 13.4a → 13.4b → 13.5 → 13.6  |  13.7 ← 13.1  |  13.8 ← (7.4, 8.3, 8.4, 13.1)  |  13.11 ← (7.4, 8.4, 13.1) → 13.12 → 13.6  |  13.13 ← (13.3, 13.10) → 13.16  |  13.14 ← 13.4a → 13.4b → (13.4c, 13.4d, 13.15) → 13.5  |  13.17 ← (13.3, 13.13)
-          13.18 ← (7.4, 13.1, 13.8) → 13.19 → 13.6  |  13.20 ← (1.5, 4.5, 13.18, 13.19)
+          13.18 ← (7.4, 13.1, 13.8) → 13.19 → 13.6  |  13.20 ← (1.5, 4.5, 13.18, 13.19)  |  13.21 ← (13.9, 13.10)  |  13.22 ← 13.1 → 13.23
 ```
 
 ## What this plan deliberately does NOT include (per §Do not build)
