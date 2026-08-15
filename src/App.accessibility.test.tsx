@@ -215,8 +215,8 @@ describe('screen semantics and named controls', () => {
 
     expect(screen.getByRole('dialog', { name: 'Return to your session' })).toBeTruthy();
     expect(screen.queryByRole('main', { name: 'Tasks', hidden: true })).toBeNull();
-    expect(
-      screen.getByRole('main', { name: /Focus\. Hi, Mira/i, hidden: true }),
-    ).toBeTruthy();
+    const hiddenFocus = document.getElementById('focus-screen');
+    expect(hiddenFocus?.tagName).toBe('MAIN');
+    expect(hiddenFocus?.getAttribute('aria-hidden')).toBe('true');
   });
 });

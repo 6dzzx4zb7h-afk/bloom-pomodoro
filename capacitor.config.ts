@@ -8,6 +8,10 @@ const config: CapacitorConfig = {
     allowMixedContent: false,
     backgroundColor: '#fdf3fb',
   },
+  ios: {
+    // Keep launch and WebView surfaces aligned with Bloom's day-theme canvas.
+    backgroundColor: '#fdf3fb',
+  },
 };
 
 export default config;

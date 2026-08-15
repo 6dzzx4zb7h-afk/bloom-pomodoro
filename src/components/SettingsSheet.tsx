@@ -20,8 +20,22 @@ import {
   type PersonalCadenceRecommendation,
 } from '../insights/cadence';
 import type { SessionRecord } from '../store/sessions';
+import type { IOSCompletionAlertStatus } from '../native/iosCompletionAlerts';
+import type { IOSLiveActivityStatus } from '../native/iosLiveActivity';
 import { Dialog } from './Dialog';
 import { Sheet } from './Sheet';
+import { SystemSwitch } from './SystemSwitch';
+import { platformWords } from '../content/platformWords';
+import {
+  dismissNativeIOSSettings,
+  isNativeIOSSettingsPlatform,
+  listenForNativeIOSSettingsAction,
+  listenForNativeIOSSettingsDismissal,
+  presentNativeIOSSettings,
+  type NativeSettingsAction,
+  type NativeSettingsRow,
+  type NativeSettingsSection,
+} from '../native/iosSettings';
 import {
   BackupError,
   IMPORT_RECOVERY_KEY,
@@ -55,6 +69,11 @@ interface SettingsSheetProps {
   onClearFocusData: () => void;
   onDataImported: () => void;
   onClose: () => void;
+  completionAlertStatus: IOSCompletionAlertStatus;
+  onRequestCompletionAlertPermission: () => Promise<IOSCompletionAlertStatus>;
+  /** Present only in the native iOS wrapper; this setting remains system-owned. */
+  liveActivityStatus?: IOSLiveActivityStatus;
+  liveActivityChecking?: boolean;
   /** Open the weekly review card on demand (PLAN 2.3); closes the sheet. */
   onShowWeekly?: () => void;
 }
@@ -81,6 +100,24 @@ const CHRONOTYPE_CHOICES: { value: Chronotype; label: string }[] = [
 
 const DAY_BOUNDARY_PRESETS = [0, 3, 5] as const;
 
+const GOAL_CREDIT_CHOICES: { value: Settings['goalCredit']; label: string }[] = [
+  { value: 'off', label: 'keep manual' },
+  { value: 'ask', label: 'ask each time' },
+  { value: 'auto', label: 'add automatically' },
+];
+
+/**
+ * PLAN 13.4b — the two sections the native form does not render yet. Each is a
+ * disclosure row that opens this same web sheet scoped to that one section, so
+ * nothing is unreachable while 13.4c and 13.4d migrate them.
+ */
+type SettingsDetail = 'data';
+
+/** Native option ids must start with a letter; these values do not. */
+const HOUR_OPTION_PREFIX = 'h';
+const CADENCE_PRESET_PREFIX = 'p';
+const CADENCE_PAIR_PREFIX = 'r';
+
 function clockHourLabel(hour: number): string {
   return `${String(hour).padStart(2, '0')}:00`;
 }
@@ -88,12 +125,16 @@ function clockHourLabel(hour: number): string {
 function SettingSection({
   title,
   defaultOpen = false,
+  hidden = false,
   children,
 }: {
   title: string;
   defaultOpen?: boolean;
+  /** PLAN 13.4b: a scoped web sheet shows one section and drops the rest. */
+  hidden?: boolean;
   children: ReactNode;
 }) {
+  if (hidden) return null;
   return (
     <details className="settings-section" open={defaultOpen}>
       <summary>{title}</summary>
@@ -166,8 +207,15 @@ export function SettingsSheet({
   onClearFocusData,
   onDataImported,
   onClose,
+  completionAlertStatus,
+  onRequestCompletionAlertPermission,
+  liveActivityStatus,
+  liveActivityChecking = false,
   onShowWeekly,
 }: SettingsSheetProps) {
+  // PLAN 13.15: iPhone and iPad have no tabs; the same leave-and-return event
+  // is leaving the app, and every label that names it says so.
+  const words = platformWords();
   // 'unknown' until asked; used to nudge the user if they blocked notifications.
   const [notifyDenied, setNotifyDenied] = useState(false);
   const [nameDraft, setNameDraft] = useState(settings.name);
@@ -258,8 +306,8 @@ export function SettingsSheet({
     onApplyCadence(preset);
   }
 
-  function commitName() {
-    const next = nameDraft.trim().slice(0, 20);
+  function commitNameValue(raw: string) {
+    const next = raw.trim().slice(0, 20);
     if (!next) {
       setNameDraft(settings.name);
       return;
@@ -268,16 +316,29 @@ export function SettingsSheet({
     if (next !== settings.name) onPatch({ name: next });
   }
 
+  function commitName() {
+    commitNameValue(nameDraft);
+  }
+
   async function toggleRing() {
     const next = !settings.sound;
     onPatch({ sound: next });
     if (next) {
       // Turning it on is also the user gesture that unlocks and previews the
-      // completion cue, then asks to pair it with a background notification.
+      // completion cue. Native notification permission remains a separate,
+      // explained choice.
       audioEngine.resume();
       audioEngine.playRing();
-      const ok = await requestNotifyPermission();
-      setNotifyDenied(!ok && typeof Notification !== 'undefined' && Notification.permission === 'denied');
+      if (completionAlertStatus.permission === 'unsupported') {
+        const ok = await requestNotifyPermission();
+        setNotifyDenied(
+          !ok && typeof Notification !== 'undefined' && Notification.permission === 'denied',
+        );
+      } else {
+        // Native iOS permission follows the explicit explanation below. The
+        // Ring switch itself only enables and previews the foreground cue.
+        setNotifyDenied(false);
+      }
     }
   }
 
@@ -390,10 +451,612 @@ export function SettingsSheet({
     }
   }
 
+  // ---------- PLAN 13.4b: the native iOS form ----------
+  // React keeps every string and every decision about which rows exist; the
+  // native layer renders what it is handed and reports which row the user
+  // touched. Nothing here writes state — each action goes back through the
+  // same handler the web control uses, so the reducer stays the only writer.
+
+  const nativeIOS = isNativeIOSSettingsPlatform();
+  const [detail, setDetail] = useState<SettingsDetail | null>(null);
+  // null until the bridge answers; false means this iOS version (or a failed
+  // presentation) keeps the complete web sheet.
+  const [nativeActive, setNativeActive] = useState<boolean | null>(
+    nativeIOS ? null : false,
+  );
+
+  function sessionsRows(): NativeSettingsRow[] {
+    const rows: NativeSettingsRow[] = [
+      {
+        kind: 'switch',
+        id: 'settings.autoStart',
+        title: 'Auto-start next',
+        value: settings.autoStart,
+      },
+      {
+        kind: 'switch',
+        id: 'ritual.enabled',
+        title: 'Environment reset',
+        subtitle: 'an optional 15–30 second tidy-up before a session',
+        value: ritual.enabled,
+      },
+    ];
+    if (ritual.enabled) {
+      rows.push({
+        kind: 'note',
+        id: 'note.ritualEdit',
+        body: 'Edit the little checks to fit your space. You can skip the reset whenever you like.',
+      });
+      ritual.items.forEach((item, index) => {
+        rows.push({
+          kind: 'text',
+          id: `ritual.item.${index}`,
+          title: `Check ${index + 1}`,
+          value: item.text,
+          maxLength: 60,
+        });
+      });
+    }
+    rows.push(
+      {
+        kind: 'switch',
+        id: 'settings.flow',
+        title: 'Flow timer',
+        subtitle: words.flowSubtitle,
+        value: settings.flow,
+      },
+      {
+        kind: 'switch',
+        id: 'settings.sound',
+        title: 'Ring when done',
+        subtitle: 'a gentle chime at session end',
+        value: settings.sound,
+      },
+    );
+
+    if (liveActivityStatus) {
+      rows.push({
+        kind: 'note',
+        id: 'note.liveActivity',
+        title: 'Live Activity',
+        body: liveActivityChecking
+          ? 'Checking your iOS Live Activity setting…'
+          : !liveActivityStatus.supported
+            ? 'Live Activities aren’t available on this iOS version. Your timer still works normally.'
+            : !liveActivityStatus.enabled
+              ? 'Live Activities are off in iOS Settings. Your timer still works normally.'
+              : 'Focus and Tiny can show their mode and time remaining on the Lock Screen and, on supported iPhones, the Dynamic Island. Task text never appears, and no Bloom server is involved.',
+        status: liveActivityChecking || !liveActivityStatus.enabled,
+      });
+    }
+    if (notifyDenied) {
+      rows.push({
+        kind: 'note',
+        id: 'note.notifyDenied',
+        body: 'Notifications are blocked for Bloom right now, so the end-of-session notice can’t appear. You can allow them in your browser or app settings whenever you like.',
+        status: true,
+      });
+    }
+    if (settings.sound && completionAlertStatus.permission === 'prompt') {
+      rows.push(
+        {
+          kind: 'note',
+          id: 'note.completionAlertPrompt',
+          body: 'Bloom can chime while it’s open. Allow notifications so iOS can deliver a timer alert while Bloom is in the background or your device is locked. Silent Mode, Focus, and your notification settings still apply.',
+        },
+        {
+          kind: 'button',
+          id: 'action.allowNotifications',
+          title: 'allow notifications',
+        },
+      );
+    }
+    if (settings.sound && completionAlertStatus.permission === 'denied') {
+      rows.push({
+        kind: 'note',
+        id: 'note.completionAlertDenied',
+        body: 'Timer alerts are off in iOS Settings. Bloom can still chime while it’s open.',
+        status: true,
+      });
+    }
+    if (settings.sound && completionAlertStatus.permission === 'unavailable') {
+      rows.push({
+        kind: 'note',
+        id: 'note.completionAlertUnavailable',
+        body: 'Background timer alerts aren’t available right now. Bloom can still chime while it’s open.',
+        status: true,
+      });
+    }
+    if (
+      settings.sound &&
+      completionAlertStatus.permission === 'granted' &&
+      (!completionAlertStatus.alertsEnabled ||
+        !completionAlertStatus.soundsEnabled ||
+        !completionAlertStatus.lockScreenEnabled)
+    ) {
+      rows.push({
+        kind: 'note',
+        id: 'note.completionAlertPartial',
+        body: 'One or more iOS notification options are off. Bloom can still chime while it’s open; you can adjust banners, sound, and Lock Screen alerts in iOS Settings.',
+        status: true,
+      });
+    }
+    return rows;
+  }
+
+  /**
+   * PLAN 13.4c — the cadence surface, natively. `insights/cadence.ts` still
+   * owns the recommendation, its reasoning line, and its staleness rule; this
+   * only decides which rows say it. The preset ids and history pairs are
+   * prefixed because a native option id has to start with a letter.
+   */
+  function durationRows(): NativeSettingsRow[] {
+    const preset = learnedCadence.preset;
+    const alreadySet =
+      currentCadence.focusMin === preset.focusMin &&
+      currentCadence.breakMin === preset.breakMin;
+    const rows: NativeSettingsRow[] = [
+      {
+        kind: 'note',
+        id: 'note.cadenceLearned',
+        title: learnedCadence.text,
+        body: learnedCadence.because,
+      },
+      {
+        kind: 'values',
+        id: 'cadence.ladder',
+        title: 'Your cadence ladder',
+        items: (['shorter', 'current', 'longer'] as const).map((slot) => {
+          const rung = learnedCadence.rungs[slot];
+          return {
+            id: `rung-${slot}`,
+            label: `${rung.focusMin}/${rung.breakMin}`,
+            caption: slot,
+            spoken: `${slot}: ${rung.focusMin} minutes focus, ${rung.breakMin} minutes break`,
+          };
+        }),
+      },
+      {
+        kind: 'button',
+        id: 'action.applyCadence',
+        // Disabled carries "this is what you are on"; the ♡ is not load-bearing.
+        title: alreadySet
+          ? `${preset.focusMin}/${preset.breakMin} is set ♡`
+          : `try ${preset.focusMin}/${preset.breakMin} ♡`,
+        enabled: !alreadySet,
+      },
+    ];
+
+    if (personalCadence.history.length > 0) {
+      rows.push({
+        kind: 'picker',
+        id: 'cadence.history',
+        title: 'Previous rungs',
+        subtitle: 'one tap back',
+        options: [...personalCadence.history].reverse().map((pair) => ({
+          id: `${CADENCE_PAIR_PREFIX}${pair.focusMin}-${pair.breakMin}`,
+          title: `${pair.focusMin}/${pair.breakMin}`,
+        })),
+        // An action menu, not a current value: nothing starts selected.
+        selected: '',
+      });
+    }
+
+    const activePreset = CADENCE_PRESETS.find(
+      (option) =>
+        settings.durations.focus === option.focusMin * 60 &&
+        settings.durations.short === option.breakMin * 60,
+    );
+    rows.push({
+      kind: 'segmented',
+      id: 'cadence.preset',
+      title: 'Or choose a starting pair yourself',
+      subtitle: 'work / break',
+      options: CADENCE_PRESETS.map((option) => ({
+        id: `${CADENCE_PRESET_PREFIX}${option.id}`,
+        title: option.label,
+      })),
+      // Empty when the user's own lengths match no preset, exactly as the web
+      // grid shows none of them pressed.
+      selected: activePreset ? `${CADENCE_PRESET_PREFIX}${activePreset.id}` : '',
+    });
+
+    DURATION_ROWS.forEach((row) => {
+      const mins = Math.round(settings.durations[row.key] / 60);
+      rows.push({
+        kind: 'stepper',
+        id: `duration.${row.key}`,
+        title: row.label,
+        valueLabel: `${mins} min`,
+        canDecrease: mins > row.min,
+        canIncrease: mins < row.max,
+      });
+    });
+    return rows;
+  }
+
+  function companionRows(): NativeSettingsRow[] {
+    const rows: NativeSettingsRow[] = [
+      {
+        kind: 'switch',
+        id: 'settings.companion',
+        title: 'Companion mode',
+        subtitle:
+          'your pet gently checks in and helps you understand your focus patterns',
+        value: companion.on,
+      },
+      {
+        kind: 'switch',
+        id: 'settings.preSlumpCheck',
+        title: 'Gentle pre-slump check',
+        subtitle: 'an optional breath or stretch hello during focus',
+        value: settings.preSlumpCheck,
+      },
+      {
+        kind: 'note',
+        id: 'note.preSlump',
+        body: 'Based on when your drifts usually start. Once Bloom has enough of your focus history, your pet may offer one soft cue shortly beforehand — never more than once a session or twice a day. You can silence it for the day from the cue.',
+      },
+    ];
+    if (!companion.on) return rows;
+
+    rows.push({
+      kind: 'stepper',
+      id: 'companion.checkinMins',
+      title: 'Check in every',
+      valueLabel: `${companion.checkinMins} min`,
+      canDecrease: companion.checkinMins > CHECKIN_CHOICES[0],
+      canIncrease: companion.checkinMins < CHECKIN_CHOICES[CHECKIN_CHOICES.length - 1],
+    });
+    rows.push({
+      kind: 'switch',
+      id: 'settings.companion.tabDetect',
+      title: words.awayToggleTitle,
+      subtitle: 'a soft hello when you come back',
+      value: companion.tabDetect,
+    });
+    if (companion.tabDetect) {
+      rows.push({
+        kind: 'stepper',
+        id: 'companion.awaySecs',
+        title: 'Away counts after',
+        valueLabel: `${companion.awaySecs} s`,
+        canDecrease: companion.awaySecs > AWAY_CHOICES[0],
+        canIncrease: companion.awaySecs < AWAY_CHOICES[AWAY_CHOICES.length - 1],
+      });
+    }
+    rows.push(
+      {
+        kind: 'switch',
+        id: 'settings.companion.quiet',
+        title: 'Quiet mode',
+        subtitle: 'log patterns silently, never ask',
+        value: companion.quiet,
+      },
+      {
+        kind: 'switch',
+        id: 'settings.companion.intention',
+        title: 'Session intention',
+        subtitle: 'one small “what will you do?” before you start',
+        value: companion.intention,
+      },
+    );
+    return rows;
+  }
+
+  function dayRows(): NativeSettingsRow[] {
+    const rows: NativeSettingsRow[] = [
+      {
+        kind: 'picker',
+        id: 'settings.dayStartHour',
+        title: 'When does your day roll over?',
+        subtitle:
+          'Sessions finished before this time belong to the previous study day. Their timestamps stay unchanged.',
+        options: Array.from({ length: 24 }, (_, hour) => ({
+          id: `${HOUR_OPTION_PREFIX}${hour}`,
+          title: clockHourLabel(hour),
+        })),
+        selected: `${HOUR_OPTION_PREFIX}${settings.dayStartHour}`,
+      },
+      {
+        kind: 'switch',
+        id: 'settings.foundations',
+        title: 'Daily foundations',
+        subtitle:
+          'keep up to three tiny daily actions beside your finished-session marker',
+        value: settings.foundations,
+      },
+      {
+        kind: 'switch',
+        id: 'settings.planner',
+        title: 'Goals & deadlines',
+        subtitle:
+          'plan an exam, a project or any goal with a date — log parts as you finish and see the pace that lands it',
+        value: settings.planner,
+      },
+    ];
+    if (settings.planner) {
+      rows.push({
+        kind: 'picker',
+        id: 'settings.goalCredit',
+        title: 'Credit linked work',
+        subtitle:
+          'choose whether a finished linked task or session can log one goal part',
+        options: GOAL_CREDIT_CHOICES.map((choice) => ({
+          id: choice.value,
+          title: choice.label,
+        })),
+        selected: settings.goalCredit,
+      });
+    }
+    rows.push({
+      kind: 'note',
+      id: 'note.gentleStreak',
+      title: 'Gentle streak',
+      body: 'Your streak counts days with a finished session. One rest day each week is free — a single quiet day keeps it growing. A longer pause just sets the count aside, and coming back always gets a warm welcome. Consistency is a months game.',
+    });
+    return rows;
+  }
+
+  const nativeSections: NativeSettingsSection[] = [
+    {
+      id: 'you',
+      title: 'You',
+      rows: [
+        {
+          kind: 'text',
+          id: 'settings.name',
+          title: 'Your name',
+          value: settings.name,
+          placeholder: 'your name',
+          maxLength: 20,
+        },
+        {
+          kind: 'segmented',
+          id: 'settings.chronotype',
+          title: 'When are you usually sharpest?',
+          subtitle: 'a gentle first guess — your finished sessions help refine it',
+          options: CHRONOTYPE_CHOICES.map((choice) => ({
+            id: choice.value,
+            title: choice.label,
+          })),
+          selected: settings.chronotype,
+        },
+      ],
+    },
+    {
+      id: 'durations',
+      title: 'Timer lengths',
+      footer: 'learned from your local focus history · refreshed no more than weekly',
+      rows: durationRows(),
+    },
+    { id: 'sessions', title: 'Sessions', rows: sessionsRows() },
+    { id: 'day', title: 'Your day', rows: dayRows() },
+    { id: 'companion', title: 'Companion', rows: companionRows() },
+    {
+      id: 'appearance',
+      title: 'Appearance',
+      rows: [
+        {
+          kind: 'switch',
+          id: 'settings.night',
+          title: 'Night sky',
+          subtitle: 'cozy dark mode with stars & meteors',
+          value: settings.night,
+        },
+      ],
+    },
+    {
+      id: 'data',
+      title: 'Your data',
+      rows: [
+        {
+          kind: 'disclosure',
+          id: 'detail.data',
+          title: 'Backup, import, and history',
+          subtitle: 'export or import a local backup, or review your focus history',
+        },
+      ],
+    },
+  ];
+
+  const snapshot = {
+    title: 'Settings',
+    doneTitle: 'done',
+    appearance: settings.night ? ('dark' as const) : ('light' as const),
+    sections: nativeSections,
+  };
+  const snapshotRef = useRef(snapshot);
+  snapshotRef.current = snapshot;
+  const snapshotKey = nativeIOS ? JSON.stringify(snapshot) : '';
+
+  const nativeActionRef = useRef<(action: NativeSettingsAction) => void>(() => undefined);
+  nativeActionRef.current = ({ id, value, direction }) => {
+    const flag = typeof value === 'boolean' ? value : undefined;
+    const text = typeof value === 'string' ? value : undefined;
+    const step = direction === 'increase' ? 1 : direction === 'decrease' ? -1 : undefined;
+
+    if (id.startsWith('ritual.item.')) {
+      const index = Number(id.slice('ritual.item.'.length));
+      const item = ritual.items[index];
+      if (item && text !== undefined && text.trim()) onUpdateRitualItem(item.id, text.trim());
+      return;
+    }
+
+    switch (id) {
+      case 'settings.name':
+        if (text !== undefined) commitNameValue(text);
+        return;
+      case 'settings.chronotype':
+        if (CHRONOTYPE_CHOICES.some((choice) => choice.value === text)) {
+          onPatch({ chronotype: text as Chronotype });
+        }
+        return;
+      case 'settings.autoStart':
+        if (flag !== undefined) onPatch({ autoStart: flag });
+        return;
+      case 'ritual.enabled':
+        if (flag !== undefined) onPatchRitual({ enabled: flag });
+        return;
+      case 'settings.flow':
+        if (flag !== undefined) onPatch({ flow: flag });
+        return;
+      case 'settings.sound':
+        if (flag !== undefined && flag !== settings.sound) void toggleRing();
+        return;
+      case 'action.allowNotifications':
+        void onRequestCompletionAlertPermission();
+        return;
+      case 'settings.dayStartHour': {
+        if (text === undefined || !text.startsWith(HOUR_OPTION_PREFIX)) return;
+        const hour = Number(text.slice(HOUR_OPTION_PREFIX.length));
+        if (Number.isInteger(hour) && hour >= 0 && hour <= 23) onPatch({ dayStartHour: hour });
+        return;
+      }
+      case 'action.applyCadence':
+        applyCadence(learnedCadence.preset);
+        return;
+      case 'cadence.history': {
+        if (text === undefined || !text.startsWith(CADENCE_PAIR_PREFIX)) return;
+        const pair = personalCadence.history.find(
+          (entry) => `${CADENCE_PAIR_PREFIX}${entry.focusMin}-${entry.breakMin}` === text,
+        );
+        if (pair) onApplyCadence(pair);
+        return;
+      }
+      case 'cadence.preset': {
+        if (text === undefined || !text.startsWith(CADENCE_PRESET_PREFIX)) return;
+        const chosen = CADENCE_PRESETS.find(
+          (option) => `${CADENCE_PRESET_PREFIX}${option.id}` === text,
+        );
+        if (chosen) applyCadence(chosen);
+        return;
+      }
+      case 'duration.focus':
+      case 'duration.short':
+      case 'duration.long': {
+        const key = id.slice('duration.'.length) as DurationMode;
+        const spec = DURATION_ROWS.find((row) => row.key === key);
+        if (spec && step) bump(key, step, spec);
+        return;
+      }
+      case 'settings.foundations':
+        if (flag !== undefined) onPatch({ foundations: flag });
+        return;
+      case 'settings.planner':
+        if (flag !== undefined) onPatch({ planner: flag });
+        return;
+      case 'settings.goalCredit':
+        if (GOAL_CREDIT_CHOICES.some((choice) => choice.value === text)) {
+          onPatch({ goalCredit: text as Settings['goalCredit'] });
+        }
+        return;
+      case 'settings.companion':
+        if (flag !== undefined && flag !== companion.on) toggleCompanion();
+        return;
+      case 'settings.preSlumpCheck':
+        if (flag !== undefined) onPatch({ preSlumpCheck: flag });
+        return;
+      case 'companion.checkinMins':
+        if (step) {
+          onPatch({
+            companion: {
+              ...companion,
+              checkinMins: stepChoice(CHECKIN_CHOICES, companion.checkinMins, step),
+            },
+          });
+        }
+        return;
+      case 'settings.companion.tabDetect':
+        if (flag !== undefined) onPatch({ companion: { ...companion, tabDetect: flag } });
+        return;
+      case 'companion.awaySecs':
+        if (step) {
+          onPatch({
+            companion: {
+              ...companion,
+              awaySecs: stepChoice(AWAY_CHOICES, companion.awaySecs, step),
+            },
+          });
+        }
+        return;
+      case 'settings.companion.quiet':
+        if (flag !== undefined) onPatch({ companion: { ...companion, quiet: flag } });
+        return;
+      case 'settings.companion.intention':
+        if (flag !== undefined) onPatch({ companion: { ...companion, intention: flag } });
+        return;
+      case 'settings.night':
+        if (flag !== undefined) onPatch({ night: flag });
+        return;
+      case 'detail.data':
+        setDetail('data');
+        return;
+      default:
+        // An unknown identifier is a stale sheet or a malformed event; a
+        // Settings screen must never guess which value it was meant to change.
+        return;
+    }
+  };
+
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+
+  useEffect(() => {
+    if (!nativeIOS) return;
+    let disposed = false;
+    const handles: { remove: () => Promise<void> }[] = [];
+    const track = (handle: { remove: () => Promise<void> }) => {
+      if (disposed) void handle.remove();
+      else handles.push(handle);
+    };
+
+    void listenForNativeIOSSettingsAction((action) => nativeActionRef.current(action))
+      .then(track)
+      .catch(() => undefined);
+    void listenForNativeIOSSettingsDismissal(() => onCloseRef.current())
+      .then(track)
+      .catch(() => undefined);
+
+    return () => {
+      disposed = true;
+      handles.forEach((handle) => void handle.remove());
+      void dismissNativeIOSSettings();
+    };
+  }, [nativeIOS]);
+
+  useEffect(() => {
+    if (!nativeIOS) return;
+    if (detail !== null) {
+      // One sheet at a time: the web detail owns the screen while it is open.
+      void dismissNativeIOSSettings();
+      return;
+    }
+    let disposed = false;
+    void presentNativeIOSSettings(snapshotRef.current)
+      .then(({ active }) => {
+        if (!disposed) setNativeActive(active);
+      })
+      .catch(() => {
+        if (!disposed) setNativeActive(false);
+      });
+    return () => {
+      disposed = true;
+    };
+  }, [detail, nativeIOS, snapshotKey]);
+
+  const detailTitle = detail === 'data' ? 'Your data' : 'Settings';
+  const closeSheet = detail === null ? onClose : () => setDetail(null);
+  const showSection = (id: string) => detail === null || detail === id;
+
+  // The native sheet is the whole Settings UI while it is up; rendering the web
+  // one behind it would duplicate every control and every VoiceOver target.
+  if (nativeIOS && nativeActive !== false && detail === null) return null;
+
   return (
     <>
-      <Sheet title="Settings" onRequestClose={onClose}>
-        <SettingSection title="You" defaultOpen>
+      <Sheet title={detailTitle} onRequestClose={closeSheet}>
+        <SettingSection title="You" defaultOpen hidden={!showSection('you')}>
         <div className="set-row">
           <span className="set-label">Your name</span>
           <input
@@ -436,7 +1099,7 @@ export function SettingsSheet({
         </div>
         </SettingSection>
 
-        <SettingSection title="Timer lengths" defaultOpen>
+        <SettingSection title="Timer lengths" defaultOpen hidden={!showSection('durations')}>
         <div className="set-block cadence-presets">
           <span className="set-label">
             Your cadence ladder
@@ -544,18 +1207,15 @@ export function SettingsSheet({
 
         </SettingSection>
 
-        <SettingSection title="Sessions">
+        <SettingSection title="Sessions" hidden={!showSection('sessions')}>
         <div className="set-row">
           <span className="set-label">Auto-start next</span>
-          <button
-            className={`switch${settings.autoStart ? ' on' : ''}`}
-            onClick={() => onPatch({ autoStart: !settings.autoStart })}
-            role="switch"
-            aria-checked={settings.autoStart}
-            aria-label="Auto-start next timer"
-          >
-            <span className="knob" />
-          </button>
+          <SystemSwitch
+            nativeId="settings.autoStart"
+            checked={settings.autoStart}
+            label="Auto-start next timer"
+            onChange={(checked) => onPatch({ autoStart: checked })}
+          />
         </div>
 
         <div className="set-row">
@@ -563,15 +1223,12 @@ export function SettingsSheet({
             Environment reset
             <span className="set-sub">an optional 15–30 second tidy-up before a session</span>
           </span>
-          <button
-            className={`switch${ritual.enabled ? ' on' : ''}`}
-            onClick={() => onPatchRitual({ enabled: !ritual.enabled })}
-            role="switch"
-            aria-checked={ritual.enabled}
-            aria-label="Environment reset ritual"
-          >
-            <span className="knob" />
-          </button>
+          <SystemSwitch
+            nativeId="ritual.enabled"
+            checked={ritual.enabled}
+            label="Environment reset ritual"
+            onChange={(enabled) => onPatchRitual({ enabled })}
+          />
         </div>
 
         {ritual.enabled && (
@@ -592,19 +1249,14 @@ export function SettingsSheet({
         <div className="set-row">
           <span className="set-label">
             Flow timer
-            <span className="set-sub">
-              a count-up stopwatch tab — ride the focus as long as it flows, no ticking deadline
-            </span>
+            <span className="set-sub">{words.flowSubtitle}</span>
           </span>
-          <button
-            className={`switch${settings.flow ? ' on' : ''}`}
-            onClick={() => onPatch({ flow: !settings.flow })}
-            role="switch"
-            aria-checked={settings.flow}
-            aria-label="Flow timer"
-          >
-            <span className="knob" />
-          </button>
+          <SystemSwitch
+            nativeId="settings.flow"
+            checked={settings.flow}
+            label="Flow timer"
+            onChange={(flow) => onPatch({ flow })}
+          />
         </div>
         {/* Ambient sounds were removed in PLAN 12.1. The disclosed completion
             cue remains with the other session behavior instead of keeping a
@@ -614,16 +1266,40 @@ export function SettingsSheet({
             Ring when done
             <span className="set-sub">a gentle chime at session end</span>
           </span>
-          <button
-            className={`switch${settings.sound ? ' on' : ''}`}
-            onClick={toggleRing}
-            role="switch"
-            aria-checked={settings.sound}
-            aria-label="Ring when done"
-          >
-            <span className="knob" />
-          </button>
+          <SystemSwitch
+            nativeId="settings.sound"
+            checked={settings.sound}
+            label="Ring when done"
+            onChange={(sound) => {
+              if (sound !== settings.sound) void toggleRing();
+            }}
+          />
         </div>
+
+        {liveActivityStatus && (
+          <div className="set-note live-activity-note">
+            <strong>Live Activity</strong>
+            <span>
+              Focus and Tiny can show their mode and time remaining on the Lock Screen and, on
+              supported iPhones, the Dynamic Island. Task text never appears, and no Bloom server
+              is involved.
+            </span>
+            {liveActivityChecking ? (
+              <span role="status">Checking your iOS Live Activity setting…</span>
+            ) : !liveActivityStatus.supported ? (
+              <span role="status">
+                Live Activities aren’t available on this iOS version. Your timer still works
+                normally.
+              </span>
+            ) : !liveActivityStatus.enabled ? (
+              <span role="status">
+                Live Activities are off in iOS Settings. Your timer still works normally.
+              </span>
+            ) : (
+              <span>Live Activities follow your iOS Settings and work without internet access.</span>
+            )}
+          </div>
+        )}
 
         {notifyDenied && (
           <div className="set-note">
@@ -631,9 +1307,46 @@ export function SettingsSheet({
             appear. You can allow them in your browser or app settings whenever you like.
           </div>
         )}
+        {settings.sound && completionAlertStatus.permission === 'prompt' && (
+          <div className="set-note">
+            <span>
+              Bloom can chime while it’s open. Allow notifications so iOS can deliver a timer alert
+              while Bloom is in the background or your device is locked. Silent Mode, Focus, and
+              your notification settings still apply.
+            </span>
+            <button
+              className="mini-btn completion-alert-permission"
+              type="button"
+              onClick={() => void onRequestCompletionAlertPermission()}
+            >
+              allow notifications
+            </button>
+          </div>
+        )}
+        {settings.sound && completionAlertStatus.permission === 'denied' && (
+          <div className="set-note" role="status">
+            Timer alerts are off in iOS Settings. Bloom can still chime while it’s open.
+          </div>
+        )}
+        {settings.sound && completionAlertStatus.permission === 'unavailable' && (
+          <div className="set-note" role="status">
+            Background timer alerts aren’t available right now. Bloom can still chime while it’s
+            open.
+          </div>
+        )}
+        {settings.sound &&
+          completionAlertStatus.permission === 'granted' &&
+          (!completionAlertStatus.alertsEnabled ||
+            !completionAlertStatus.soundsEnabled ||
+            !completionAlertStatus.lockScreenEnabled) && (
+            <div className="set-note" role="status">
+              One or more iOS notification options are off. Bloom can still chime while it’s
+              open; you can adjust banners, sound, and Lock Screen alerts in iOS Settings.
+            </div>
+          )}
         </SettingSection>
 
-        <SettingSection title="Your day">
+        <SettingSection title="Your day" hidden={!showSection('day')}>
         <fieldset className="set-block day-boundary-setting">
           <legend className="set-label">When does your day roll over?</legend>
           <span className="set-sub">
@@ -675,15 +1388,12 @@ export function SettingsSheet({
               keep up to three tiny daily actions beside your finished-session marker
             </span>
           </span>
-          <button
-            className={`switch${settings.foundations ? ' on' : ''}`}
-            onClick={() => onPatch({ foundations: !settings.foundations })}
-            role="switch"
-            aria-checked={settings.foundations}
-            aria-label="Daily foundations"
-          >
-            <span className="knob" />
-          </button>
+          <SystemSwitch
+            nativeId="settings.foundations"
+            checked={settings.foundations}
+            label="Daily foundations"
+            onChange={(foundations) => onPatch({ foundations })}
+          />
         </div>
 
         <div className="set-row">
@@ -694,15 +1404,12 @@ export function SettingsSheet({
               the pace that lands it
             </span>
           </span>
-          <button
-            className={`switch${settings.planner ? ' on' : ''}`}
-            onClick={() => onPatch({ planner: !settings.planner })}
-            role="switch"
-            aria-checked={settings.planner}
-            aria-label="Goals and deadlines"
-          >
-            <span className="knob" />
-          </button>
+          <SystemSwitch
+            nativeId="settings.planner"
+            checked={settings.planner}
+            label="Goals and deadlines"
+            onChange={(planner) => onPatch({ planner })}
+          />
         </div>
         {settings.planner && (
           <label className="set-row goal-credit-setting">
@@ -739,7 +1446,7 @@ export function SettingsSheet({
         </div>
         </SettingSection>
 
-        <SettingSection title="Companion">
+        <SettingSection title="Companion" hidden={!showSection('companion')}>
         <div className="set-row">
           <span className="set-label">
             <span className="companion-label">
@@ -758,15 +1465,14 @@ export function SettingsSheet({
               your pet gently checks in and helps you understand your focus patterns
             </span>
           </span>
-          <button
-            className={`switch${companion.on ? ' on' : ''}`}
-            onClick={toggleCompanion}
-            role="switch"
-            aria-checked={companion.on}
-            aria-label="Companion mode"
-          >
-            <span className="knob" />
-          </button>
+          <SystemSwitch
+            nativeId="settings.companion"
+            checked={companion.on}
+            label="Companion mode"
+            onChange={(enabled) => {
+              if (enabled !== companion.on) toggleCompanion();
+            }}
+          />
         </div>
 
         <div className="set-block">
@@ -775,15 +1481,12 @@ export function SettingsSheet({
               Gentle pre-slump check
               <span className="set-sub">an optional breath or stretch hello during focus</span>
             </span>
-            <button
-              className={`switch${settings.preSlumpCheck ? ' on' : ''}`}
-              onClick={() => onPatch({ preSlumpCheck: !settings.preSlumpCheck })}
-              role="switch"
-              aria-checked={settings.preSlumpCheck}
-              aria-label="Gentle pre-slump check"
-            >
-              <span className="knob" />
-            </button>
+            <SystemSwitch
+              nativeId="settings.preSlumpCheck"
+              checked={settings.preSlumpCheck}
+              label="Gentle pre-slump check"
+              onChange={(preSlumpCheck) => onPatch({ preSlumpCheck })}
+            />
           </div>
           <div className="set-note">
             Based on when your drifts usually start. Once Bloom has enough of your focus history,
@@ -833,18 +1536,15 @@ export function SettingsSheet({
 
             <div className="set-row">
               <span className="set-label">
-                Notice tab switches
+                {words.awayToggleTitle}
                 <span className="set-sub">a soft hello when you come back</span>
               </span>
-              <button
-                className={`switch${companion.tabDetect ? ' on' : ''}`}
-                onClick={() => onPatch({ companion: { ...companion, tabDetect: !companion.tabDetect } })}
-                role="switch"
-                aria-checked={companion.tabDetect}
-                aria-label="Notice tab switches"
-              >
-                <span className="knob" />
-              </button>
+              <SystemSwitch
+                nativeId="settings.companion.tabDetect"
+                checked={companion.tabDetect}
+                label={words.awayToggleTitle}
+                onChange={(tabDetect) => onPatch({ companion: { ...companion, tabDetect } })}
+              />
             </div>
 
             {companion.tabDetect && (
@@ -891,15 +1591,12 @@ export function SettingsSheet({
                 Quiet mode
                 <span className="set-sub">log patterns silently, never ask</span>
               </span>
-              <button
-                className={`switch${companion.quiet ? ' on' : ''}`}
-                onClick={() => onPatch({ companion: { ...companion, quiet: !companion.quiet } })}
-                role="switch"
-                aria-checked={companion.quiet}
-                aria-label="Quiet mode"
-              >
-                <span className="knob" />
-              </button>
+              <SystemSwitch
+                nativeId="settings.companion.quiet"
+                checked={companion.quiet}
+                label="Quiet mode"
+                onChange={(quiet) => onPatch({ companion: { ...companion, quiet } })}
+              />
             </div>
 
             <div className="set-row">
@@ -907,41 +1604,35 @@ export function SettingsSheet({
                 Session intention
                 <span className="set-sub">one small “what will you do?” before you start</span>
               </span>
-              <button
-                className={`switch${companion.intention ? ' on' : ''}`}
-                onClick={() =>
-                  onPatch({ companion: { ...companion, intention: !companion.intention } })
+              <SystemSwitch
+                nativeId="settings.companion.intention"
+                checked={companion.intention}
+                label="Session intention"
+                onChange={(intention) =>
+                  onPatch({ companion: { ...companion, intention } })
                 }
-                role="switch"
-                aria-checked={companion.intention}
-                aria-label="Session intention"
-              >
-                <span className="knob" />
-              </button>
+              />
             </div>
           </div>
         )}
         </SettingSection>
 
-        <SettingSection title="Appearance">
+        <SettingSection title="Appearance" hidden={!showSection('appearance')}>
         <div className="set-row">
           <span className="set-label">
             Night sky
             <span className="set-sub">cozy dark mode with stars &amp; meteors</span>
           </span>
-          <button
-            className={`switch${settings.night ? ' on' : ''}`}
-            onClick={() => onPatch({ night: !settings.night })}
-            role="switch"
-            aria-checked={settings.night}
-            aria-label="Night sky theme"
-          >
-            <span className="knob" />
-          </button>
+          <SystemSwitch
+            nativeId="settings.night"
+            checked={settings.night}
+            label="Night sky theme"
+            onChange={(night) => onPatch({ night })}
+          />
         </div>
         </SettingSection>
 
-        <SettingSection title="Your data">
+        <SettingSection title="Your data" defaultOpen={detail === 'data'} hidden={!showSection('data')}>
         <div className="set-block data-transfer">
           <span className="set-label">
             Backup &amp; transfer
@@ -1144,7 +1835,7 @@ export function SettingsSheet({
           <div className="focus-clear-scope" id="focus-clear-scope" role="region" aria-label="Focus history clear scope">
             <p>
               <strong>Removes:</strong> completed, interrupted, and stopped session records;
-              Companion check-ins and tab-away moments; and the learned cadence suggestion built
+              Companion check-ins and {words.awayMomentsScope}; and the learned cadence suggestion built
               from them.
             </p>
             <p>
@@ -1166,7 +1857,7 @@ export function SettingsSheet({
 
         <button
           className="sheet-done"
-          onClick={onClose}
+          onClick={closeSheet}
         >
           done
         </button>

@@ -47,6 +47,43 @@ credentials are deliberately ignored by Git. Back up `android/app/upload-keystor
 first upload. See [docs/android-release.md](docs/android-release.md) for the first release, Play
 Console checklist, and repeatable update procedure.
 
+## iOS app (Xcode)
+
+Bloom also ships as a Capacitor iOS project. It uses the same React/store implementation as the
+web and Android builds, and the production web bundle is copied into the app so the core remains
+local-first and offline-capable at runtime.
+
+**Prerequisites:** macOS with Xcode. The project uses Swift Package Manager, so Xcode resolves the
+Capacitor package on the first native build; this build-time download does not add a runtime network
+feature to Bloom. A Simulator build does not need an Apple Developer account. Running on a physical
+device needs an Xcode signing team, and App Store distribution needs its own signing and release work.
+
+```bash
+npm run ios:sync   # build web -> copy the bundle -> update the native project
+npm run ios:open   # open ios/App/App.xcodeproj in Xcode
+```
+
+In Xcode, choose the **App** scheme and an iPhone or iPad Simulator, then press Run. Re-run
+`npm run ios:sync` whenever the web app changes. `npm run icons` refreshes the web, Android, and iOS
+icons and the native launch image when the source art changes.
+
+On current iOS releases, Bloom's bottom navigation is a real UIKit `UITabBar`: iOS renders the
+floating Liquid Glass rail and moving selected-item lens, while React remains the source of truth
+for screens and timer guards. It has no CSS glass imitation. The native-control decisions and
+remaining conversion roadmap are documented in
+[docs/ios-liquid-glass.md](docs/ios-liquid-glass.md).
+
+The **App** scheme also embeds `BloomLiveActivityExtension`. On iOS 16.2 or later, starting Focus or
+Tiny can show a local Live Activity on the Lock Screen and supported Dynamic Island devices. The
+extension receives only the timer mode, an opaque local session identifier, and clock state; it
+does not receive task text or contact a Bloom server. If physical-device signing asks for attention,
+select the `BloomLiveActivityExtension` target in Xcode and choose the same Team and automatic
+signing used by the **App** target.
+
+The checked-in project has been compiled as a code-signing-free generic iOS Simulator build. App
+Store submission and real-device accessibility, notification, safe-area, background-timer, and
+airplane-mode QA remain separate release work.
+
 ## What's implemented
 
 - **Onboarding:** first run asks the user's name; editable later in Settings.
@@ -57,11 +94,19 @@ Console checklist, and repeatable update procedure.
   Play/pause, reset, skip. On completion: **ring** + celebrate ~3.6s, increment session count
   (focus only), then advance (every 4th focus → long, else short; break → focus). Optional
   **auto-start** chains the next timer automatically.
-- **Completion cue (synthesized live via Web Audio; works offline):** **Ring when done** plays a
-  warm rising chime at session end. Enabling it also asks for Notification permission so a
-  backgrounded session can alert you. Bloom has no ambient audio, soundscapes, or audio previews.
+- **Completion cue (local and offline):** **Ring when done** plays a warm rising chime at session
+  end. In the iOS app, a single native local notification mirrors the active countdown after an
+  in-context permission choice, so iOS can deliver the bundled Bloom cue while the app is
+  backgrounded or the phone is locked. Foreground Bloom keeps the synthesized Web Audio cue and
+  suppresses the duplicate system presentation. Ordinary iOS Silent Mode, Focus, and notification
+  settings still apply; there is no server or APNs path. Web builds use the browser Notification API
+  when it is available. Bloom has no ambient audio, soundscapes, or audio previews.
 - **Wall-clock accuracy:** the run stores an `endsAt` timestamp and recomputes remaining from
   `Date.now()`, so it stays accurate when the tab is backgrounded.
+- **iOS Live Activity (local and offline):** Focus and Tiny mirror their reducer-owned deadline or
+  paused remaining time into one ActivityKit presentation. The system advances the visible clock;
+  pause/resume updates the same Activity, terminal timer actions remove it, and swiping it away keeps
+  it away for that session. Breaks and the open-ended Flow stopwatch do not create one.
 - **Settings:** grouped into You (name, chronotype), Timer lengths (cadence ladder + durations),
   Sessions (auto-start, flow timer, environment reset, ring when done), Your day (day rollover,
   daily foundations, goals & deadlines), Companion, Appearance (night sky), and Your data
@@ -119,8 +164,9 @@ src/
   store/useCompanion.ts      # live check-in scheduling / tab-away detection
   store/goals.ts             # goal types + deadline pace math
   styles.css                 # design tokens + screen styles
-scripts/gen-icons.mjs        # generates web app icons (sharp)
+scripts/gen-icons.mjs        # generates web + Android/iOS native art (sharp)
 scripts/android-*.mjs        # native environment, signing, version, build, and verification tools
 android/                     # Capacitor Android Studio project (API 24–36)
-capacitor.config.ts          # immutable Android identity and bundled-web configuration
+ios/                         # Capacitor native iOS project (Swift Package Manager)
+capacitor.config.ts          # immutable app identity and bundled-web configuration
 ```

@@ -1,9 +1,12 @@
+import completionCue from './completionCue.json';
+
 /**
  * Bloom's one remaining audio path (PLAN 12.1): the optional completion chime.
  *
  * The AudioContext is created lazily from a user gesture so the timer never
- * violates browser autoplay rules. The cue is synthesized locally;
- * no audio asset or network request is needed.
+ * violates browser/WebView autoplay rules. The foreground cue is synthesized
+ * locally; iOS's bundled notification rendering is generated from the same
+ * data, and neither path needs a network request.
  */
 
 class CompletionAudio {
@@ -40,8 +43,8 @@ class CompletionAudio {
   private bell(frequency: number, peak: number, duration: number, delay = 0) {
     const ctx = this.ctx!;
     const startsAt = ctx.currentTime + delay;
-    ([[1, 1], [2, 0.5], [3, 0.22]] as [number, number][]).forEach(
-      ([multiplier, amplitude]) => {
+    completionCue.partials.forEach(
+      ({ multiplier, amplitude }) => {
         const oscillator = ctx.createOscillator();
         oscillator.type = 'sine';
         oscillator.frequency.value = frequency * multiplier;
@@ -49,7 +52,7 @@ class CompletionAudio {
         gain.gain.setValueAtTime(0.0001, startsAt);
         gain.gain.exponentialRampToValueAtTime(
           Math.max(0.0002, peak * amplitude),
-          startsAt + 0.012,
+          startsAt + completionCue.attackSeconds,
         );
         gain.gain.exponentialRampToValueAtTime(0.0001, startsAt + duration);
         oscillator.connect(gain).connect(this.master!);
@@ -65,13 +68,18 @@ class CompletionAudio {
     const ctx = this.ensure();
     if (!ctx) return;
     if (ctx.state === 'suspended') ctx.resume().catch(() => {});
-    const phrase = [659.25, 783.99, 987.77]; // E5 · G5 · B5
+    const phrase = completionCue.frequencies; // E5 · G5 · B5
     const play = (base = 0) =>
       phrase.forEach((frequency, index) =>
-        this.bell(frequency, 0.16, 1.3, base + index * 0.18),
+        this.bell(
+          frequency,
+          completionCue.peak,
+          completionCue.bellSeconds,
+          base + index * completionCue.noteSpacingSeconds,
+        ),
       );
     play();
-    play(1.3);
+    play(completionCue.secondPhraseDelaySeconds);
   }
 }
 

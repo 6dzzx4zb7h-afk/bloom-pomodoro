@@ -16,6 +16,7 @@ import type { SessionRecord } from '../store/sessions';
 import type { CueType, IfThenPlan } from '../store/ifThen';
 import { Dialog } from './Dialog';
 import { IfThenPlanner } from './IfThenPlanner';
+import { SystemSwitch } from './SystemSwitch';
 
 interface FoundationsCardProps {
   foundations: FoundationsState;
@@ -407,18 +408,19 @@ export function FoundationsCard({
                     )}
                   </div>
                   <div className="foundation-picker-actions">
-                    <button
-                      type="button"
-                      className={`switch${enabled ? ' on' : ''}`}
-                      role="switch"
-                      aria-checked={enabled}
-                      aria-label={`${enabled ? 'Turn off' : 'Turn on'} ${label}`}
-                      onClick={() =>
-                        setEnabled(type, !enabled, type === 'custom' ? customDraft : undefined)
+                    <SystemSwitch
+                      nativeId={`foundation.${type}`}
+                      checked={enabled}
+                      label={label}
+                      ariaLabel={`${enabled ? 'Turn off' : 'Turn on'} ${label}`}
+                      onChange={(nextEnabled) =>
+                        setEnabled(
+                          type,
+                          nextEnabled,
+                          type === 'custom' ? customDraft : undefined,
+                        )
                       }
-                    >
-                      <span className="knob" />
-                    </button>
+                    />
                     {instance && (
                       <span className="foundation-order">
                         <button

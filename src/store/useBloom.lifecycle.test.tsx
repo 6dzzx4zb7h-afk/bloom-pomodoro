@@ -230,6 +230,13 @@ describe('timer lifecycle controls at the hook/component boundary', () => {
     render(<FocusHarness />);
 
     const before = screen.getByRole('region', { name: 'Before this session' });
+    // PLAN 13.17: the task and the target stay on the screen; the rest of the
+    // preparation is one tap away so the transport is never pushed off a phone.
+    const fold = within(before).getByRole('button', { name: /a little more prep/i });
+    expect(fold.getAttribute('aria-expanded')).toBe('false');
+    expect(within(before).queryByRole('button', { name: /opening move/i })).toBeNull();
+    fireEvent.click(fold);
+
     const task = within(before).getByText('Draft the opening');
     const target = within(before).getByRole('textbox', { name: 'Session target' });
     const openingMove = within(before).getByRole('button', { name: /opening move/i });

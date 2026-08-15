@@ -1,5 +1,19 @@
 import type { AnimalKind } from '../engine/pixelpals';
 
+/**
+ * How a friend is drawn on the home screen (PLAN 13.9).
+ *
+ * `icon` is the iOS asset-catalog name for that friend's app icon; `null` marks
+ * the friend whose art is the app's primary icon, which is what
+ * `setAlternateIconName(nil)` restores. `from`/`to` are the icon gradient
+ * corners — deeper than the pale card tiles so the sprite still reads at 60pt.
+ */
+export interface FriendAppIcon {
+  icon: string | null;
+  from: string;
+  to: string;
+}
+
 export interface Friend {
   /** Unique display name — also the value stored in settings.pal. */
   name: string;
@@ -10,18 +24,71 @@ export interface Friend {
       in the night sky instead of being a filtered-down pastel. */
   tileNight: string;
   blurb: string;
+  appIcon: FriendAppIcon;
 }
 
 // Every friend is available from the start — pick whoever you like. They grow
 // levels as you complete focus sessions with them on duty (see palXp).
 export const FRIENDS: Friend[] = [
-  { name: 'Mochi', sprite: 'bunny', tile: '#fdeef6', tileNight: '#46315c', blurb: 'your first friend' },
-  { name: 'Pudding', sprite: 'cat', tile: '#f3eefb', tileNight: '#3b2f66', blurb: 'naps professionally' },
-  { name: 'Biscuit', sprite: 'duck', tile: '#fff7e6', tileNight: '#463b5a', blurb: 'waddles with purpose' },
-  { name: 'Luna', sprite: 'owl', tile: '#eef4fd', tileNight: '#323a6a', blurb: 'wise little night owl' },
-  { name: 'Snappy', sprite: 'crab', tile: '#ffecec', tileNight: '#4c3157', blurb: 'pinches with love' },
-  { name: 'Coral', sprite: 'octopus', tile: '#ffeee6', tileNight: '#4a3854', blurb: 'eight arms, all hugs' },
+  {
+    name: 'Mochi',
+    sprite: 'bunny',
+    tile: '#fdeef6',
+    tileNight: '#46315c',
+    blurb: 'your first friend',
+    // Mochi keeps Bloom's blossom gradient and is the primary app icon.
+    appIcon: { icon: null, from: '#ffb0d4', to: '#c79fe6' },
+  },
+  {
+    name: 'Pudding',
+    sprite: 'cat',
+    tile: '#f3eefb',
+    tileNight: '#3b2f66',
+    blurb: 'naps professionally',
+    appIcon: { icon: 'AppIcon-Pudding', from: '#b98ef0', to: '#6f5bd4' },
+  },
+  {
+    name: 'Biscuit',
+    sprite: 'duck',
+    tile: '#fff7e6',
+    tileNight: '#463b5a',
+    blurb: 'waddles with purpose',
+    appIcon: { icon: 'AppIcon-Biscuit', from: '#f6a86a', to: '#d96f8f' },
+  },
+  {
+    name: 'Luna',
+    sprite: 'owl',
+    tile: '#eef4fd',
+    tileNight: '#323a6a',
+    blurb: 'wise little night owl',
+    appIcon: { icon: 'AppIcon-Luna', from: '#7fa6e8', to: '#4f57bd' },
+  },
+  {
+    name: 'Snappy',
+    sprite: 'crab',
+    tile: '#ffecec',
+    tileNight: '#4c3157',
+    blurb: 'pinches with love',
+    appIcon: { icon: 'AppIcon-Snappy', from: '#ff9ec4', to: '#cf4b7e' },
+  },
+  {
+    name: 'Coral',
+    sprite: 'octopus',
+    tile: '#ffeee6',
+    tileNight: '#4a3854',
+    blurb: 'eight arms, all hugs',
+    appIcon: { icon: 'AppIcon-Coral', from: '#ffc2dd', to: '#ad63a6' },
+  },
 ];
+
+/**
+ * The iOS alternate-icon name for whoever is on duty, or `null` for the primary
+ * icon. An unknown name falls back to the first friend, matching
+ * `friendByName`, so a stale setting never leaves the home screen mismatched.
+ */
+export function appIconNameForFriend(name: string): string | null {
+  return friendByName(name).appIcon.icon;
+}
 
 export const MAX_LEVEL = 20;
 

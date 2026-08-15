@@ -16,6 +16,7 @@ import {
   reportStorageFailure,
   storageWritesBlocked,
 } from './storageHealth';
+import { wordsFor, type Surface } from '../content/platformWords';
 
 /** A gentle self-description, never a diagnosis or a fixed identity. */
 export type Chronotype = 'betterEarlier' | 'betterLater' | 'notSure';
@@ -672,7 +673,16 @@ export function computeAttentionPlan(
     chronotype: 'notSure',
     completionByStartHour: [],
   },
+  /**
+   * PLAN 13.15: names leave-and-return the way this device does, and keeps the
+   * suggestion actionable there — "try fullscreen or a separate desktop" is
+   * advice a phone cannot follow. The behaviour change it recommends, and so
+   * its `docs/science.md` evidence key, is the same on both. Defaults to the
+   * browser wording so this stays a pure function.
+   */
+  surface: Surface = 'browser',
 ): RecipeItem[] {
+  const words = wordsFor(surface);
   const window = companionEventsForAnalytics(events, now).filter(
     (e) => now - companionEventOccurredAt(e) <= windowDays * 86400000,
   );
@@ -777,12 +787,12 @@ export function computeAttentionPlan(
     });
   }
 
-  // 4) Quiet tab-aways: the drift that never gets asked about.
+  // 4) Quiet leaves: the drift that never gets asked about.
   if (aways.length >= 3 && aways.length >= answers * 0.5) {
     items.push({
-      emoji: '🖥️',
-      text: 'the tab pulls you away a lot — try fullscreen or a separate desktop for sessions so elsewhere is a real trip, not one flick.',
-      because: `${aways.length} quiet tab-away${aways.length === 1 ? '' : 's'} next to ${answers} answered check-in${answers === 1 ? '' : 's'} these last ${span}.`,
+      emoji: words.awaySuggestionEmoji,
+      text: words.awaySuggestionText,
+      because: `${words.awayCount(aways.length)} next to ${answers} answered check-in${answers === 1 ? '' : 's'} these last ${span}.`,
       evidenceKey: 'desk-help',
     });
   }

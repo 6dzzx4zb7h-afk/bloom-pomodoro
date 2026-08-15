@@ -18,6 +18,7 @@ import { completionRateByStartHour } from '../store/sessionStats';
 import type { GuideArticleId } from '../content/guide';
 import { guideArticleForEvidenceKey } from '../insights/surfacing';
 import { FoundationsCard } from '../components/FoundationsCard';
+import { currentSurface, wordsFor } from '../content/platformWords';
 
 const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
@@ -80,6 +81,10 @@ export function TasksScreen({
   const companionOn = state.settings.companion.on;
   const localEvents = loadEvents();
   const [patternsWindow, setPatternsWindow] = useState<'today' | 'week'>('week');
+  // PLAN 13.15: a leave-and-return is a tab switch in a browser and leaving the
+  // app on a phone; the insight and its suggestion say whichever is true here.
+  const surface = currentSurface();
+  const awayWords = wordsFor(surface);
   const insights = useMemo(
     () => companionOn
       // Rolling windows need the fresh computation instant; the store-owned
@@ -101,12 +106,27 @@ export function TasksScreen({
     () =>
       companionOn
         // Same clock role as insights above: fresh window, day-keyed refresh.
-        ? computeAttentionPlan(localEvents, focusLenMins, Date.now(), 28, {
-            chronotype: state.settings.chronotype,
-            completionByStartHour,
-          })
+        ? computeAttentionPlan(
+            localEvents,
+            focusLenMins,
+            Date.now(),
+            28,
+            {
+              chronotype: state.settings.chronotype,
+              completionByStartHour,
+            },
+            surface,
+          )
         : [],
-    [companionOn, completionByStartHour, focusLenMins, localEvents, now, state.settings.chronotype],
+    [
+      companionOn,
+      completionByStartHour,
+      focusLenMins,
+      localEvents,
+      now,
+      state.settings.chronotype,
+      surface,
+    ],
   );
   const currentCadence = useMemo(
     () => ({
@@ -375,7 +395,7 @@ export function TasksScreen({
                   {insights.drifts === 0
                     ? `${insights.answers} focused check-in${insights.answers === 1 ? '' : 's'}, noted`
                     : `${insights.drifts} drift${insights.drifts === 1 ? '' : 's'} across ${insights.answers} check-ins`}
-                  {insights.aways > 0 && ` · ${insights.aways} quiet tab-away${insights.aways === 1 ? '' : 's'}`}
+                  {insights.aways > 0 && ` · ${awayWords.awayCount(insights.aways)}`}
                 </div>
                 {insights.dominant && (
                   <div className="patterns-line">mostly {KIND_NAMES[insights.dominant]}</div>

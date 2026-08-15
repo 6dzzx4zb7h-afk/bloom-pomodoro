@@ -4,6 +4,7 @@ export type FocusSurface =
   | 'returnTruth'
   | 'transitionConfirm'
   | 'settings'
+  | 'completionAlert'
   | 'resumeInterrupted'
   | 'tinyComplete'
   | 'returnedParking'
@@ -20,6 +21,7 @@ export interface FocusSurfaceState {
   returnTruth?: boolean;
   transitionConfirm?: boolean;
   settings?: boolean;
+  completionAlert?: boolean;
   resumeInterrupted?: boolean;
   tinyComplete?: boolean;
   returnedParking?: boolean;
@@ -75,6 +77,7 @@ export const FOCUS_SURFACE_PRIORITY: readonly SurfaceRule[] = [
   { owner: 'returnTruth', when: (state) => Boolean(state.returnTruth) },
   { owner: 'transitionConfirm', when: (state) => Boolean(state.transitionConfirm) },
   { owner: 'settings', when: (state) => Boolean(state.settings) },
+  { owner: 'completionAlert', when: (state) => Boolean(state.completionAlert) },
   { owner: 'resumeInterrupted', when: (state) => Boolean(state.resumeInterrupted) },
   { owner: 'tinyComplete', when: (state) => Boolean(state.tinyComplete) },
   { owner: 'returnedParking', when: (state) => Boolean(state.returnedParking) },
