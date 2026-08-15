@@ -84,6 +84,10 @@ was added to the existing strict allowlist; no blanket install-script bypass was
 ## Remaining CI/publish evidence
 
 The local visual gate passed repeatedly on macOS `26.6.1` arm64. GitHub CLI authentication was
-restored for account `0xzeki` on August 15 and the reviewed branch is being published. PLAN 8.21c
-stays unchecked until the resulting pull-request `macos-26` workflow proves both committed
-baselines byte-for-byte and uploads the one-pixel artifacts. No deployment was attempted.
+restored for account `0xzeki` on August 15 and draft PR #2 was published. Its first `macos-26`
+run installed the exact toolchain and browser, then exposed 13 raw channel-level differences around
+two rounded corners (one perceptually changed pixel) caused by host-dependent raster optimization.
+The runner now disables GPU and Skia runtime CPU-path selection while retaining production styles
+and the zero-pixel threshold; that adjustment is green locally and is being rechecked in CI. PLAN
+8.21c stays unchecked until the pull-request workflow proves both committed baselines byte-for-byte
+and uploads the one-pixel artifacts. No deployment was attempted.

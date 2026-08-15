@@ -1077,9 +1077,11 @@ Rules of thumb:
 - **Progress (August 14, 2026):** The exact Playwright/Chromium runner, two reviewed representative
   baselines, manifest stale/missing checks, one-pixel failure proof, separate non-deploy workflow,
   and local/pristine Node 22.23.2 + npm 11.17.0 gates are implemented and green. GitHub
-  authentication was restored on August 15 and the branch is being published. This step remains
-  open until the pull-request `macos-26` job proves the committed baselines byte-for-byte; no CI pass
-  is inferred from the local result. See
+  authentication was restored on August 15 and draft PR #2 was published. Its first `macos-26` run
+  exposed host-dependent rounded-corner raster variance; GPU and Skia runtime-path selection are now
+  disabled without masking pixels or changing product styles. This step remains open until the
+  pull-request job proves the committed baselines byte-for-byte; no CI pass is inferred from the
+  local result. See
   `docs/verification/plan-8.21c-visual-runner-2026-08-14.md`.
 
 ### - [ ] 8.21d Populate the full visual matrix and record manual accessibility/device evidence

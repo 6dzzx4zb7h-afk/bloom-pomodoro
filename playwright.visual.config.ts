@@ -42,6 +42,11 @@ export default defineConfig({
         '--force-color-profile=srgb',
         '--font-render-hinting=none',
         '--disable-lcd-text',
+        // Keep rounded-corner and gradient rasterization independent of the
+        // local/hosted Mac GPU and ARM CPU feature set. The comparator stays
+        // at a true zero-pixel threshold; production styles are not masked.
+        '--disable-gpu',
+        '--disable-skia-runtime-opts',
       ],
     },
   },

@@ -102,7 +102,8 @@ browser, WebView, or physical-device evidence.
 PLAN 8.21c uses `@playwright/test` `1.62.0` and its Chromium `151.0.7922.34` revision `1234` on the
 GitHub Actions `macos-26` arm64 image. Node `22.23.2` and npm `11.17.0` remain the repository-wide
 toolchain pins. The runner fixes `en-US`, UTC, sRGB, CSS-pixel screenshot scale, device scale 1,
-light system preference, reduced motion, one worker, and each manifest viewport. The fixture query
+light system preference, reduced motion, one worker, each manifest viewport, and Chromium's
+software/Skia raster path (`--disable-gpu` plus `--disable-skia-runtime-opts`). The fixture query
 still owns Bloom's explicit day/night state. Fredoka and Nunito load only from `public/fonts` and the
 test fails if either bundled face is unavailable or any request leaves the local fixture origin.
 
@@ -139,7 +140,7 @@ markup or styles merely to make a screenshot stable.
 ## Baseline creation and review
 
 PLAN 8.21c must pin the Node/npm versions already declared by the repository plus the browser engine,
-OS image, fonts, locale, timezone, color profile, device scale, animation policy, and viewport. CI
+OS image, fonts, locale, timezone, color profile, raster path, device scale, animation policy, and viewport. CI
 must fail on a pixel diff or missing baseline; retrying until green is not an acceptance strategy.
 
 Baseline updates are product changes and follow these rules:
