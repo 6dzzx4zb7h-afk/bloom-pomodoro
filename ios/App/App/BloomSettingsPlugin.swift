@@ -1,6 +1,7 @@
 import UIKit
 import SwiftUI
 import Capacitor
+import UniformTypeIdentifiers
 
 // MARK: - Snapshot model
 //
@@ -71,11 +72,17 @@ private struct BloomSettingsSection: Decodable, Equatable, Identifiable {
 private struct BloomSettingsSnapshot: Decodable, Equatable {
     let title: String
     let doneTitle: String
-    /// Bloom's day/night choice. The sheet follows the app, not the system.
+    /// Bloom's Day, Night, or live device appearance choice.
     let appearance: String
     let sections: [BloomSettingsSection]
 
-    var interfaceStyle: UIUserInterfaceStyle { appearance == "dark" ? .dark : .light }
+    var interfaceStyle: UIUserInterfaceStyle {
+        switch appearance {
+        case "day": return .light
+        case "night": return .dark
+        default: return .unspecified
+        }
+    }
 }
 
 private final class BloomSettingsModel: ObservableObject {
@@ -363,16 +370,24 @@ private struct BloomSettingsFormView: View {
 // MARK: - Plugin
 
 @objc(BloomSettingsPlugin)
-final class BloomSettingsPlugin: CAPPlugin, CAPBridgedPlugin, UIAdaptivePresentationControllerDelegate {
+final class BloomSettingsPlugin: CAPPlugin, CAPBridgedPlugin,
+    UIAdaptivePresentationControllerDelegate, UIDocumentPickerDelegate {
     let identifier = "BloomSettingsPlugin"
     let jsName = "BloomSettings"
     let pluginMethods: [CAPPluginMethod] = [
         CAPPluginMethod(name: "present", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "dismiss", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "openSystemSettings", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "exportFile", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "pickDocument", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "confirmDestructive", returnType: CAPPluginReturnPromise),
     ]
 
     private var model: BloomSettingsModel?
     private weak var hostingController: UIViewController?
+    private weak var documentPicker: UIDocumentPickerViewController?
+    private var pendingDocumentCall: CAPPluginCall?
+    private let maximumDocumentBytes = 5 * 1_024 * 1_024
 
     @objc func present(_ call: CAPPluginCall) {
         guard #available(iOS 16.0, *) else {
@@ -427,6 +442,195 @@ final class BloomSettingsPlugin: CAPPlugin, CAPBridgedPlugin, UIAdaptivePresenta
         }
     }
 
+    /// PLAN 13.11a: the person explicitly chose a recovery action. Opening the
+    /// app-specific system page neither infers nor writes permission state;
+    /// React refreshes UserNotifications and ActivityKit when Bloom returns.
+    @objc func openSystemSettings(_ call: CAPPluginCall) {
+        guard let url = URL(string: UIApplication.openSettingsURLString) else {
+            call.resolve(["opened": false])
+            return
+        }
+        DispatchQueue.main.async {
+            guard UIApplication.shared.canOpenURL(url) else {
+                call.resolve(["opened": false])
+                return
+            }
+            UIApplication.shared.open(url, options: [:]) { opened in
+                call.resolve(["opened": opened])
+            }
+        }
+    }
+
+    /// PLAN 13.4d: React generates the canonical bytes. Native writes them
+    /// only after the person taps an export action, presents the system share
+    /// sheet, and removes Bloom's temporary copy when the sheet finishes.
+    @objc func exportFile(_ call: CAPPluginCall) {
+        guard
+            let fileName = call.getString("fileName"),
+            isSafeFileName(fileName),
+            let mimeType = call.getString("mimeType"),
+            mimeType == "application/json" || mimeType == "text/csv",
+            let contents = call.getString("contents"),
+            let data = contents.data(using: .utf8),
+            data.count <= maximumDocumentBytes
+        else {
+            call.reject("Invalid export file")
+            return
+        }
+
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self else {
+                call.reject("Export did not finish")
+                return
+            }
+            let directory = FileManager.default.temporaryDirectory
+                .appendingPathComponent("bloom-export-\(UUID().uuidString)", isDirectory: true)
+            let fileURL = directory.appendingPathComponent(fileName, isDirectory: false)
+            do {
+                try FileManager.default.createDirectory(
+                    at: directory,
+                    withIntermediateDirectories: true
+                )
+                try data.write(to: fileURL, options: [.atomic, .completeFileProtection])
+            } catch {
+                try? FileManager.default.removeItem(at: directory)
+                call.reject("Could not prepare the export file", nil, error)
+                return
+            }
+
+            DispatchQueue.main.async { [weak self] in
+                guard let self, let presenter = self.presentationHost(),
+                      presenter.presentedViewController == nil else {
+                    try? FileManager.default.removeItem(at: directory)
+                    call.reject("Another native presentation is already open")
+                    return
+                }
+                let controller = UIActivityViewController(
+                    activityItems: [fileURL],
+                    applicationActivities: nil
+                )
+                controller.popoverPresentationController?.sourceView = presenter.view
+                controller.popoverPresentationController?.sourceRect = CGRect(
+                    x: presenter.view.bounds.midX,
+                    y: presenter.view.bounds.midY,
+                    width: 1,
+                    height: 1
+                )
+                controller.completionWithItemsHandler = { _, completed, _, _ in
+                    try? FileManager.default.removeItem(at: directory)
+                    call.resolve(["completed": completed])
+                }
+                presenter.present(controller, animated: true)
+            }
+        }
+    }
+
+    /// The system picker is the consent boundary: Bloom cannot inspect a file
+    /// until the person chooses it. The selected security-scoped document is
+    /// bounded and decoded locally, then the existing React parser/migrator
+    /// decides whether it is a valid Bloom backup.
+    @objc func pickDocument(_ call: CAPPluginCall) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.pendingDocumentCall == nil,
+                  let presenter = self.presentationHost(),
+                  presenter.presentedViewController == nil else {
+                call.reject("Another native presentation is already open")
+                return
+            }
+            let picker = UIDocumentPickerViewController(
+                forOpeningContentTypes: [.json],
+                asCopy: true
+            )
+            picker.allowsMultipleSelection = false
+            picker.delegate = self
+            self.pendingDocumentCall = call
+            self.documentPicker = picker
+            presenter.present(picker, animated: true)
+        }
+    }
+
+    /// Clearing history remains a React action. Native owns only the alert
+    /// presentation and returns one boolean, so dismissals cannot mutate data.
+    @objc func confirmDestructive(_ call: CAPPluginCall) {
+        guard
+            let title = bounded(call.getString("title"), limit: 120),
+            let message = bounded(call.getString("message"), limit: 600),
+            let confirmTitle = bounded(call.getString("confirmTitle"), limit: 120),
+            let cancelTitle = bounded(call.getString("cancelTitle"), limit: 120)
+        else {
+            call.reject("Invalid confirmation")
+            return
+        }
+
+        DispatchQueue.main.async { [weak self] in
+            guard let self, let presenter = self.presentationHost(),
+                  presenter.presentedViewController == nil else {
+                call.reject("Another native presentation is already open")
+                return
+            }
+            let alert = UIAlertController(title: title, message: message, preferredStyle: .alert)
+            alert.addAction(UIAlertAction(title: cancelTitle, style: .cancel) { _ in
+                call.resolve(["confirmed": false])
+            })
+            alert.addAction(UIAlertAction(title: confirmTitle, style: .destructive) { _ in
+                call.resolve(["confirmed": true])
+            })
+            presenter.present(alert, animated: true)
+        }
+    }
+
+    func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
+        finishDocumentCall(["canceled": true])
+    }
+
+    func documentPicker(
+        _ controller: UIDocumentPickerViewController,
+        didPickDocumentsAt urls: [URL]
+    ) {
+        guard let url = urls.first, urls.count == 1 else {
+            finishDocumentCall(["canceled": true])
+            return
+        }
+        let call = pendingDocumentCall
+        pendingDocumentCall = nil
+        documentPicker = nil
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self, let call else { return }
+            let accessing = url.startAccessingSecurityScopedResource()
+            defer {
+                if accessing { url.stopAccessingSecurityScopedResource() }
+            }
+            do {
+                let values = try url.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey])
+                guard values.isRegularFile == true else {
+                    call.reject("The chosen item is not a file")
+                    return
+                }
+                if let size = values.fileSize, size > self.maximumDocumentBytes {
+                    call.reject("That backup is too large")
+                    return
+                }
+                let data = try Data(contentsOf: url, options: [.mappedIfSafe])
+                guard data.count <= self.maximumDocumentBytes else {
+                    call.reject("That backup is too large")
+                    return
+                }
+                guard let contents = String(data: data, encoding: .utf8) else {
+                    call.reject("That backup is not UTF-8 text")
+                    return
+                }
+                call.resolve([
+                    "canceled": false,
+                    "fileName": String(url.lastPathComponent.prefix(120)),
+                    "size": data.count,
+                    "contents": contents,
+                ])
+            } catch {
+                call.reject("That file could not be read", nil, error)
+            }
+        }
+    }
+
     /// Swipe-to-dismiss: the sheet is already gone, so only React needs telling.
     func presentationControllerDidDismiss(_ presentationController: UIPresentationController) {
         model = nil
@@ -435,12 +639,46 @@ final class BloomSettingsPlugin: CAPPlugin, CAPBridgedPlugin, UIAdaptivePresenta
     }
 
     private func closeSettings(notify: Bool) {
+        if let call = pendingDocumentCall {
+            pendingDocumentCall = nil
+            documentPicker = nil
+            call.resolve(["canceled": true])
+        }
         let controller = hostingController
         model = nil
         hostingController = nil
         controller?.dismiss(animated: true)
         if notify {
             notifyListeners("settingsDismissed", data: [:], retainUntilConsumed: false)
+        }
+    }
+
+    private func presentationHost() -> UIViewController? {
+        hostingController ?? bridge?.viewController
+    }
+
+    private func finishDocumentCall(_ result: JSObject) {
+        let call = pendingDocumentCall
+        pendingDocumentCall = nil
+        documentPicker = nil
+        call?.resolve(result)
+    }
+
+    private func bounded(_ value: String?, limit: Int) -> String? {
+        guard let value else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, trimmed.count <= limit else { return nil }
+        return trimmed
+    }
+
+    private func isSafeFileName(_ value: String) -> Bool {
+        guard value.count <= 120,
+              value == URL(fileURLWithPath: value).lastPathComponent,
+              value.first?.isLetter == true || value.first?.isNumber == true else {
+            return false
+        }
+        return value.unicodeScalars.allSatisfy { scalar in
+            CharacterSet.alphanumerics.contains(scalar) || "._ -".unicodeScalars.contains(scalar)
         }
     }
 

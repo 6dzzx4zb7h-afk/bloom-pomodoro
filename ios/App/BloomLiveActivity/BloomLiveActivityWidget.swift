@@ -1,4 +1,5 @@
 import ActivityKit
+import AppIntents
 import Foundation
 import SwiftUI
 import UIKit
@@ -13,7 +14,16 @@ struct BloomLiveActivityWidget: Widget {
         } dynamicIsland: { context in
             DynamicIsland {
                 DynamicIslandExpandedRegion(.leading) {
-                    BloomModeLabel(mode: context.state.mode, compact: false)
+                    HStack(spacing: 8) {
+                        BloomMark(phase: context.state.phase, size: 26)
+                            .accessibilityHidden(true)
+                        VStack(alignment: .leading, spacing: 0) {
+                            Text("Bloom")
+                                .font(.caption2.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                            BloomModeLabel(mode: context.state.mode, compact: true)
+                        }
+                    }
                 }
 
                 DynamicIslandExpandedRegion(.trailing) {
@@ -25,32 +35,31 @@ struct BloomLiveActivityWidget: Widget {
                 }
 
                 DynamicIslandExpandedRegion(.bottom) {
-                    HStack(spacing: 6) {
-                        BloomStatusGlyph(systemName: context.state.symbolName)
-                            .accessibilityHidden(true)
-                        Text(context.state.statusLabel(isStale: context.isStale))
-                            .font(.caption.weight(.semibold))
-                            .lineLimit(1)
+                    HStack(alignment: .bottom, spacing: 12) {
+                        BloomActivityProgress(
+                            state: context.state,
+                            isStale: context.isStale
+                        )
+                        BloomActivityControl(
+                            sessionId: context.attributes.sessionId,
+                            state: context.state,
+                            isStale: context.isStale
+                        )
                     }
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
             } compactLeading: {
-                BloomStatusGlyph(systemName: context.state.symbolName)
-                    .foregroundStyle(BloomLiveActivityStyle.accent)
+                BloomMark(phase: context.state.phase, size: 18)
                     .accessibilityElement(children: .ignore)
                     .accessibilityLabel(
                         context.state.statusLabel(isStale: context.isStale)
                     )
             } compactTrailing: {
-                BloomActivityClock(
+                BloomCompactProgress(
                     state: context.state,
-                    compact: true,
                     isStale: context.isStale
                 )
             } minimal: {
-                BloomStatusGlyph(systemName: context.state.symbolName)
-                    .foregroundStyle(BloomLiveActivityStyle.accent)
+                BloomMark(phase: context.state.phase, size: 21)
                     .accessibilityElement(children: .ignore)
                     .accessibilityLabel(
                         context.state.accessibilityStatus(isStale: context.isStale)
@@ -68,38 +77,77 @@ private struct BloomLockScreenView: View {
     let context: ActivityViewContext<BloomFocusActivityAttributes>
 
     var body: some View {
-        HStack(spacing: 14) {
-            BloomStatusGlyph(systemName: context.state.symbolName)
-                .font(.title3.weight(.semibold))
-                .foregroundStyle(BloomLiveActivityStyle.accent)
-                .frame(width: 34, height: 34)
-                .background(BloomLiveActivityStyle.accent.opacity(0.14), in: Circle())
-                .accessibilityHidden(true)
+        VStack(spacing: 10) {
+            HStack(spacing: 12) {
+                BloomMark(phase: context.state.phase, size: 38)
+                    .accessibilityHidden(true)
 
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Bloom")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                if context.isStale && context.state.phase == .running {
-                    Text("Timer reached zero — open Bloom")
-                        .font(.headline)
-                        .lineLimit(2)
-                        .minimumScaleFactor(0.8)
-                } else {
-                    BloomModeLabel(mode: context.state.mode, compact: false)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Bloom")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    if context.isStale && context.state.phase == .running {
+                        Text("Timer reached zero — open Bloom")
+                            .font(.headline)
+                            .lineLimit(2)
+                            .minimumScaleFactor(0.8)
+                    } else {
+                        BloomModeLabel(mode: context.state.mode, compact: false)
+                    }
                 }
+
+                Spacer(minLength: 8)
+
+                BloomActivityClock(
+                    state: context.state,
+                    compact: false,
+                    isStale: context.isStale
+                )
             }
 
-            Spacer(minLength: 8)
-
-            BloomActivityClock(
-                state: context.state,
-                compact: false,
-                isStale: context.isStale
-            )
+            HStack(alignment: .bottom, spacing: 12) {
+                BloomActivityProgress(
+                    state: context.state,
+                    isStale: context.isStale
+                )
+                BloomActivityControl(
+                    sessionId: context.attributes.sessionId,
+                    state: context.state,
+                    isStale: context.isStale
+                )
+            }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
+    }
+}
+
+private struct BloomActivityControl: View {
+    let sessionId: String
+    let state: BloomFocusActivityAttributes.ContentState
+    let isStale: Bool
+
+    @ViewBuilder
+    var body: some View {
+        if #available(iOSApplicationExtension 17.0, *), !isStale {
+            if state.phase == .running {
+                Button(intent: BloomPauseLiveActivityIntent(sessionId: sessionId)) {
+                    Label("Pause", systemImage: "pause.fill")
+                        .font(.caption.weight(.semibold))
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(BloomLiveActivityStyle.accent)
+                .accessibilityLabel("Pause Bloom timer")
+            } else if state.phase == .paused && (state.pausedRemainingSeconds ?? 0) > 0 {
+                Button(intent: BloomResumeLiveActivityIntent(sessionId: sessionId)) {
+                    Label("Continue", systemImage: "play.fill")
+                        .font(.caption.weight(.semibold))
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(BloomLiveActivityStyle.accent)
+                .accessibilityLabel("Continue Bloom timer")
+            }
+        }
     }
 }
 
@@ -134,7 +182,11 @@ private struct BloomActivityClock: View {
                 Text(Self.formattedRemaining(state.pausedRemainingSeconds ?? 0))
             }
         }
-        .font(compact ? .caption2.monospacedDigit().weight(.bold) : .title2.monospacedDigit().weight(.bold))
+        .font(
+            compact
+                ? .caption.monospacedDigit().weight(.bold)
+                : .title2.monospacedDigit().weight(.bold)
+        )
         .lineLimit(1)
         .minimumScaleFactor(0.72)
         .foregroundStyle(.primary)
@@ -155,15 +207,101 @@ private struct BloomActivityClock: View {
     }
 }
 
+private struct BloomActivityProgress: View {
+    let state: BloomFocusActivityAttributes.ContentState
+    let isStale: Bool
+
+    var body: some View {
+        VStack(spacing: 5) {
+            Text(state.progressLabel(isStale: isStale))
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            if state.phase == .running && !isStale {
+                ProgressView(
+                    timerInterval: state.timerStart...state.timerEnd,
+                    countsDown: false
+                )
+                .progressViewStyle(.linear)
+                .tint(BloomLiveActivityStyle.accent)
+                .labelsHidden()
+                .accessibilityLabel("Focus progress")
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+private struct BloomCompactProgress: View {
+    let state: BloomFocusActivityAttributes.ContentState
+    let isStale: Bool
+
+    var body: some View {
+        Group {
+            if state.phase == .running && !isStale {
+                ProgressView(
+                    timerInterval: state.timerStart...state.timerEnd,
+                    countsDown: false
+                )
+                .progressViewStyle(.circular)
+                .tint(BloomLiveActivityStyle.petal)
+                .labelsHidden()
+            } else {
+                Image(systemName: state.phase == .paused ? "pause.fill" : "checkmark")
+                    .font(.caption2.weight(.bold))
+                    .foregroundStyle(BloomLiveActivityStyle.petal)
+            }
+        }
+        .frame(width: 18, height: 18)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(state.clockAccessibilityLabel(isStale: isStale))
+        .accessibilityValue(state.clockAccessibilityValue(isStale: isStale))
+    }
+}
+
+private struct BloomMark: View {
+    let phase: BloomFocusActivityAttributes.ContentState.Phase
+    let size: CGFloat
+
+    var body: some View {
+        ZStack {
+            ForEach(0..<5, id: \.self) { index in
+                Circle()
+                    .fill(BloomLiveActivityStyle.petal)
+                    .frame(width: size * 0.43, height: size * 0.43)
+                    .offset(y: -size * 0.27)
+                    .rotationEffect(.degrees(Double(index) * 72))
+            }
+
+            Circle()
+                .fill(BloomLiveActivityStyle.center)
+                .frame(width: size * 0.35, height: size * 0.35)
+
+            if phase != .running {
+                Circle()
+                    .fill(BloomLiveActivityStyle.badgeBackground)
+                    .frame(width: size * 0.56, height: size * 0.56)
+                Image(systemName: phase == .paused ? "pause.fill" : "checkmark")
+                    .font(.system(size: size * 0.25, weight: .bold))
+                    .foregroundStyle(BloomLiveActivityStyle.accent)
+                    .accessibilityHidden(true)
+            }
+        }
+        .frame(width: size, height: size)
+    }
+}
+
 private extension BloomFocusActivityAttributes.ContentState {
-    var symbolName: String {
+    func progressLabel(isStale: Bool) -> String {
         switch phase {
         case .running:
-            return "leaf.fill"
+            return isStale ? "Open Bloom to finish" : "In progress"
         case .paused:
-            return "pause.fill"
+            return "Paused"
         case .finished:
-            return "checkmark"
+            return "Finished"
         }
     }
 
@@ -212,23 +350,6 @@ private extension BloomFocusActivityAttributes.ContentState {
     }
 }
 
-private struct BloomStatusGlyph: View {
-    let systemName: String
-
-    var body: some View {
-        Group {
-            if UIImage(systemName: systemName) != nil {
-                Image(systemName: systemName)
-                    .accessibilityHidden(true)
-            } else {
-                Circle()
-                    .frame(width: 8, height: 8)
-                    .accessibilityHidden(true)
-            }
-        }
-    }
-}
-
 private enum BloomLiveActivityStyle {
     static let accent = Color(
         uiColor: UIColor { traits in
@@ -242,6 +363,27 @@ private enum BloomLiveActivityStyle {
             traits.userInterfaceStyle == .dark
                 ? UIColor(red: 0.13, green: 0.09, blue: 0.12, alpha: 1)
                 : UIColor(red: 0.99, green: 0.95, blue: 0.97, alpha: 1)
+        }
+    )
+    static let petal = Color(
+        uiColor: UIColor { traits in
+            traits.userInterfaceStyle == .dark
+                ? UIColor(red: 1.00, green: 0.58, blue: 0.75, alpha: 1)
+                : UIColor(red: 0.76, green: 0.18, blue: 0.43, alpha: 1)
+        }
+    )
+    static let center = Color(
+        uiColor: UIColor { traits in
+            traits.userInterfaceStyle == .dark
+                ? UIColor(red: 1.00, green: 0.86, blue: 0.52, alpha: 1)
+                : UIColor(red: 1.00, green: 0.72, blue: 0.22, alpha: 1)
+        }
+    )
+    static let badgeBackground = Color(
+        uiColor: UIColor { traits in
+            traits.userInterfaceStyle == .dark
+                ? UIColor(red: 0.15, green: 0.10, blue: 0.14, alpha: 0.94)
+                : UIColor(red: 1.00, green: 0.96, blue: 0.98, alpha: 0.96)
         }
     )
 }

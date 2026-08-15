@@ -65,15 +65,72 @@ visible destination. If the native plugin is unavailable or stale, Bloom keeps t
 | Boolean switches | Accessible web switch on every platform until Settings itself is a native presentation | 13.14, then 13.4b |
 | Settings presentation and form | Native sheet rendering a React-owned form snapshot; no web sheet behind it | 13.4b |
 | Timer lengths | Native cadence card, ladder, preset control, and `UIStepper` rows | 13.4c |
-| Data export/import/clear | Web sheet scoped to that one section, reached from a native disclosure row | 13.4d |
-| Dialogs, menus, and sheets | Standard native presentations where behavior improves | 13.5 |
-| Exceptional custom control chrome | Consider `UIGlassEffect` only when no standard control fits | 13.5 |
+| Data export/import/clear | React-owned bytes and validation; system share sheet, document picker, and destructive alert on iOS; complete web fallback elsewhere | 13.4d |
+| Dialogs, menus, and sheets | Native only at an OS-owned boundary; content-rich product workflows stay in the tested web layer | 13.5 |
+| Exceptional custom control chrome | One `UIGlassEffect` host for the mid-screen segmented rail; no nested or decorative glass | 13.5, 13.16 |
+| In-app timer transport | Three fixed native buttons mirror reducer actions over measured web fallback slots | 13.8b |
+| Permission recovery | Explicit public app-settings URL after a recovery tap; status remains system-owned | 13.11a |
 | Timer ring, pixel pet, sky, task/history cards, and other content | Keep as web content; do not glaze | intentional |
 | Active focus countdown outside the app | WidgetKit extension and local ActivityKit Live Activity | 13.8 |
 
 Moving all of these surfaces in one change would duplicate too much state and make timer/settings
 regressions hard to isolate. Each later step must preserve cancellation, navigation guards,
 exactly-once reducer actions, offline operation, browser/Android behavior, and accessibility.
+
+## PLAN 13.5 exhaustive presentation inventory
+
+The inventory is source-backed rather than impressionistic. The PLAN 13.5 regression scans every
+production TSX file under `src/components` and `src/screens` for interactive HTML, the shared modal
+primitives, and the shared switch. Adding an interactive production file without recording a
+decision below fails the suite. There are no range sliders, custom context menus, or hover-only
+actions in the current production source.
+
+| Production source | Interactive surface | iOS decision and reason |
+| --- | --- | --- |
+| `src/components/CompanionPrompt.tsx` | Patient check-in, drift triage, optional onset/detail fields | **Keep web and non-modal.** It is session content that must not steal focus; native presentation would turn a quiet check-in into an interruption. |
+| `src/components/DebriefCard.tsx`, `src/components/DebriefGoalCredit.tsx` | Session reflection and goal-credit actions | **Keep web.** The reducer-owned debrief is dynamic product content, not an OS task. |
+| `src/components/Dialog.tsx`, `src/components/Sheet.tsx` | Shared APG dialog/sheet frame, close, focus trap, Escape policy, restoration | **Keep as the complete web/Android fallback.** Native iOS is selected only by the owning feature when an OS boundary materially improves behavior. |
+| `src/components/FoundationsCard.tsx` | Foundation toggles, ordering, naming, cue-anchor dialog | **Keep web.** This validated, content-rich workflow shares the foundation and if-then models; splitting it would duplicate validation and dialog state. |
+| `src/components/GuideScreen.tsx`, `src/components/GuideSuggestion.tsx` | Guide filters, articles, contextual article links | **Keep web.** Reading/navigation content has no system-owned presentation requirement. |
+| `src/components/IfThenPlanner.tsx` | Saved-plan picker and cue/action editor | **Keep web.** React owns validation, caps, persistence, and session linkage. |
+| `src/components/KindRestart.tsx` | Optional breath/restart sequence and next-step field | **Keep web and non-modal.** It is a short reducer workflow with no native capability gain. |
+| `src/components/Onboarding.tsx` | Local name field and completion action | **Keep web.** It must remain identical offline and across platforms; WKWebView already supplies the native keyboard. |
+| `src/components/ParkingLot.tsx` | Thought capture and post-session resolution | **Keep web.** It is live session content and shares task/reducer actions exactly once. |
+| `src/components/ResumeCue.tsx` | Return question and interrupted-session choice dialog | **Keep web.** Its guarded session semantics and focus restoration already live in the shared dialog/reducer boundary. |
+| `src/components/RitualCard.tsx` | Environment-reset checklist and skip | **Keep web.** It is inline optional content, not presentation chrome. |
+| `src/components/RolloverTriageCard.tsx` | Carry, spread, or rest choices | **Keep web.** Each action mutates the day-plan model and belongs beside its explanation. |
+| `src/components/SessionRepairEditor.tsx` | Repair dialog with datetime, duration, reason, and notes | **Keep web.** One React validator owns bounds, atomic repair, errors, and migration-safe records. |
+| `src/components/SettingsSheet.tsx` | Settings form, timer steppers, choices, data actions | **Hybrid.** iOS presents a standard SwiftUI `Form` from a bounded React snapshot; browsers, Android, unavailable native bridges, and scoped cadence detail retain the full web sheet. |
+| `src/components/StorageRecoveryNotice.tsx` | Export, retry, and recover actions after storage trouble | **Keep web.** This startup-critical recovery must work before any optional native presentation and uses the canonical local backup/recovery path. |
+| `src/components/SystemSwitch.tsx` | Shared web switch | **Keep web in scrolling DOM.** A native overlay cannot follow asynchronous WKWebView scroll composition; native Settings uses real SwiftUI `Toggle` rows inside its own sheet instead. |
+| `src/components/TabBar.tsx` | Destination navigation fallback | **Hybrid.** A standalone native `UITabBar` owns iOS fixed navigation; the semantic web nav stays for browser/Android and any failed native setup. |
+| `src/components/WeeklyReview.tsx` | Reflection window and evidence links | **Keep web.** This is dynamic local-data content, not fixed chrome. |
+| `src/components/WoopCard.tsx` | Conditional multi-step reflection fields and actions | **Keep web.** State, validation, and optional dismissal remain in one React workflow. |
+| `src/screens/CollectionScreen.tsx` | Friends/Guide rail and content actions | **Hybrid.** The fixed section selector is a native segmented rail on iOS; friend and guide content/actions remain web-owned. |
+| `src/screens/FocusScreen.tsx` | Settings, mode rail, timer transport, session setup, transition dialogs | **Hybrid.** Fixed Settings/mode/timer chrome is native on iOS; the ring, pet, target/task content, setup flows, and reducer-specific dialogs remain web. |
+| `src/screens/GoalsScreen.tsx` | Goal forms, plan-today forms, edit/delete dialogs, progress actions | **Keep web.** The UI is a dense validated product workflow backed by one local goal/ledger model. |
+| `src/screens/HistoryScreen.tsx` | Pagination and session-repair entry | **Keep web.** Records and repair context stay with the locally rendered ledger; repair uses the shared accessible dialog. |
+| `src/screens/TasksScreen.tsx` | Task checklist, add/edit/link/plan controls, local insights | **Keep web.** Direct manipulation and validation share the task, goal, and session stores; native conversion would duplicate product logic. |
+
+Native-only/system surfaces complete the inventory:
+
+- `ios/App/App/BloomBridgeViewController.swift` owns the fixed bottom tab bar, upper segmented rail,
+  Settings button, and three timer buttons. React measures fallback slots and remains the sole
+  navigation/timer authority.
+- `ios/App/App/BloomSettingsPlugin.swift` owns the standard form presentation, native switches,
+  steppers, pickers, text field, and buttons. It also presents `UIActivityViewController`,
+  `UIDocumentPickerViewController`, and one destructive `UIAlertController`; React owns all bytes,
+  validation, state, and mutations.
+- UserNotifications owns the permission prompt and local finish notification. The public
+  `UIApplication.openSettingsURLString` owns permission recovery after an explicit tap.
+- `ios/App/BloomLiveActivity/BloomLiveActivityWidget.swift` owns only the system Live Activity and
+  its expanded pause/resume intents. The reducer consumes each validated command once.
+
+The resulting glass budget is intentionally small: one custom `UIGlassEffect` host around the
+mid-screen segmented control, plus system glass button configurations for fixed Settings and timer
+chrome. The SwiftUI Settings form, system presentations, content dialogs, cards, pet, ring, and sky
+contain no custom glass effect. This avoids nested material, decorative glare, and a second visual
+hierarchy inside content.
 
 ## Native segmented-rail decision
 
@@ -151,10 +208,15 @@ spoken label per item, so the cadence ladder announces "shorter: 20 minutes focu
 rather than reading "20 slash 4". And a `segmented` or `picker` row may carry an empty `selected`,
 because the preset control genuinely has no selection when the user's own lengths match no pair.
 
-Your data remains a native disclosure row until 13.4d. Choosing it dismisses the native sheet and
-opens the same web sheet scoped to that single section, so no control is unreachable in the
-meantime. One known loss: the pet's wave when Companion mode turns on is a web flourish with no
-native equivalent yet.
+Since 13.4d, Your data renders directly in the native form. React generates the canonical JSON/CSV
+bytes and owns import parsing, migration, preview, atomic commit, safety backup, and recovery. Native
+writes a protected temporary export only after a tap and presents the system share sheet; import
+uses a JSON-only document picker and returns one bounded chosen file; clearing reflection history
+uses a destructive system alert that returns one Boolean. Cancel and presentation failure mutate
+nothing. Browser and Android retain the complete anchor-download, file-input, and APG-dialog paths.
+
+One known presentation difference remains intentional: the pet's wave when Companion mode turns on
+is a web flourish with no native equivalent. It carries no state or required feedback.
 
 ## Verification matrix
 

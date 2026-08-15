@@ -3,17 +3,31 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const plugin = vi.hoisted(() => ({
+  getPlatform: vi.fn(() => 'ios'),
   addListener: vi.fn(
-    async (_eventName: string, _listener: (raw: unknown) => void) => ({
-      remove: vi.fn(async () => undefined),
-    }),
+    async (eventName: string, listener: (raw: unknown) => void) => {
+      void eventName;
+      void listener;
+      return {
+        remove: vi.fn(async () => undefined),
+      };
+    },
   ),
   present: vi.fn(async () => ({ active: true })),
   dismiss: vi.fn(async () => undefined),
+  openSystemSettings: vi.fn(async () => ({ opened: true })),
+  exportFile: vi.fn(async () => ({ completed: true })),
+  pickDocument: vi.fn(async () => ({
+    canceled: false as const,
+    fileName: 'bloom-backup.json',
+    size: 2,
+    contents: '{}',
+  })),
+  confirmDestructive: vi.fn(async () => ({ confirmed: true })),
 }));
 
 vi.mock('@capacitor/core', () => ({
-  Capacitor: { getPlatform: () => 'ios' },
+  Capacitor: { getPlatform: () => plugin.getPlatform() },
   registerPlugin: () => plugin,
 }));
 
@@ -24,6 +38,10 @@ import {
   listenForNativeIOSSettingsAction,
   listenForNativeIOSSettingsDismissal,
   normalizeNativeSettingsAction,
+  openNativeIOSAppSettings,
+  pickNativeIOSBackupFile,
+  presentNativeIOSDestructiveConfirmation,
+  presentNativeIOSExportFile,
   presentNativeIOSSettings,
   type NativeSettingsRow,
   type NativeSettingsSnapshot,
@@ -33,7 +51,7 @@ function snapshotOf(rows: NativeSettingsRow[]): NativeSettingsSnapshot {
   return {
     title: 'Settings',
     doneTitle: 'done',
-    appearance: 'light',
+    appearance: 'day',
     sections: [{ id: 'sessions', title: 'Sessions', rows }],
   };
 }
@@ -47,9 +65,14 @@ const switchRow: NativeSettingsRow = {
 
 describe('native iOS settings snapshot validation', () => {
   beforeEach(() => {
+    plugin.getPlatform.mockReset().mockReturnValue('ios');
     plugin.present.mockClear();
     plugin.dismiss.mockClear();
+    plugin.openSystemSettings.mockReset().mockResolvedValue({ opened: true });
     plugin.addListener.mockClear();
+    plugin.exportFile.mockClear();
+    plugin.pickDocument.mockClear();
+    plugin.confirmDestructive.mockClear();
   });
 
   afterEach(() => vi.restoreAllMocks());
@@ -122,7 +145,7 @@ describe('native iOS settings snapshot validation', () => {
       isValidNativeSettingsSnapshot({
         title: 'Settings',
         doneTitle: 'done',
-        appearance: 'light',
+        appearance: 'day',
         sections: [
           { id: 'sessions', title: 'Sessions', rows: [switchRow] },
           { id: 'appearance', title: 'Appearance', rows: [switchRow] },
@@ -136,7 +159,7 @@ describe('native iOS settings snapshot validation', () => {
       isValidNativeSettingsSnapshot({
         title: 'Settings',
         doneTitle: 'done',
-        appearance: 'light',
+        appearance: 'day',
         sections: [{ id: 'sessions', title: 'Sessions', rows: [] }],
       }),
     ).toBe(false);
@@ -144,31 +167,30 @@ describe('native iOS settings snapshot validation', () => {
       isValidNativeSettingsSnapshot({
         title: 'Settings',
         doneTitle: 'done',
-        appearance: 'light',
+        appearance: 'day',
         sections: [],
       }),
     ).toBe(false);
   });
 
-  it('refuses a snapshot with no explicit appearance, which would inherit the system theme', () => {
+  it('accepts Follow system and refuses an unknown appearance', () => {
     const snapshot = snapshotOf([switchRow]);
-    expect(
-      isValidNativeSettingsSnapshot({
-        ...snapshot,
-        appearance: 'system' as unknown as 'light',
-      }),
-    ).toBe(false);
+    expect(isValidNativeSettingsSnapshot({ ...snapshot, appearance: 'system' })).toBe(true);
+    expect(isValidNativeSettingsSnapshot({
+      ...snapshot,
+      appearance: 'sunrise' as unknown as 'system',
+    })).toBe(false);
   });
 
   it('parses a string-encoded boolean back into a real boolean', () => {
     // A Swift Bool written straight into a JSObject never arrived as a
     // JavaScript boolean, so every native switch was a silent no-op.
-    expect(normalizeNativeSettingsAction({ id: 'settings.night', checked: 'true' }))
-      .toEqual({ id: 'settings.night', value: true });
-    expect(normalizeNativeSettingsAction({ id: 'settings.night', checked: 'false' }))
-      .toEqual({ id: 'settings.night', value: false });
-    expect(normalizeNativeSettingsAction({ id: 'settings.night', checked: true }))
-      .toEqual({ id: 'settings.night', value: true });
+    expect(normalizeNativeSettingsAction({ id: 'settings.flow', checked: 'true' }))
+      .toEqual({ id: 'settings.flow', value: true });
+    expect(normalizeNativeSettingsAction({ id: 'settings.flow', checked: 'false' }))
+      .toEqual({ id: 'settings.flow', value: false });
+    expect(normalizeNativeSettingsAction({ id: 'settings.flow', checked: true }))
+      .toEqual({ id: 'settings.flow', value: true });
   });
 
   it('keeps strings, directions, and valueless taps distinct', () => {
@@ -182,8 +204,8 @@ describe('native iOS settings snapshot validation', () => {
   it('drops an event with no usable identifier or a bogus direction', () => {
     expect(normalizeNativeSettingsAction({ value: 'x' })).toBeNull();
     expect(normalizeNativeSettingsAction({ id: 'not an id', checked: 'true' })).toBeNull();
-    expect(normalizeNativeSettingsAction({ id: 'settings.night', direction: 'sideways' }))
-      .toEqual({ id: 'settings.night' });
+    expect(normalizeNativeSettingsAction({ id: 'settings.flow', direction: 'sideways' }))
+      .toEqual({ id: 'settings.flow' });
   });
 
   it('wires both event listeners by name and forwards dismissal', async () => {
@@ -200,8 +222,50 @@ describe('native iOS settings snapshot validation', () => {
 
     // Actions reach the caller already normalized, never in wire form.
     const forward = plugin.addListener.mock.calls[0][1];
-    forward({ id: 'settings.night', checked: 'true' });
+    forward({ id: 'settings.flow', checked: 'true' });
     forward({ id: 'not an id', checked: 'true' });
-    expect(action).toHaveBeenCalledExactlyOnceWith({ id: 'settings.night', value: true });
+    expect(action).toHaveBeenCalledExactlyOnceWith({ id: 'settings.flow', value: true });
+  });
+
+  it('opens only Bloom’s native iOS Settings page and normalizes bridge failure', async () => {
+    await expect(openNativeIOSAppSettings()).resolves.toEqual({ opened: true });
+    expect(plugin.openSystemSettings).toHaveBeenCalledOnce();
+
+    plugin.openSystemSettings.mockRejectedValueOnce(new Error('unavailable'));
+    await expect(openNativeIOSAppSettings()).resolves.toEqual({ opened: false });
+
+    plugin.getPlatform.mockReturnValue('web');
+    plugin.openSystemSettings.mockClear();
+    await expect(openNativeIOSAppSettings()).resolves.toEqual({ opened: false });
+    expect(plugin.openSystemSettings).not.toHaveBeenCalled();
+  });
+
+  it('validates native file and confirmation presentations before the plugin', async () => {
+    await expect(presentNativeIOSExportFile({
+      fileName: 'bloom-backup.json',
+      mimeType: 'application/json',
+      contents: '{}',
+    })).resolves.toEqual({ completed: true });
+    await expect(pickNativeIOSBackupFile()).resolves.toEqual({
+      canceled: false,
+      fileName: 'bloom-backup.json',
+      size: 2,
+      contents: '{}',
+    });
+    await expect(presentNativeIOSDestructiveConfirmation({
+      title: 'Clear reflection history?',
+      message: 'The selected local history will be removed.',
+      confirmTitle: 'clear reflection history',
+      cancelTitle: 'keep it',
+    })).resolves.toEqual({ confirmed: true });
+
+    await expect(presentNativeIOSExportFile({
+      fileName: '../backup.json',
+      mimeType: 'application/json',
+      contents: '{}',
+    })).rejects.toThrow('Invalid native export file');
+    expect(plugin.exportFile).toHaveBeenCalledOnce();
+    expect(plugin.pickDocument).toHaveBeenCalledOnce();
+    expect(plugin.confirmDestructive).toHaveBeenCalledOnce();
   });
 });

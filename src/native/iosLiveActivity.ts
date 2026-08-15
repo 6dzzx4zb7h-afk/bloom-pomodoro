@@ -10,6 +10,7 @@ export type IOSLiveActivitySnapshot =
       state: 'running';
       startedAtMs: number;
       deadlineMs: number;
+      completionAlertsEnabled: boolean;
     }
   | {
       sessionId: string;
@@ -17,6 +18,7 @@ export type IOSLiveActivitySnapshot =
       state: 'paused';
       startedAtMs: number;
       remainingSeconds: number;
+      completionAlertsEnabled: boolean;
     };
 
 export interface IOSLiveActivityStatus {
@@ -34,6 +36,14 @@ export interface IOSLiveActivityMutationResult {
   reason?: string;
 }
 
+export interface IOSLiveActivityCommand {
+  id: string;
+  sessionId: string;
+  action: 'pause' | 'resume';
+  atMs: number;
+  remainingSeconds: number;
+}
+
 interface BloomLiveActivityPlugin {
   status(): Promise<IOSLiveActivityStatus>;
   reconcile(
@@ -44,6 +54,7 @@ interface BloomLiveActivityPlugin {
           state: 'running';
           startedAtMs: number;
           deadlineMs: number;
+          completionAlertsEnabled: boolean;
         }
       | {
           sessionId: string;
@@ -51,12 +62,15 @@ interface BloomLiveActivityPlugin {
           state: 'paused';
           startedAtMs: number;
           remainingSeconds: number;
+          completionAlertsEnabled: boolean;
         },
   ): Promise<IOSLiveActivityMutationResult & { enabled?: boolean }>;
   end(options: {
     sessionId?: string;
     dismissal: 'immediate' | 'default';
   }): Promise<IOSLiveActivityMutationResult>;
+  pendingCommands(): Promise<{ commands: unknown[] }>;
+  acknowledgeCommands(options: { ids: string[] }): Promise<void>;
 }
 
 const bloomLiveActivity = registerPlugin<BloomLiveActivityPlugin>('BloomLiveActivity');
@@ -88,6 +102,7 @@ function validSnapshot(snapshot: IOSLiveActivitySnapshot): boolean {
     (snapshot.mode === 'focus' || snapshot.mode === 'tiny') &&
     Number.isFinite(snapshot.startedAtMs) &&
     snapshot.startedAtMs > 0 &&
+    typeof snapshot.completionAlertsEnabled === 'boolean' &&
     ((snapshot.state === 'running' &&
       Number.isFinite(snapshot.deadlineMs) &&
       snapshot.deadlineMs > snapshot.startedAtMs) ||
@@ -97,6 +112,37 @@ function validSnapshot(snapshot: IOSLiveActivitySnapshot): boolean {
         snapshot.remainingSeconds >= 0 &&
         snapshot.remainingSeconds <= 7 * 24 * 60 * 60))
   );
+}
+
+function normalizeCommands(value: unknown): IOSLiveActivityCommand[] {
+  if (!value || typeof value !== 'object') return [];
+  const raw = (value as { commands?: unknown }).commands;
+  if (!Array.isArray(raw)) return [];
+  const seen = new Set<string>();
+  const commands: IOSLiveActivityCommand[] = [];
+  for (const item of raw.slice(-32)) {
+    if (!item || typeof item !== 'object') continue;
+    const command = item as Partial<IOSLiveActivityCommand>;
+    if (
+      typeof command.id !== 'string' ||
+      !/^[a-f0-9-]{1,64}$/i.test(command.id) ||
+      seen.has(command.id) ||
+      typeof command.sessionId !== 'string' ||
+      !/^[A-Za-z0-9._-]{1,96}$/.test(command.sessionId) ||
+      (command.action !== 'pause' && command.action !== 'resume') ||
+      !Number.isFinite(command.atMs) ||
+      command.atMs! <= 0 ||
+      command.atMs! >= 32_503_680_000_000 ||
+      !Number.isInteger(command.remainingSeconds) ||
+      command.remainingSeconds! <= 0 ||
+      command.remainingSeconds! > 7 * 24 * 60 * 60
+    ) {
+      continue;
+    }
+    seen.add(command.id);
+    commands.push(command as IOSLiveActivityCommand);
+  }
+  return commands;
 }
 
 function normalizeMutation(value: unknown): IOSLiveActivityMutationResult {
@@ -141,6 +187,36 @@ export async function readIOSLiveActivityStatus(): Promise<IOSLiveActivityStatus
     };
   } catch {
     return UNSUPPORTED_STATUS;
+  }
+}
+
+/**
+ * Commands are device-local and contain only an opaque session id, action,
+ * and timestamp. They stay queued natively until the reducer copy has been
+ * persisted, making a process exit between apply and acknowledge replay-safe.
+ */
+export async function readPendingIOSLiveActivityCommands(): Promise<
+  IOSLiveActivityCommand[]
+> {
+  if (!isIOSLiveActivityPlatform()) return [];
+  try {
+    return normalizeCommands(await bloomLiveActivity.pendingCommands());
+  } catch {
+    return [];
+  }
+}
+
+export async function acknowledgeIOSLiveActivityCommands(
+  ids: readonly string[],
+): Promise<void> {
+  if (!isIOSLiveActivityPlatform()) return;
+  const bounded = [...new Set(ids)].filter((id) => /^[a-f0-9-]{1,64}$/i.test(id)).slice(0, 32);
+  if (!bounded.length) return;
+  try {
+    await bloomLiveActivity.acknowledgeCommands({ ids: bounded });
+  } catch {
+    // Leaving commands queued is safe: reducer application is idempotent and
+    // the next foreground reconciliation retries the acknowledgment.
   }
 }
 

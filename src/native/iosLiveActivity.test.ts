@@ -4,14 +4,24 @@ const getPlatform = vi.fn(() => 'ios');
 const status = vi.fn();
 const reconcile = vi.fn();
 const end = vi.fn();
+const pendingCommands = vi.fn();
+const acknowledgeCommands = vi.fn();
 
 vi.mock('@capacitor/core', () => ({
   Capacitor: { getPlatform: () => getPlatform() },
-  registerPlugin: () => ({ status, reconcile, end }),
+  registerPlugin: () => ({
+    status,
+    reconcile,
+    end,
+    pendingCommands,
+    acknowledgeCommands,
+  }),
 }));
 
 const {
   readIOSLiveActivityStatus,
+  readPendingIOSLiveActivityCommands,
+  acknowledgeIOSLiveActivityCommands,
   reconcileIOSLiveActivity,
   resetIOSLiveActivityReconciliationForTests,
 } = await import('./iosLiveActivity');
@@ -22,6 +32,7 @@ const runningSnapshot = {
   state: 'running' as const,
   startedAtMs: 1_000,
   deadlineMs: 1_501_000,
+  completionAlertsEnabled: true,
 };
 
 describe('native iOS Live Activity bridge', () => {
@@ -43,6 +54,8 @@ describe('native iOS Live Activity bridge', () => {
       active: false,
       changed: true,
     });
+    pendingCommands.mockReset().mockResolvedValue({ commands: [] });
+    acknowledgeCommands.mockReset().mockResolvedValue(undefined);
     resetIOSLiveActivityReconciliationForTests();
   });
 
@@ -84,12 +97,46 @@ describe('native iOS Live Activity bridge', () => {
       state: 'paused' as const,
       startedAtMs: 2_000,
       remainingSeconds: 119,
+      completionAlertsEnabled: false,
     };
 
     await reconcileIOSLiveActivity(paused);
 
     expect(reconcile).toHaveBeenCalledWith(paused);
     expect(reconcile.mock.calls[0][0]).not.toHaveProperty('deadlineMs');
+  });
+
+  it('validates bounded native commands and acknowledges only safe ids', async () => {
+    pendingCommands.mockResolvedValue({
+      commands: [
+        {
+          id: 'aa11-bb22',
+          sessionId: 's-focus-1',
+          action: 'pause',
+          atMs: 3_000,
+          remainingSeconds: 120,
+        },
+        {
+          id: 'not safe!',
+          sessionId: 's-focus-1',
+          action: 'resume',
+          atMs: 4_000,
+          remainingSeconds: 120,
+        },
+      ],
+    });
+
+    await expect(readPendingIOSLiveActivityCommands()).resolves.toEqual([
+      {
+        id: 'aa11-bb22',
+        sessionId: 's-focus-1',
+        action: 'pause',
+        atMs: 3_000,
+        remainingSeconds: 120,
+      },
+    ]);
+    await acknowledgeIOSLiveActivityCommands(['aa11-bb22', 'not safe!']);
+    expect(acknowledgeCommands).toHaveBeenCalledWith({ ids: ['aa11-bb22'] });
   });
 
   it('ends every stale Bloom activity for terminal or malformed state', async () => {

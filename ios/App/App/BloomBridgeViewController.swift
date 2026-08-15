@@ -59,6 +59,26 @@ private struct BloomNativeControlConfiguration: Decodable {
     let frame: BloomControlFrame
 }
 
+/// PLAN 13.8b: React sends only reducer transition state. UIKit derives the
+/// visible clock from the stable deadline (or Flow start + accumulator), so a
+/// running timer never creates per-second bridge traffic or a second owner of
+/// session truth.
+private struct BloomTimerSurfaceConfiguration: Decodable {
+    let mode: String
+    let running: Bool
+    let remainingSeconds: Double
+    let deadlineMs: Double?
+    let flowStartedAtMs: Double?
+    let flowAccumulatedSeconds: Double
+    let primaryLabel: String
+    let secondaryLabel: String
+    let enabled: Bool
+    let secondaryEnabled: Bool
+    let visible: Bool
+    let readoutFrame: BloomControlFrame
+    let controlsFrame: BloomControlFrame
+}
+
 @objc(BloomBridgeViewController)
 final class BloomBridgeViewController: CAPBridgeViewController, UITabBarDelegate {
     private let bloomTabBar = UITabBar()
@@ -66,7 +86,13 @@ final class BloomBridgeViewController: CAPBridgeViewController, UITabBarDelegate
     /// PLAN 13.16: the Liquid Glass the rail floats on, on iOS 26 and later.
     private let bloomSegmentGlass = UIVisualEffectView()
     private let bloomSettingsButton = UIButton(type: .system)
+    private let bloomTimerReadout = UILabel()
+    private let bloomTimerControls = UIView()
+    private let bloomTimerResetButton = UIButton(type: .system)
+    private let bloomTimerPrimaryButton = UIButton(type: .system)
+    private let bloomTimerSecondaryButton = UIButton(type: .system)
     private let navigationPlugin = BloomNavigationPlugin()
+    private let timerSurfacePlugin = BloomTimerSurfacePlugin()
     private let appIconPlugin = BloomAppIconPlugin()
     private let completionAlertPlugin = BloomCompletionAlertPlugin()
     private let liveActivityPlugin = BloomLiveActivityPlugin()
@@ -75,12 +101,18 @@ final class BloomBridgeViewController: CAPBridgeViewController, UITabBarDelegate
     private var segmentKind: String?
     private var segmentItems: [BloomSegmentItem] = []
     private var tabBarHeight: NSLayoutConstraint?
+    private var currentAppearance = "system"
+    private var timerSurfaceConfiguration: BloomTimerSurfaceConfiguration?
+    private var timerSurfaceClock: Timer?
+    private var timerSurfaceLastSecond: Int?
 
     override func capacitorDidLoad() {
         super.capacitorDidLoad()
 
         navigationPlugin.tabsController = self
+        timerSurfacePlugin.timerController = self
         bridge?.registerPluginInstance(navigationPlugin)
+        bridge?.registerPluginInstance(timerSurfacePlugin)
         bridge?.registerPluginInstance(appIconPlugin)
         bridge?.registerPluginInstance(completionAlertPlugin)
         bridge?.registerPluginInstance(liveActivityPlugin)
@@ -88,11 +120,21 @@ final class BloomBridgeViewController: CAPBridgeViewController, UITabBarDelegate
         installNativeTabBar()
         installNativeSegmentedControl()
         installNativeAuxiliaryControls()
+        installNativeTimerSurface()
     }
 
     override func viewSafeAreaInsetsDidChange() {
         super.viewSafeAreaInsetsDidChange()
         updateTabBarHeight()
+    }
+
+    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
+        super.traitCollectionDidChange(previousTraitCollection)
+        guard currentAppearance == "system",
+              previousTraitCollection?.hasDifferentColorAppearance(comparedTo: traitCollection) != false else {
+            return
+        }
+        updateAppearanceTint()
     }
 
     private func installNativeTabBar() {
@@ -167,6 +209,46 @@ final class BloomBridgeViewController: CAPBridgeViewController, UITabBarDelegate
         view.addSubview(bloomSettingsButton)
     }
 
+    private func installNativeTimerSurface() {
+        bloomTimerReadout.isHidden = true
+        bloomTimerReadout.backgroundColor = .clear
+        bloomTimerReadout.textAlignment = .center
+        bloomTimerReadout.adjustsFontForContentSizeCategory = true
+        bloomTimerReadout.adjustsFontSizeToFitWidth = true
+        bloomTimerReadout.minimumScaleFactor = 0.65
+        bloomTimerReadout.accessibilityIdentifier = "bloom-native-timer-readout"
+        bloomTimerReadout.isAccessibilityElement = true
+        view.addSubview(bloomTimerReadout)
+
+        bloomTimerControls.isHidden = true
+        bloomTimerControls.backgroundColor = .clear
+        bloomTimerControls.isAccessibilityElement = false
+        bloomTimerControls.accessibilityIdentifier = "bloom-native-timer-controls"
+
+        bloomTimerResetButton.accessibilityIdentifier = "bloom-native-timer-reset"
+        bloomTimerPrimaryButton.accessibilityIdentifier = "bloom-native-timer-primary"
+        bloomTimerSecondaryButton.accessibilityIdentifier = "bloom-native-timer-secondary"
+        bloomTimerResetButton.addTarget(
+            self,
+            action: #selector(nativeTimerResetActivated),
+            for: .touchUpInside
+        )
+        bloomTimerPrimaryButton.addTarget(
+            self,
+            action: #selector(nativeTimerPrimaryActivated),
+            for: .touchUpInside
+        )
+        bloomTimerSecondaryButton.addTarget(
+            self,
+            action: #selector(nativeTimerSecondaryActivated),
+            for: .touchUpInside
+        )
+        bloomTimerControls.addSubview(bloomTimerResetButton)
+        bloomTimerControls.addSubview(bloomTimerPrimaryButton)
+        bloomTimerControls.addSubview(bloomTimerSecondaryButton)
+        view.addSubview(bloomTimerControls)
+    }
+
     private func updateTabBarHeight() {
         let systemHeight = bloomTabBar.sizeThatFits(
             CGSize(width: view.bounds.width, height: UIView.layoutFittingCompressedSize.height)
@@ -177,7 +259,7 @@ final class BloomBridgeViewController: CAPBridgeViewController, UITabBarDelegate
     func applyTabConfiguration(
         selected: String,
         showGoals: Bool,
-        night: Bool,
+        appearance: String,
         visible: Bool
     ) {
         let tabs = BloomTab.allCases.filter { showGoals || $0 != .goals }
@@ -201,14 +283,15 @@ final class BloomBridgeViewController: CAPBridgeViewController, UITabBarDelegate
             bloomTabBar.selectedItem = items[selectedIndex]
         }
 
-        overrideUserInterfaceStyle = night ? .dark : .light
-        let accentColor = night
-            ? UIColor(red: 0.80, green: 0.66, blue: 1.00, alpha: 1)
-            : UIColor(red: 0.93, green: 0.31, blue: 0.59, alpha: 1)
-        bloomTabBar.tintColor = accentColor
-        bloomTabBar.unselectedItemTintColor = .secondaryLabel
-        view.tintColor = accentColor
-        updateAuxiliaryControlTint(accentColor)
+        currentAppearance = ["day", "night", "system"].contains(appearance)
+            ? appearance
+            : "system"
+        switch currentAppearance {
+        case "day": overrideUserInterfaceStyle = .light
+        case "night": overrideUserInterfaceStyle = .dark
+        default: overrideUserInterfaceStyle = .unspecified
+        }
+        updateAppearanceTint()
         bloomTabBar.isHidden = !visible
         view.bringSubviewToFront(bloomTabBar)
         if !bloomSegmentGlass.isHidden {
@@ -217,6 +300,19 @@ final class BloomBridgeViewController: CAPBridgeViewController, UITabBarDelegate
             view.bringSubviewToFront(bloomSegmentedControl)
         }
         updateTabBarHeight()
+    }
+
+    private func updateAppearanceTint() {
+        let night = currentAppearance == "night" ||
+            (currentAppearance == "system" && traitCollection.userInterfaceStyle == .dark)
+        let accentColor = night
+            ? UIColor(red: 0.80, green: 0.66, blue: 1.00, alpha: 1)
+            : UIColor(red: 0.93, green: 0.31, blue: 0.59, alpha: 1)
+        bloomTabBar.tintColor = accentColor
+        bloomTabBar.unselectedItemTintColor = .secondaryLabel
+        view.tintColor = accentColor
+        updateAuxiliaryControlTint(accentColor)
+        updateTimerSurfaceTint(accentColor)
     }
 
     private func updateAuxiliaryControlTint(_ accentColor: UIColor) {
@@ -230,6 +326,256 @@ final class BloomBridgeViewController: CAPBridgeViewController, UITabBarDelegate
         }
         configuration.baseForegroundColor = accentColor
         bloomSettingsButton.configuration = configuration
+    }
+
+    private func updateTimerSurfaceTint(_ accentColor: UIColor) {
+        bloomTimerReadout.textColor = .label
+        for button in [
+            bloomTimerResetButton,
+            bloomTimerPrimaryButton,
+            bloomTimerSecondaryButton,
+        ] {
+            guard #available(iOS 15.0, *) else {
+                button.tintColor = accentColor
+                continue
+            }
+            guard var configuration = button.configuration else {
+                button.tintColor = accentColor
+                continue
+            }
+            configuration.baseForegroundColor = accentColor
+            button.configuration = configuration
+        }
+    }
+
+    /// Installs one native in-app timer surface over the measured web fallback
+    /// slots. This layer renders time and forwards intent only. It never opens,
+    /// completes, resets, or persists a session itself.
+    fileprivate func applyTimerSurfaceConfiguration(
+        _ configuration: BloomTimerSurfaceConfiguration
+    ) -> Bool {
+        let modes = ["focus", "flow", "tiny", "short", "long"]
+        let primaryLabels = ["Start", "Pause", "Continue"]
+        let secondaryLabels = ["Skip", "Finish flow session"]
+        let readoutFrame = CGRect(
+            x: configuration.readoutFrame.x,
+            y: configuration.readoutFrame.y,
+            width: configuration.readoutFrame.width,
+            height: configuration.readoutFrame.height
+        )
+        let controlsFrame = CGRect(
+            x: configuration.controlsFrame.x,
+            y: configuration.controlsFrame.y,
+            width: configuration.controlsFrame.width,
+            height: configuration.controlsFrame.height
+        )
+        let numbersAreFinite = [
+            configuration.remainingSeconds,
+            configuration.flowAccumulatedSeconds,
+            readoutFrame.minX,
+            readoutFrame.minY,
+            readoutFrame.width,
+            readoutFrame.height,
+            controlsFrame.minX,
+            controlsFrame.minY,
+            controlsFrame.width,
+            controlsFrame.height,
+        ].allSatisfy(\.isFinite)
+        let runningSourceIsValid = !configuration.running || (
+            configuration.mode == "flow"
+                ? configuration.flowStartedAtMs?.isFinite == true
+                : configuration.deadlineMs?.isFinite == true
+        )
+
+        guard
+            modes.contains(configuration.mode),
+            primaryLabels.contains(configuration.primaryLabel),
+            secondaryLabels.contains(configuration.secondaryLabel),
+            configuration.remainingSeconds >= 0,
+            configuration.flowAccumulatedSeconds >= 0,
+            numbersAreFinite,
+            runningSourceIsValid,
+            readoutFrame.width >= 44,
+            readoutFrame.height >= 24,
+            controlsFrame.width >= 44,
+            controlsFrame.height >= 44
+        else {
+            hideTimerSurface()
+            return false
+        }
+
+        timerSurfaceConfiguration = configuration
+        timerSurfaceLastSecond = nil
+        bloomTimerReadout.frame = readoutFrame.intersection(view.bounds)
+        bloomTimerControls.frame = controlsFrame.intersection(view.bounds)
+        configureTimerReadoutFont()
+        layoutTimerButtons(in: bloomTimerControls.bounds)
+        configureTimerButtons(configuration)
+        updateTimerReadout()
+
+        let hidden = !configuration.visible
+        bloomTimerReadout.isHidden = hidden
+        bloomTimerControls.isHidden = hidden
+        if !hidden {
+            view.bringSubviewToFront(bloomTimerReadout)
+            view.bringSubviewToFront(bloomTimerControls)
+        }
+        refreshTimerSurfaceClock()
+        return true
+    }
+
+    private func layoutTimerButtons(in bounds: CGRect) {
+        let primaryDiameter = min(76, max(44, bounds.height))
+        let sideDiameter = min(52, max(44, primaryDiameter * 0.72))
+        let desiredSpacing = min(22, max(10, bounds.width * 0.055))
+        let contentWidth = sideDiameter * 2 + primaryDiameter + desiredSpacing * 2
+        let spacing = contentWidth <= bounds.width
+            ? desiredSpacing
+            : max(4, (bounds.width - sideDiameter * 2 - primaryDiameter) / 2)
+        let actualWidth = sideDiameter * 2 + primaryDiameter + spacing * 2
+        let originX = max(0, (bounds.width - actualWidth) / 2)
+        bloomTimerResetButton.frame = CGRect(
+            x: originX,
+            y: (bounds.height - sideDiameter) / 2,
+            width: sideDiameter,
+            height: sideDiameter
+        )
+        bloomTimerPrimaryButton.frame = CGRect(
+            x: bloomTimerResetButton.frame.maxX + spacing,
+            y: (bounds.height - primaryDiameter) / 2,
+            width: primaryDiameter,
+            height: primaryDiameter
+        )
+        bloomTimerSecondaryButton.frame = CGRect(
+            x: bloomTimerPrimaryButton.frame.maxX + spacing,
+            y: (bounds.height - sideDiameter) / 2,
+            width: sideDiameter,
+            height: sideDiameter
+        )
+    }
+
+    private func configureTimerButtons(_ configuration: BloomTimerSurfaceConfiguration) {
+        configureTimerButton(
+            bloomTimerResetButton,
+            symbol: "arrow.counterclockwise",
+            label: "Reset"
+        )
+        configureTimerButton(
+            bloomTimerPrimaryButton,
+            symbol: configuration.running ? "pause.fill" : "play.fill",
+            label: configuration.primaryLabel
+        )
+        configureTimerButton(
+            bloomTimerSecondaryButton,
+            symbol: configuration.mode == "flow" ? "checkmark" : "forward.end.fill",
+            label: configuration.secondaryLabel
+        )
+        bloomTimerResetButton.isEnabled = configuration.enabled
+        bloomTimerPrimaryButton.isEnabled = configuration.enabled
+        bloomTimerSecondaryButton.isEnabled =
+            configuration.enabled && configuration.secondaryEnabled
+    }
+
+    private func configureTimerButton(_ button: UIButton, symbol: String, label: String) {
+        let image = UIImage(systemName: symbol)?.applyingSymbolConfiguration(
+            UIImage.SymbolConfiguration(pointSize: 20, weight: .semibold)
+        )
+        button.accessibilityLabel = label
+        button.accessibilityTraits = .button
+        if #available(iOS 26.0, *) {
+            var configuration = UIButton.Configuration.glass()
+            configuration.image = image
+            configuration.baseForegroundColor = view.tintColor
+            button.configuration = configuration
+        } else if #available(iOS 15.0, *) {
+            var configuration = UIButton.Configuration.tinted()
+            configuration.image = image
+            configuration.baseForegroundColor = view.tintColor
+            button.configuration = configuration
+        } else {
+            button.setImage(image, for: .normal)
+            button.tintColor = view.tintColor
+            button.backgroundColor = .secondarySystemBackground
+            button.layer.cornerRadius = min(button.bounds.width, button.bounds.height) / 2
+        }
+    }
+
+    private func refreshTimerSurfaceClock() {
+        timerSurfaceClock?.invalidate()
+        timerSurfaceClock = nil
+        guard
+            let configuration = timerSurfaceConfiguration,
+            configuration.visible,
+            configuration.running
+        else { return }
+
+        let clock = Timer(timeInterval: 0.25, repeats: true) { [weak self] _ in
+            self?.updateTimerReadout()
+        }
+        RunLoop.main.add(clock, forMode: .common)
+        timerSurfaceClock = clock
+    }
+
+    private func configureTimerReadoutFont() {
+        let baseSize = min(54, max(34, bloomTimerReadout.bounds.height * 0.9))
+        let baseFont = UIFont.monospacedDigitSystemFont(ofSize: baseSize, weight: .semibold)
+        bloomTimerReadout.font = UIFontMetrics(forTextStyle: .largeTitle).scaledFont(
+            for: baseFont,
+            maximumPointSize: 68
+        )
+    }
+
+    private func updateTimerReadout() {
+        guard let configuration = timerSurfaceConfiguration else { return }
+        let seconds: Int
+        if configuration.mode == "flow" {
+            let live = configuration.running
+                ? max(0, Date().timeIntervalSince1970 * 1_000 - (configuration.flowStartedAtMs ?? 0)) / 1_000
+                : 0
+            seconds = Int(floor(max(0, configuration.flowAccumulatedSeconds + live)))
+            bloomTimerReadout.accessibilityLabel = "Elapsed focus time"
+        } else {
+            let remaining = configuration.running
+                ? max(0, ((configuration.deadlineMs ?? 0) - Date().timeIntervalSince1970 * 1_000) / 1_000)
+                : configuration.remainingSeconds
+            seconds = Int(ceil(max(0, remaining)))
+            bloomTimerReadout.accessibilityLabel = "Time remaining"
+        }
+        guard timerSurfaceLastSecond != seconds else { return }
+        timerSurfaceLastSecond = seconds
+        bloomTimerReadout.text = timerText(seconds)
+        bloomTimerReadout.accessibilityValue = spokenTimerText(seconds)
+    }
+
+    private func timerText(_ totalSeconds: Int) -> String {
+        let hours = totalSeconds / 3_600
+        let minutes = (totalSeconds % 3_600) / 60
+        let seconds = totalSeconds % 60
+        return hours > 0
+            ? String(format: "%d:%02d:%02d", hours, minutes, seconds)
+            : String(format: "%02d:%02d", minutes, seconds)
+    }
+
+    private func spokenTimerText(_ totalSeconds: Int) -> String {
+        let hours = totalSeconds / 3_600
+        let minutes = (totalSeconds % 3_600) / 60
+        let seconds = totalSeconds % 60
+        var parts: [String] = []
+        if hours > 0 { parts.append("\(hours) hour\(hours == 1 ? "" : "s")") }
+        if minutes > 0 { parts.append("\(minutes) minute\(minutes == 1 ? "" : "s")") }
+        if seconds > 0 || parts.isEmpty {
+            parts.append("\(seconds) second\(seconds == 1 ? "" : "s")")
+        }
+        return parts.joined(separator: ", ")
+    }
+
+    fileprivate func hideTimerSurface() {
+        timerSurfaceClock?.invalidate()
+        timerSurfaceClock = nil
+        timerSurfaceConfiguration = nil
+        timerSurfaceLastSecond = nil
+        bloomTimerReadout.isHidden = true
+        bloomTimerControls.isHidden = true
     }
 
     /// PLAN 13.4a: UIKit owns the visible Settings symbol; React supplies only
@@ -433,9 +779,69 @@ final class BloomBridgeViewController: CAPBridgeViewController, UITabBarDelegate
         navigationPlugin.publishControlActivation(id: "settings", value: nil)
     }
 
+    @objc private func nativeTimerResetActivated() {
+        timerSurfacePlugin.publishAction("reset")
+    }
+
+    @objc private func nativeTimerPrimaryActivated() {
+        timerSurfacePlugin.publishAction("primary")
+    }
+
+    @objc private func nativeTimerSecondaryActivated() {
+        timerSurfacePlugin.publishAction("secondary")
+    }
+
     func tabBar(_ tabBar: UITabBar, didSelect item: UITabBarItem) {
         guard visibleTabs.indices.contains(item.tag) else { return }
         navigationPlugin.publishSelection(visibleTabs[item.tag].rawValue)
+    }
+}
+
+@objc(BloomTimerSurfacePlugin)
+final class BloomTimerSurfacePlugin: CAPPlugin, CAPBridgedPlugin {
+    let identifier = "BloomTimerSurfacePlugin"
+    let jsName = "BloomTimerSurface"
+    let pluginMethods: [CAPPluginMethod] = [
+        CAPPluginMethod(name: "configure", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "hide", returnType: CAPPluginReturnPromise),
+    ]
+
+    weak var timerController: BloomBridgeViewController?
+
+    @objc func configure(_ call: CAPPluginCall) {
+        guard let timerController else {
+            call.reject("Native timer host is unavailable")
+            return
+        }
+        do {
+            let configuration = try call.decode(BloomTimerSurfaceConfiguration.self)
+            DispatchQueue.main.async {
+                call.resolve([
+                    "active": timerController.applyTimerSurfaceConfiguration(configuration)
+                ])
+            }
+        } catch {
+            call.reject("Invalid native timer configuration", nil, error)
+        }
+    }
+
+    @objc func hide(_ call: CAPPluginCall) {
+        guard let timerController else {
+            call.reject("Native timer host is unavailable")
+            return
+        }
+        DispatchQueue.main.async {
+            timerController.hideTimerSurface()
+            call.resolve()
+        }
+    }
+
+    func publishAction(_ action: String) {
+        notifyListeners(
+            "timerAction",
+            data: ["action": action],
+            retainUntilConsumed: false
+        )
     }
 }
 
@@ -461,14 +867,14 @@ final class BloomNavigationPlugin: CAPPlugin, CAPBridgedPlugin {
 
         let selected = call.getString("selected") ?? BloomTab.focus.rawValue
         let showGoals = call.getBool("showGoals") ?? false
-        let night = call.getBool("night") ?? false
+        let appearance = call.getString("appearance") ?? "system"
         let visible = call.getBool("visible") ?? true
 
         DispatchQueue.main.async {
             tabsController.applyTabConfiguration(
                 selected: selected,
                 showGoals: showGoals,
-                night: night,
+                appearance: appearance,
                 visible: visible
             )
             call.resolve(["active": true])

@@ -20,6 +20,13 @@ struct BloomFocusActivityAttributes: ActivityAttributes {
         let timerStart: Date
         let timerEnd: Date
         let pausedRemainingSeconds: Int?
+        /// Mirrors the existing Ring when done setting so a Continue intent
+        /// can restore or suppress the one local completion request while the
+        /// web view is suspended. This is operational state, not user content.
+        // Optional so an activity archived by the previous app version still
+        // decodes after upgrade. A missing value safely suppresses scheduling
+        // until the reducer mirrors a current snapshot.
+        let completionAlertsEnabled: Bool?
     }
 
     let sessionId: String

@@ -1,4 +1,5 @@
 import { existsSync, readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -11,6 +12,11 @@ import { FRIENDS } from '../data/friends';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const assets = resolve(root, 'ios/App/App/Assets.xcassets');
 const pbxproj = resolve(root, 'ios/App/App.xcodeproj/project.pbxproj');
+const generatorPath = resolve(root, 'scripts/gen-icons.mjs');
+const manifestPath = resolve(
+  root,
+  'docs/verification/plan-13.9b-icon-export-manifest.json',
+);
 
 const iosProjectPresent = existsSync(assets) && existsSync(pbxproj);
 
@@ -59,5 +65,80 @@ describe.runIf(iosProjectPresent)('bundled iOS app icon assets', () => {
         expect(declaration).toContain(`"${name}"`);
       }
     }
+  });
+
+  it('keeps the iOS and web generators flower-free at their source boundary', () => {
+    const generator = readFileSync(generatorPath, 'utf8');
+    const friendSource = generator.match(
+      /function friendIconSvg[\s\S]*?\n}\n\nasync function png/,
+    )?.[0];
+    const webSource = generator.match(
+      /function timerMarkSvg[\s\S]*?\n}\n\n\/\*\* Match the app canvas/,
+    )?.[0];
+
+    expect(friendSource).toBeTruthy();
+    expect(webSource).toBeTruthy();
+    expect(friendSource).toContain('pomodoroTimer');
+    expect(webSource).toContain('pomodoroTimer');
+    expect(friendSource).not.toMatch(/blossom|petal/i);
+    expect(webSource).not.toMatch(/blossom|petal/i);
+    // Android remains explicitly isolated on its old generator while deferred.
+    expect(generator).toContain('const androidTile = blossomSvg');
+    expect(generator).toContain('const androidBleed = blossomSvg');
+  });
+
+  it('records deterministic, current exports for every iOS appearance and web icon', () => {
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as {
+      generatedBy: string;
+      identity: string;
+      flowerInIOSIcons: boolean;
+      flowerInWebIcons: boolean;
+      androidChanged: boolean;
+      iosExports: Array<{
+        friend: string;
+        appearance: string;
+        file: string;
+        width: number;
+        height: number;
+        hasAlpha: boolean;
+        sha256: string;
+      }>;
+      webExports: Array<{
+        file: string;
+        width: number;
+        height: number;
+        sha256: string;
+      }>;
+    };
+
+    expect(manifest.generatedBy).toBe('scripts/gen-icons.mjs');
+    expect(manifest.identity).toBe('crowned-pomodoro-dial-with-on-duty-friend');
+    expect(manifest.flowerInIOSIcons).toBe(false);
+    expect(manifest.flowerInWebIcons).toBe(false);
+    expect(manifest.androidChanged).toBe(false);
+    expect(manifest.iosExports).toHaveLength(FRIENDS.length * 3);
+    expect(manifest.webExports).toHaveLength(7);
+
+    for (const output of [...manifest.iosExports, ...manifest.webExports]) {
+      const bytes = readFileSync(resolve(root, output.file));
+      expect(output.width).toBeGreaterThanOrEqual(32);
+      expect(output.height).toBe(output.width);
+      expect(output.sha256).toBe(
+        createHash('sha256').update(bytes).digest('hex'),
+      );
+    }
+
+    for (const friend of FRIENDS) {
+      expect(
+        manifest.iosExports
+          .filter((output) => output.friend === friend.name)
+          .map((output) => output.appearance),
+      ).toEqual(['light', 'dark', 'tinted']);
+    }
+    expect(
+      manifest.iosExports
+        .filter((output) => output.appearance === 'light')
+        .every((output) => output.hasAlpha === false),
+    ).toBe(true);
   });
 });

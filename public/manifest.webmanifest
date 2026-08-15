@@ -1,7 +1,7 @@
 {
   "name": "Bloom — a cozy pomodoro",
   "short_name": "Bloom",
-  "description": "A cozy pixel-pal pomodoro timer with calming background sounds and friends who level up as you focus.",
+  "description": "A cozy, local-first pomodoro timer with gentle planning and pixel friends who grow as you focus.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

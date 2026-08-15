@@ -30,6 +30,8 @@
 		C13800000000000000000008 /* ActivityKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C13800000000000000000017 /* ActivityKit.framework */; };
 		C13800000000000000000009 /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C13800000000000000000018 /* WidgetKit.framework */; };
 		C1380000000000000000000A /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C13800000000000000000019 /* SwiftUI.framework */; };
+		C138A0000000000000000001 /* BloomLiveActivityIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = C138A0000000000000000011 /* BloomLiveActivityIntents.swift */; };
+		C138A0000000000000000002 /* BloomLiveActivityIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = C138A0000000000000000011 /* BloomLiveActivityIntents.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -81,6 +83,7 @@
 		C13800000000000000000017 /* ActivityKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = ActivityKit.framework; path = System/Library/Frameworks/ActivityKit.framework; sourceTree = SDKROOT; };
 		C13800000000000000000018 /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = System/Library/Frameworks/WidgetKit.framework; sourceTree = SDKROOT; };
 		C13800000000000000000019 /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
+		C138A0000000000000000011 /* BloomLiveActivityIntents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BloomLiveActivityIntents.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -152,6 +155,7 @@
 			isa = PBXGroup;
 			children = (
 				C13800000000000000000012 /* BloomLiveActivityAttributes.swift */,
+				C138A0000000000000000011 /* BloomLiveActivityIntents.swift */,
 			);
 			path = Shared;
 			sourceTree = "<group>";
@@ -298,6 +302,7 @@
 				B10000000000000000000015 /* BloomSettingsPlugin.swift in Sources */,
 				C13800000000000000000001 /* BloomLiveActivityPlugin.swift in Sources */,
 				C13800000000000000000002 /* BloomLiveActivityAttributes.swift in Sources */,
+				C138A0000000000000000001 /* BloomLiveActivityIntents.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -308,6 +313,7 @@
 				C13800000000000000000005 /* BloomLiveActivityBundle.swift in Sources */,
 				C13800000000000000000004 /* BloomLiveActivityWidget.swift in Sources */,
 				C13800000000000000000003 /* BloomLiveActivityAttributes.swift in Sources */,
+				C138A0000000000000000002 /* BloomLiveActivityIntents.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

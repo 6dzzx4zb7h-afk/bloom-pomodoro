@@ -7,10 +7,13 @@ interface SelectOptions {
 }
 
 const getPlatform = vi.fn(() => 'web');
-const select = vi.fn(async (_options: SelectOptions) => ({
-  supported: true,
-  changed: true,
-}));
+const select = vi.fn(async (options: SelectOptions) => {
+  void options;
+  return {
+    supported: true,
+    changed: true,
+  };
+});
 
 vi.mock('@capacitor/core', () => ({
   Capacitor: { getPlatform: () => getPlatform() },

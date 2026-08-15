@@ -3,6 +3,7 @@ import {
   registerPlugin,
   type PluginListenerHandle,
 } from '@capacitor/core';
+import type { AppearanceMode } from '../store/appearance';
 
 /**
  * PLAN 13.4b — the typed seam between React's Settings and a native form.
@@ -105,12 +106,8 @@ export interface NativeSettingsSection {
 export interface NativeSettingsSnapshot {
   title: string;
   doneTitle: string;
-  /**
-   * Bloom's own day/night choice, not the system's. The sheet must not inherit
-   * a dark system appearance while the app it came from is rendering its day
-   * sky, and toggling Night sky inside the sheet has to restyle it live.
-   */
-  appearance: 'light' | 'dark';
+  /** Bloom's Day, Night, or live device appearance choice. */
+  appearance: AppearanceMode;
   sections: NativeSettingsSection[];
 }
 
@@ -154,6 +151,16 @@ interface BloomSettingsPlugin {
   /** Presents the sheet, or re-renders the live one with a newer snapshot. */
   present(options: NativeSettingsSnapshot): Promise<{ active: boolean }>;
   dismiss(): Promise<void>;
+  /** Open Bloom's own system Settings page after an explicit recovery tap. */
+  openSystemSettings(): Promise<{ opened: boolean }>;
+  /** Present a user-initiated system share/save sheet for one generated file. */
+  exportFile(options: NativeIOSExportFile): Promise<{ completed: boolean }>;
+  /** Let the person choose one local JSON document; no file is read before selection. */
+  pickDocument(): Promise<NativeIOSPickedDocument>;
+  /** Keep irreversible confirmation in the native sheet that initiated it. */
+  confirmDestructive(
+    options: NativeIOSDestructiveConfirmation,
+  ): Promise<{ confirmed: boolean }>;
   addListener(
     eventName: 'settingsAction',
     listener: (event: RawNativeSettingsAction) => void,
@@ -164,6 +171,23 @@ interface BloomSettingsPlugin {
   ): Promise<PluginListenerHandle>;
 }
 
+export interface NativeIOSExportFile {
+  fileName: string;
+  mimeType: 'application/json' | 'text/csv';
+  contents: string;
+}
+
+export type NativeIOSPickedDocument =
+  | { canceled: true }
+  | { canceled: false; fileName: string; size: number; contents: string };
+
+export interface NativeIOSDestructiveConfirmation {
+  title: string;
+  message: string;
+  confirmTitle: string;
+  cancelTitle: string;
+}
+
 const bloomSettings = registerPlugin<BloomSettingsPlugin>('BloomSettings');
 
 const ROW_ID = /^[A-Za-z][A-Za-z0-9._:-]{0,79}$/;
@@ -172,6 +196,8 @@ const MAX_BODY = 600;
 const MAX_ROWS_PER_SECTION = 40;
 const MAX_SECTIONS = 12;
 const MAX_OPTIONS = 32;
+const MAX_NATIVE_FILE_BYTES = 5 * 1024 * 1024;
+const SAFE_FILE_NAME = /^[A-Za-z0-9][A-Za-z0-9._ -]{0,119}$/;
 
 export function isNativeIOSSettingsPlatform(): boolean {
   return Capacitor.getPlatform() === 'ios';
@@ -276,7 +302,7 @@ export function isValidNativeSettingsSnapshot(
   if (!snapshot || typeof snapshot !== 'object') return false;
   if (!isFilledText(snapshot.title, MAX_TITLE)) return false;
   if (!isFilledText(snapshot.doneTitle, MAX_TITLE)) return false;
-  if (snapshot.appearance !== 'light' && snapshot.appearance !== 'dark') return false;
+  if (!['day', 'night', 'system'].includes(snapshot.appearance)) return false;
   if (!Array.isArray(snapshot.sections) || snapshot.sections.length === 0) return false;
   if (snapshot.sections.length > MAX_SECTIONS) return false;
 
@@ -313,6 +339,75 @@ export function presentNativeIOSSettings(
 
 export function dismissNativeIOSSettings(): Promise<void> {
   return bloomSettings.dismiss();
+}
+
+/**
+ * PLAN 13.11a — iOS owns notification and Live Activity availability. Bloom
+ * can take the person to its system page, but never opens it automatically and
+ * never treats the result as permission state. The existing foreground
+ * lifecycle reads the authoritative status again when the person returns.
+ */
+export async function openNativeIOSAppSettings(): Promise<{ opened: boolean }> {
+  if (!isNativeIOSSettingsPlatform()) return { opened: false };
+  try {
+    const result = await bloomSettings.openSystemSettings();
+    return { opened: result?.opened === true };
+  } catch {
+    return { opened: false };
+  }
+}
+
+export function presentNativeIOSExportFile(
+  file: NativeIOSExportFile,
+): Promise<{ completed: boolean }> {
+  const byteLength = new TextEncoder().encode(file.contents).byteLength;
+  if (
+    !isNativeIOSSettingsPlatform() ||
+    !SAFE_FILE_NAME.test(file.fileName) ||
+    !['application/json', 'text/csv'].includes(file.mimeType) ||
+    byteLength > MAX_NATIVE_FILE_BYTES
+  ) {
+    return Promise.reject(new Error('Invalid native export file'));
+  }
+  return bloomSettings.exportFile(file);
+}
+
+export function pickNativeIOSBackupFile(): Promise<NativeIOSPickedDocument> {
+  if (!isNativeIOSSettingsPlatform()) {
+    return Promise.resolve({ canceled: true });
+  }
+  return bloomSettings.pickDocument().then((result) => {
+    if (result?.canceled === true) return { canceled: true };
+    if (
+      result?.canceled !== false ||
+      typeof result.fileName !== 'string' ||
+      result.fileName.length === 0 ||
+      result.fileName.length > 120 ||
+      /[\\/\0]/.test(result.fileName) ||
+      typeof result.size !== 'number' ||
+      !Number.isInteger(result.size) ||
+      result.size < 0 ||
+      result.size > MAX_NATIVE_FILE_BYTES ||
+      typeof result.contents !== 'string' ||
+      new TextEncoder().encode(result.contents).byteLength > MAX_NATIVE_FILE_BYTES
+    ) {
+      throw new Error('Invalid native import document');
+    }
+    return result;
+  });
+}
+
+export function presentNativeIOSDestructiveConfirmation(
+  confirmation: NativeIOSDestructiveConfirmation,
+): Promise<{ confirmed: boolean }> {
+  const valid =
+    isNativeIOSSettingsPlatform() &&
+    isFilledText(confirmation.title, MAX_TITLE) &&
+    isFilledText(confirmation.message, MAX_BODY) &&
+    isFilledText(confirmation.confirmTitle, MAX_TITLE) &&
+    isFilledText(confirmation.cancelTitle, MAX_TITLE);
+  if (!valid) return Promise.reject(new Error('Invalid native confirmation'));
+  return bloomSettings.confirmDestructive(confirmation);
 }
 
 export function listenForNativeIOSSettingsAction(

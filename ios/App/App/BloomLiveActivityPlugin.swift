@@ -11,6 +11,7 @@ private struct BloomLiveActivitySnapshot {
     let startedAt: Date
     let deadline: Date?
     let remainingSeconds: Int?
+    let completionAlertsEnabled: Bool
 
     var contentState: BloomFocusActivityAttributes.ContentState {
         let end = deadline ?? startedAt
@@ -19,7 +20,8 @@ private struct BloomLiveActivitySnapshot {
             phase: phase,
             timerStart: min(startedAt, end),
             timerEnd: max(startedAt, end),
-            pausedRemainingSeconds: remainingSeconds
+            pausedRemainingSeconds: remainingSeconds,
+            completionAlertsEnabled: completionAlertsEnabled
         )
     }
 
@@ -265,7 +267,8 @@ private actor BloomLiveActivityCoordinator {
                 phase: .finished,
                 timerStart: now,
                 timerEnd: now,
-                pausedRemainingSeconds: 0
+                pausedRemainingSeconds: 0,
+                completionAlertsEnabled: current.completionAlertsEnabled
             )
             : current
 
@@ -287,6 +290,8 @@ final class BloomLiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "status", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "reconcile", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "end", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "pendingCommands", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "acknowledgeCommands", returnType: CAPPluginReturnPromise),
     ]
 
     @objc func status(_ call: CAPPluginCall) {
@@ -359,6 +364,53 @@ final class BloomLiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
         }
     }
 
+    @objc func pendingCommands(_ call: CAPPluginCall) {
+        guard #available(iOS 17.0, *) else {
+            call.resolve(["commands": []])
+            return
+        }
+
+        Task {
+            let commands = await BloomLiveActivityCommandStore.shared.pending()
+            let payload: JSArray = commands.map { command in
+                [
+                    "id": command.id,
+                    "sessionId": command.sessionId,
+                    "action": command.action.rawValue,
+                    "atMs": command.atMs,
+                    "remainingSeconds": command.remainingSeconds,
+                ] as JSObject
+            }
+            call.resolve(["commands": payload])
+        }
+    }
+
+    @objc func acknowledgeCommands(_ call: CAPPluginCall) {
+        guard #available(iOS 17.0, *) else {
+            call.resolve()
+            return
+        }
+        guard let rawIds = call.getArray("ids", String.self) else {
+            call.reject("Command ids are required")
+            return
+        }
+        let ids = Set(rawIds.filter { value in
+            value.range(
+                of: "^[A-Fa-f0-9-]{1,64}$",
+                options: .regularExpression
+            ) != nil
+        })
+        guard ids.count == rawIds.count, ids.count <= 32 else {
+            call.reject("Command ids are invalid")
+            return
+        }
+
+        Task {
+            await BloomLiveActivityCommandStore.shared.acknowledge(ids: ids)
+            call.resolve()
+        }
+    }
+
     @available(iOS 16.2, *)
     private func validatedSnapshot(_ call: CAPPluginCall) -> BloomLiveActivitySnapshot? {
         guard
@@ -376,6 +428,7 @@ final class BloomLiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
         }
 
         let startedAt = Date(timeIntervalSince1970: startedAtMs / 1_000)
+        let completionAlertsEnabled = call.getBool("completionAlertsEnabled") ?? false
         if state == "running" {
             guard
                 let deadlineMs = call.getDouble("deadlineMs"),
@@ -390,7 +443,8 @@ final class BloomLiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
                 phase: .running,
                 startedAt: startedAt,
                 deadline: Date(timeIntervalSince1970: deadlineMs / 1_000),
-                remainingSeconds: nil
+                remainingSeconds: nil,
+                completionAlertsEnabled: completionAlertsEnabled
             )
         }
 
@@ -409,7 +463,8 @@ final class BloomLiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
             phase: .paused,
             startedAt: startedAt,
             deadline: nil,
-            remainingSeconds: Int(remaining.rounded())
+            remainingSeconds: Int(remaining.rounded()),
+            completionAlertsEnabled: completionAlertsEnabled
         )
     }
 

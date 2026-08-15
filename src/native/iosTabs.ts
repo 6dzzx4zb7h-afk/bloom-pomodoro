@@ -5,11 +5,12 @@ import {
 } from '@capacitor/core';
 import type { ScreenName } from '../components/TabBar';
 import type { TimerMode } from '../store/useBloom';
+import type { AppearanceMode } from '../store/appearance';
 
 export interface NativeTabConfiguration {
   selected: ScreenName;
   showGoals: boolean;
-  night: boolean;
+  appearance: AppearanceMode;
   visible: boolean;
 }
 
