@@ -1,5 +1,9 @@
 node_modules/
 dist/
+.playwright/
+playwright-report/
+test-results/
+visual-artifacts/
 .wrangler/
 *.local
 *.tsbuildinfo

@@ -1,0 +1,240 @@
+{
+  "generatedBy": "scripts/gen-icons.mjs",
+  "identity": "crowned-pomodoro-dial-with-on-duty-friend",
+  "flowerInIOSIcons": false,
+  "flowerInWebIcons": false,
+  "androidChanged": false,
+  "iosExports": [
+    {
+      "friend": "Mochi",
+      "assetSet": "AppIcon",
+      "appearance": "light",
+      "file": "ios/App/App/Assets.xcassets/AppIcon.appiconset/AppIcon-512@2x.png",
+      "width": 1024,
+      "height": 1024,
+      "hasAlpha": false,
+      "sha256": "eed69bca99bf319bca180dc4beaabe83d5b8e9fecc1929edb53224ba6bf79fb1"
+    },
+    {
+      "friend": "Mochi",
+      "assetSet": "AppIcon",
+      "appearance": "dark",
+      "file": "ios/App/App/Assets.xcassets/AppIcon.appiconset/AppIcon-dark-512@2x.png",
+      "width": 1024,
+      "height": 1024,
+      "hasAlpha": true,
+      "sha256": "ee2f5b518ffce250e5a50f9586371f456bd4cd633ecacf6f1b8f0f7f52c3e585"
+    },
+    {
+      "friend": "Mochi",
+      "assetSet": "AppIcon",
+      "appearance": "tinted",
+      "file": "ios/App/App/Assets.xcassets/AppIcon.appiconset/AppIcon-tinted-512@2x.png",
+      "width": 1024,
+      "height": 1024,
+      "hasAlpha": true,
+      "sha256": "6a30f36ef50227a9f834cfce976db19d62f12af0378f3e504fe4c746bf3c7027"
+    },
+    {
+      "friend": "Pudding",
+      "assetSet": "AppIcon-Pudding",
+      "appearance": "light",
+      "file": "ios/App/App/Assets.xcassets/AppIcon-Pudding.appiconset/AppIcon-Pudding-512@2x.png",
+      "width": 1024,
+      "height": 1024,
+      "hasAlpha": false,
+      "sha256": "0c6f4ab5a6f49fb67af39773cac0103313f377b7cec3ff99f6fa7e0a4bee2377"
+    },
+    {
+      "friend": "Pudding",
+      "assetSet": "AppIcon-Pudding",
+      "appearance": "dark",
+      "file": "ios/App/App/Assets.xcassets/AppIcon-Pudding.appiconset/AppIcon-Pudding-dark-512@2x.png",
+      "width": 1024,
+      "height": 1024,
+      "hasAlpha": true,
+      "sha256": "16ced91e5bfa4a0080e132c0d2a6e406b0c428e289080ed250fb3472cb89e10c"
+    },
+    {
+      "friend": "Pudding",
+      "assetSet": "AppIcon-Pudding",
+      "appearance": "tinted",
+      "file": "ios/App/App/Assets.xcassets/AppIcon-Pudding.appiconset/AppIcon-Pudding-tinted-512@2x.png",
+      "width": 1024,
+      "height": 1024,
+      "hasAlpha": true,
+      "sha256": "bab569c802677b1b3b32a42304fd4cead7bb826d73a4f5f7db2531563793fc34"
+    },
+    {
+      "friend": "Biscuit",
+      "assetSet": "AppIcon-Biscuit",
+      "appearance": "light",
+      "file": "ios/App/App/Assets.xcassets/AppIcon-Biscuit.appiconset/AppIcon-Biscuit-512@2x.png",
+      "width": 1024,
+      "height": 1024,
+      "hasAlpha": false,
+      "sha256": "397399e09664d7dadbeac45e63330eb362e865317315f875707e803f1530d4cb"
+    },
+    {
+      "friend": "Biscuit",
+      "assetSet": "AppIcon-Biscuit",
+      "appearance": "dark",
+      "file": "ios/App/App/Assets.xcassets/AppIcon-Biscuit.appiconset/AppIcon-Biscuit-dark-512@2x.png",
+      "width": 1024,
+      "height": 1024,
+      "hasAlpha": true,
+      "sha256": "45d90917addadc95de24ae7aadc0bccbba99e86d47e93b6a285390896cc2c1c5"
+    },
+    {
+      "friend": "Biscuit",
+      "assetSet": "AppIcon-Biscuit",
+      "appearance": "tinted",
+      "file": "ios/App/App/Assets.xcassets/AppIcon-Biscuit.appiconset/AppIcon-Biscuit-tinted-512@2x.png",
+      "width": 1024,
+      "height": 1024,
+      "hasAlpha": true,
+      "sha256": "df0cc08e31177ed1f60bb23dfcc0ac1580ee4c25cd4c726a7d072c7de8d1e513"
+    },
+    {
+      "friend": "Luna",
+      "assetSet": "AppIcon-Luna",
+      "appearance": "light",
+      "file": "ios/App/App/Assets.xcassets/AppIcon-Luna.appiconset/AppIcon-Luna-512@2x.png",
+      "width": 1024,
+      "height": 1024,
+      "hasAlpha": false,
+      "sha256": "f161a17b6dca9d2ced5cd6b3b34c766b877f9b9c095580357d3b239c61739198"
+    },
+    {
+      "friend": "Luna",
+      "assetSet": "AppIcon-Luna",
+      "appearance": "dark",
+      "file": "ios/App/App/Assets.xcassets/AppIcon-Luna.appiconset/AppIcon-Luna-dark-512@2x.png",
+      "width": 1024,
+      "height": 1024,
+      "hasAlpha": true,
+      "sha256": "6f0102d965db84d19f04b2aa2e0f7e0f360b239a03f2fe7c8d403249af55f3a1"
+    },
+    {
+      "friend": "Luna",
+      "assetSet": "AppIcon-Luna",
+      "appearance": "tinted",
+      "file": "ios/App/App/Assets.xcassets/AppIcon-Luna.appiconset/AppIcon-Luna-tinted-512@2x.png",
+      "width": 1024,
+      "height": 1024,
+      "hasAlpha": true,
+      "sha256": "b043a5477dfb8aa55487ff90e64c3c0146e959e2ffa62c578b601b53632fb3aa"
+    },
+    {
+      "friend": "Snappy",
+      "assetSet": "AppIcon-Snappy",
+      "appearance": "light",
+      "file": "ios/App/App/Assets.xcassets/AppIcon-Snappy.appiconset/AppIcon-Snappy-512@2x.png",
+      "width": 1024,
+      "height": 1024,
+      "hasAlpha": false,
+      "sha256": "f57c626502eb4110e44b2d0aa12d12351acd4a0c938eb8fd57c653efc7e69317"
+    },
+    {
+      "friend": "Snappy",
+      "assetSet": "AppIcon-Snappy",
+      "appearance": "dark",
+      "file": "ios/App/App/Assets.xcassets/AppIcon-Snappy.appiconset/AppIcon-Snappy-dark-512@2x.png",
+      "width": 1024,
+      "height": 1024,
+      "hasAlpha": true,
+      "sha256": "6a3a6c558c2316ed4dd050ee79699d46ae3f3eb6a8ab26a90db7628985255cbe"
+    },
+    {
+      "friend": "Snappy",
+      "assetSet": "AppIcon-Snappy",
+      "appearance": "tinted",
+      "file": "ios/App/App/Assets.xcassets/AppIcon-Snappy.appiconset/AppIcon-Snappy-tinted-512@2x.png",
+      "width": 1024,
+      "height": 1024,
+      "hasAlpha": true,
+      "sha256": "6589d703d9518f131afdee228fe13645b7db3756059c2db0657e5e93a808dd6a"
+    },
+    {
+      "friend": "Coral",
+      "assetSet": "AppIcon-Coral",
+      "appearance": "light",
+      "file": "ios/App/App/Assets.xcassets/AppIcon-Coral.appiconset/AppIcon-Coral-512@2x.png",
+      "width": 1024,
+      "height": 1024,
+      "hasAlpha": false,
+      "sha256": "6409d8df9ab7c6934b40bdf2eab9bb69699fbe8adf6e58e17ee6ed8865449018"
+    },
+    {
+      "friend": "Coral",
+      "assetSet": "AppIcon-Coral",
+      "appearance": "dark",
+      "file": "ios/App/App/Assets.xcassets/AppIcon-Coral.appiconset/AppIcon-Coral-dark-512@2x.png",
+      "width": 1024,
+      "height": 1024,
+      "hasAlpha": true,
+      "sha256": "66b36e63a60fdfa79d9fa5f6d2fdfad4811b9f6c9cc45016123f3edd269e9320"
+    },
+    {
+      "friend": "Coral",
+      "assetSet": "AppIcon-Coral",
+      "appearance": "tinted",
+      "file": "ios/App/App/Assets.xcassets/AppIcon-Coral.appiconset/AppIcon-Coral-tinted-512@2x.png",
+      "width": 1024,
+      "height": 1024,
+      "hasAlpha": true,
+      "sha256": "0b4137c9329f2bb1a523a093c2063dcabca7c6c3a275f077691b09f3d7e2b9cc"
+    }
+  ],
+  "webExports": [
+    {
+      "file": "public/icon-192.png",
+      "width": 192,
+      "height": 192,
+      "hasAlpha": true,
+      "sha256": "9ada381897df6a6162e635a763099240f554a439af0c35111ff95e059e898d1b"
+    },
+    {
+      "file": "public/icon-512.png",
+      "width": 512,
+      "height": 512,
+      "hasAlpha": true,
+      "sha256": "b4c863557dc404edb84a7f5e5587dec7441e913142215c55e7aa55ae59bbf029"
+    },
+    {
+      "file": "public/icon-maskable-512.png",
+      "width": 512,
+      "height": 512,
+      "hasAlpha": true,
+      "sha256": "bd2f85d12cf398054adf9c5744d2553d041c99278c14047d623e2b93633b4dd6"
+    },
+    {
+      "file": "public/apple-touch-icon.png",
+      "width": 180,
+      "height": 180,
+      "hasAlpha": true,
+      "sha256": "3b2aafb3e8ab89a1f038266ce970f306cc352e15c0f285d20c09a6e5975e2b0d"
+    },
+    {
+      "file": "public/favicon-32.png",
+      "width": 32,
+      "height": 32,
+      "hasAlpha": true,
+      "sha256": "9868f88aab40aa5ed0d01f2b161292345571265571a3e17db9b17e69378c0719"
+    },
+    {
+      "file": "resources/icon.png",
+      "width": 1024,
+      "height": 1024,
+      "hasAlpha": true,
+      "sha256": "401f7ec1bb4a8cb0334fdc87b519328cfcbf389aa8990de9346855780a8bea5c"
+    },
+    {
+      "file": "resources/icon-foreground.png",
+      "width": 1024,
+      "height": 1024,
+      "hasAlpha": true,
+      "sha256": "401f7ec1bb4a8cb0334fdc87b519328cfcbf389aa8990de9346855780a8bea5c"
+    }
+  ]
+}

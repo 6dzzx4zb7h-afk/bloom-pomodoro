@@ -6,6 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```bash
 npm run dev                  # vite dev server on :5173 (respects $PORT if set)
+npm run lint                 # eslint recommended TypeScript + React Hooks checks
 npm run build                # tsc -b && vite build — must stay green
 npm test                     # vitest run (current unit suite)
 npx vitest run src/insights/why.test.ts        # a single test file
@@ -30,7 +31,9 @@ change when an engine bump is intentional.
 Generate and validate the lockfile with the same Node/npm major versions used by CI (or the exact
 versions declared by the repository once they are pinned). Before committing any dependency or
 lockfile change, run a **clean `npm ci` in a temporary/pristine checkout with those CI versions**,
-then `npm test` and `npm run build`. An existing `node_modules`, `npm install`, or a successful
+then `npm run lint`, `npm test`, and `npm run build`. `.node-version` pins the Actions runtime and
+Corepack reads the sole npm pin from `package.json#packageManager`. An existing `node_modules`,
+`npm install`, or a successful
 `npm ci` under a newer local npm version does not prove that the CI lockfile parser will accept the
 commit. Never hand-edit `package-lock.json`; inspect its diff for unexpected dependency movement and
 platform-package loss. If clean CI-version installation cannot be reproduced, stop and report the

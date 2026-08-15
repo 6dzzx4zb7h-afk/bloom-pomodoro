@@ -1,0 +1,101 @@
+/* WCAG 1.4.12 stress mode for the deterministic daily-target fixture.
+   Activate with `?spacing=expanded`; this stylesheet is imported only by the
+   fixture entry point and never enters Bloom's production bundle. */
+.text-spacing-fixture *:not(svg):not(path) {
+  line-height: 1.5 !important;
+  letter-spacing: 0.12em !important;
+  word-spacing: 0.16em !important;
+}
+
+.text-spacing-fixture p {
+  margin-bottom: 2em !important;
+}
+
+/* Repeatable previews for the production preference media queries. These are
+   fixture-only mirrors, selected with `?preference=more|forced`; the product
+   itself continues to respond exclusively to the real OS/browser settings. */
+.contrast-more-fixture {
+  --plum: #261b2b;
+  --soft: #392b40;
+  --soft2: #392b40;
+  --soft3: #392b40;
+  --error-ink: #261b2b;
+  --text-faint: #261b2b;
+  --tab-inactive: #261b2b;
+}
+
+.contrast-more-fixture.night {
+  --plum: #fff;
+  --soft: #fff;
+  --soft2: #fff;
+  --soft3: #fff;
+  --error-ink: #fff;
+  --text-faint: #fff;
+  --tab-inactive: #fff;
+}
+
+.contrast-more-fixture .head,
+.contrast-more-fixture .prog-card,
+.contrast-more-fixture .goal-card,
+.contrast-more-fixture .add-row,
+.contrast-more-fixture .task-empty {
+  border: 2px solid #261b2b;
+  background: #fff;
+  box-shadow: none;
+  backdrop-filter: none;
+}
+
+.contrast-more-fixture.night .head,
+.contrast-more-fixture.night .prog-card,
+.contrast-more-fixture.night .goal-card,
+.contrast-more-fixture.night .add-row,
+.contrast-more-fixture.night .task-empty {
+  border-color: #fff;
+  background: #120d24;
+}
+
+.contrast-more-fixture [aria-pressed='true'],
+.contrast-more-fixture [aria-checked='true'],
+.contrast-more-fixture [aria-current='page'] {
+  box-shadow: inset 0 0 0 2px currentColor;
+}
+
+.forced-colors-fixture,
+.forced-colors-fixture .screen,
+.forced-colors-fixture .head,
+.forced-colors-fixture .prog-card,
+.forced-colors-fixture .goal-card,
+.forced-colors-fixture .add-row,
+.forced-colors-fixture .task-empty {
+  color: CanvasText;
+  border: 1px solid CanvasText;
+  background: Canvas;
+  box-shadow: none;
+  backdrop-filter: none;
+}
+
+.forced-colors-fixture .sky-mood {
+  display: none;
+}
+
+.forced-colors-fixture button,
+.forced-colors-fixture input,
+.forced-colors-fixture select,
+.forced-colors-fixture textarea {
+  color: ButtonText;
+  border: 1px solid ButtonText;
+  background: ButtonFace;
+}
+
+.forced-colors-fixture [aria-pressed='true'],
+.forced-colors-fixture [aria-checked='true'],
+.forced-colors-fixture [aria-current='page'] {
+  color: HighlightText;
+  background: Highlight;
+  box-shadow: inset 0 0 0 2px HighlightText;
+}
+
+.forced-colors-fixture .form-error,
+.forced-colors-fixture .field-error {
+  color: CanvasText;
+}

@@ -19,13 +19,17 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version-file: .node-version
           cache: npm
 
-      - name: Use the repository npm version
-        run: npm install --global npm@11.17.0
+      - name: Use the repository package-manager version
+        run: |
+          corepack enable
+          corepack install
 
       - run: npm ci
+
+      - run: npm run lint
 
       - run: npm test
 

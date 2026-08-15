@@ -84,6 +84,39 @@ the workspace dependency installation:
 - Delta: +3,193 bytes raw / **+997 bytes gzip**, within the predeclared
   1.5 KiB gzip ceiling.
 
-PLAN 8.7 remains open for the predeclared real-browser decorative-task/Core Web
-Vitals trace and timer-control interaction comparison. The isolated bundle
-budget is now satisfied.
+The isolated bundle budget is satisfied. The visible-browser closure follows.
+
+### Visible production trace
+
+Recorded on 2026-08-11 in the Codex in-app browser from an isolated local
+production preview at 1280 × 720. The browser reported
+`document.visibilityState === "visible"`. Collection → Friends showed the exact
+declared fixture: six intersecting `PixelPal` canvases plus one intersecting sky
+canvas.
+
+A temporary build-flagged probe measured the shared scheduler around its full
+subscriber dispatch and canvas draws. `PerformanceObserver` recorded long
+tasks, long animation frames, Event Timing, largest-contentful-paint, and layout
+shifts. The probe was removed before the final build; it is measurement
+scaffolding, not shipped diagnostics or telemetry.
+
+- Visible Friends trace: 14.98 seconds, 900 shared-driver ticks, and 1,527
+  subscriber draws, or **101.92 draws/second**. This is inside the declared
+  100–110 draw/second range and below the 110/second ceiling.
+- Scheduler task duration: 0.10 ms p50, **0.50 ms p95**, 0.60 ms p99, and
+  0.70 ms maximum. This is well below the predeclared 8 ms browser p95 budget.
+- Animation-attributable long tasks: 0. Long animation frames: 0.
+- Lab page signals on this isolated preview: LCP 128 ms and CLS 0. These are
+  local lab measurements, not field percentiles.
+- Clean timer-control comparison on Focus: Start → Pause → Resume → Pause →
+  Reset completed every state change while the decorative scheduler remained
+  active. No interaction reached the Event Timing observer's 16 ms minimum
+  threshold, scheduler work stayed at 0.20 ms p95, and the clean pass recorded
+  zero long tasks and zero long animation frames. A separate diagnostic pass
+  that serialized the full DOM produced one automation-attributable long task;
+  removing that diagnostic work removed the task, so it is excluded from the
+  product comparison.
+
+Together with the deterministic hidden/offscreen/reduced-motion coverage and
+the isolated +997-byte gzip comparison above, this closes every declared PLAN
+8.7 budget and done-when condition.

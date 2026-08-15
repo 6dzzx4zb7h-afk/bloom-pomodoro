@@ -1,0 +1,47 @@
+name: Visual regression
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  visual:
+    runs-on: macos-26
+    env:
+      CI: '1'
+      TZ: UTC
+      LANG: en_US.UTF-8
+      LC_ALL: en_US.UTF-8
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: npm
+
+      - name: Install with the repository npm version
+        run: |
+          corepack install
+          test "$(corepack npm --version)" = "11.17.0"
+          corepack npm ci
+
+      - name: Install the pinned Chromium revision
+        run: corepack npm run visual:install
+
+      - name: Verify committed visual baselines and failure diagnostics
+        run: corepack npm run visual:verify
+
+      - name: Upload expected, actual, diff, report, and trace artifacts
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: bloom-visual-${{ github.run_id }}
+          path: visual-artifacts/
+          if-no-files-found: error
+          retention-days: 14

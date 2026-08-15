@@ -61,6 +61,8 @@ Rules of thumb:
 - Completed numbered steps are historical records. Never uncheck, rename, or materially rewrite
   them. Apply new requirements prospectively by strengthening unchecked steps or adding a narrowly
   scoped remediation step when no unchecked step owns the gap.
+- A `[-]` marker records a step the user explicitly omitted. It is neither completed nor pending;
+  preserve its history and do not implement or verify it unless the user later restores its scope.
 
 > **Verification status (July 2026):** Checked boxes in Phases 0–5 show that their feature work was
 > attempted and landed; they are not, by themselves, proof that the cross-feature behavior is
@@ -394,7 +396,7 @@ Rules of thumb:
 - **Done when:** One fixture per version; suite green; intentionally corrupting a fixture fails the suite (verified once, then reverted).
 - **Depends on:** all schema-bumping steps (1.1–6.2).
 
-### - [ ] 7.2 Local-only browser privacy audit
+### - [x] 7.2 Local-only browser privacy audit
 
 - **Goal:** Prove the fast browser build is local-only: grep the bundle/source for `fetch(`,
   `XMLHttpRequest`, `WebSocket`, and external URLs in `src/`; verify guide content, fonts, images,
@@ -404,7 +406,8 @@ Rules of thumb:
   data inventory.
 - **Science:** n/a — privacy and release verification.
 - **Quality:** `docs/product-quality.md` — Privacy and security; Browser verification.
-- **Files:** none (audit) or a small `scripts/offline-audit.sh`.
+- **Files:** `scripts/local-only-audit.mjs`, `scripts/privacy-preview.mjs`,
+  `public/manifest.webmanifest`, `docs/verification/plan-7.2-local-only-browser-2026-08-10.md`.
 - **Done when:** Source and built-output audits find no unapproved network API or remote runtime
   asset; a production-preview smoke over the core screens makes zero application-data requests and
   sends zero user data after the app shell loads. Self-hosted app-shell delivery and service-worker
@@ -412,6 +415,20 @@ Rules of thumb:
   offline support; that proof remains in deferred step 8.15.
 - **Depends on:** Phases 1–6 and 8.10. Re-run the local-only pass in the release step for each later
   optional network capability.
+- **Closed (August 2026):** The repeatable audit now rejects app-authored network APIs, external
+  runtime URLs, network/reporting dependencies, remote Capacitor configuration, unclassified bundle
+  network sites, missing local assets, and weakened service-worker guards. The final production build
+  passed with 176 audited source files, local fonts/icons/Guide/completion cue, exactly two classified
+  framework fetch sites, and same-origin guarded service-worker fallbacks. A fresh production preview
+  ran under `connect-src 'none'`: after expected shell/precache requests, onboarding, a private task,
+  every core screen, a bundled Guide article, Goals, local JSON export, clear-scope review, and timer
+  actions produced zero further requests and no console warnings or errors. The already-loaded app
+  remained operable after the server stopped; no offline reload or installed-PWA claim is made. The
+  audit harness now forces `open: false`; after correcting and discarding one inherited auto-open run,
+  the authoritative hidden-browser run used a fresh origin and Safari was confirmed closed. The full
+  suite passed 626 tests; production build, Capacitor iOS sync, and a code-signing-free Simulator build
+  for the app and Live Activity extension passed. See
+  `docs/verification/plan-7.2-local-only-browser-2026-08-10.md`.
 
 ### - [x] 7.3 Voice & do-not-build copy audit
 
@@ -449,7 +466,7 @@ Rules of thumb:
   `useBloom` + `FocusScreen` tests exercise Start/Pause/Reset, Tiny/Skip, Flow/Finish, return pause,
   and interrupted-session resume controls with deterministic clocks and localStorage.
 
-### - [ ] 7.5 Fast browser QA handoff
+### - [x] 7.5 Fast browser QA handoff
 
 - **Goal:** Write `docs/qa.md` with a 10-minute golden-path smoke (ritual → if-then → tiny start →
   grow → drift → park → resume cue → complete → debrief → guide link → weekly review) and a compact
@@ -461,7 +478,8 @@ Rules of thumb:
 - **Science:** n/a — accessibility, reliability, and browser verification.
 - **Quality:** `docs/product-quality.md` — applicable browser, accessibility, responsive, and
   performance acceptance sections.
-- **Files:** `docs/qa.md` (new; link any automated-test guidance that already exists).
+- **Files:** `docs/qa.md`, `src/styles.css`, `src/responsiveAccessibility.test.ts` (the production
+  smoke's short-phone debrief correction and regression guard).
 - **Done when:** The golden path passes on a local production preview at desktop and 320×568 browser
   viewports; keyboard-only navigation, visible focus, essential accessible names, 200% zoom/reflow,
   both themes, and reduced motion are recorded; `npm run lint` when available, `npm test`,
@@ -469,6 +487,18 @@ Rules of thumb:
   baseline, and installed-offline evidence are listed as deferred, not recorded as passes.
 - **Depends on:** 7.1–7.4 and only the Phase 8 fixes exercised by the golden path. Deferred steps
   8.15 and 8.21 do not block this milestone.
+- **Closed (August 2026):** `docs/qa.md` now carries the repeatable under-ten-minute path and an
+  honestly graded browser matrix. Hidden local-production runs completed Tiny growth, a real
+  three-minute Companion drift, parking, reload/resume, one-drift debrief, matching Field Guide
+  article, and weekly review at desktop and 320 x 568. Day/night, named surfaces, a 3 px keyboard
+  focus ring, 320 px/200%-layout-equivalent reflow, reduced-motion automation, recovery, local-only
+  requests, and lab startup/interaction samples are recorded. The mobile run found a long debrief
+  starting 80 px above the viewport; it now caps at 392.5 px with internal scrolling and measured
+  y=4.5, with zero horizontal overflow. The local-only audit, 627 tests, production build, and
+  `git diff --check` passed; no lint script exists. Device, installed-offline, deployment, and
+  exhaustive visual-baseline evidence remains explicitly deferred. A same-run `cap sync ios` and
+  code-signing-free iOS 26.5 Simulator build also passed as extra packaging evidence, not as a
+  substitute for the browser milestone or physical-device proof.
 
 ---
 
@@ -552,7 +582,7 @@ Rules of thumb:
   viewport, verifies the night-theme ring color, and confirms Escape restores the Settings
   invoker. A rendered keyboard-focus screenshot and clean console supplement the static checks.
 
-### - [ ] 8.7 Reduced motion + animation scheduler
+### - [x] 8.7 Reduced motion + animation scheduler
 
 - **Goal:** Sky canvases redraw every frame, each PixelPal runs its own 50 ms interval (six at once on Friends), and nothing honors `prefers-reduced-motion`. Share one scheduler, pause when hidden/obscured, drop decorative frame rates, and freeze or replace decorative animation under reduced motion. Before implementation, record a reproducible Friends-screen baseline and set an explicit callback/frame/main-thread budget for the same fixture; record the production bundle delta and before/after trace.
 - **Science:** n/a — reduced-motion accessibility and measured performance.
@@ -573,8 +603,18 @@ Rules of thumb:
   "hidden tab performs zero decorative animation work" clause but leaves the *visible*-tab trace
   unobtainable through this harness. Closing 8.7 needs a foregrounded browser session or an
   instrumented in-page frame counter read from a genuinely visible tab.
+- **Closed (August 11, 2026):** A foregrounded isolated production preview supplied the missing
+  seven-canvas Friends trace. Over 14.98 seconds the shared driver dispatched 101.92 subscriber
+  draws/second; its full task measured 0.50 ms p95 and 0.70 ms max, with zero long tasks and zero
+  long animation frames. Local lab LCP was 128 ms and CLS was 0. A clean Start → Pause → Resume →
+  Pause → Reset comparison completed every timer state change, produced no Event Timing entry at
+  or above the observer's 16 ms threshold, held scheduler work to 0.20 ms p95, and produced no long
+  task or long animation frame. The temporary build-flagged measurement probe was removed before
+  final verification. Combined with the deterministic hidden/offscreen/reduced-motion suite and
+  the earlier +997-byte gzip comparison, all predeclared budgets pass. See
+  `docs/verification/plan-8.7-animation.md`.
 
-### - [ ] 8.8 Touch targets and small-screen layouts
+### - [x] 8.8 Touch targets and small-screen layouts
 
 - **Goal:** Settings (34 px), steppers (28 px), switches, and delete controls fall below Bloom's
   44×44 CSS px web target; the goal add form crams name + date + parts + button into one row at
@@ -614,6 +654,20 @@ Rules of thumb:
   no horizontal overflow, no interactive target is under 44 x 44 CSS px, and inputs are 16 px. Full
   measurements in `docs/verification/plan-8.8-ring-geometry-2026-07-28.md`. The compact-height,
   safe-area, 200% zoom, and virtual-keyboard matrix cells remain open.
+- **Closed (August 11, 2026):** The final foregrounded production-browser matrix covers 320×568,
+  390×844, 568×320 short landscape, an emulated 320×320 software-keyboard viewport, and the 320 CSS
+  px 200%-zoom layout equivalent. It found and fixed two remaining defects: keyboard focus left the
+  overflow-hidden phone shell scrolled after onboarding, clipping the next Focus header, and the
+  Field Guide filters nested a horizontal scroller inside vertical content at compact width.
+  Onboarding now blurs and resets the shell before handoff; Guide filters wrap. Focus, Tasks,
+  History, Goals, Friends, Field Guide, and Settings have no document-level horizontal overflow,
+  ordinary control below 44×44 px, or narrow form text below 16 px. Focus fits 320×568 without
+  clipping; the 390 px goal form uses two rows; short-landscape transport is reachable through its
+  one vertical scroll owner. Static coverage retains the non-zero safe-area contract. The browser
+  surface cannot issue real page zoom, so the 320 CSS px result is explicitly layout-equivalent,
+  not an actual zoom claim. Physical-device keyboard/touch/safe-area proof remains release QA as
+  allowed by this step. See `docs/verification/plan-8.8-responsive-2026-07-26.md` and
+  `docs/verification/plan-8.8-ring-geometry-2026-07-28.md`.
 
 ### - [ ] 8.9 Readability over the animated sky
 
@@ -622,6 +676,32 @@ Rules of thumb:
 - **Quality:** `docs/product-quality.md` — Visual hierarchy, readability, contrast, and motion; WCAG contrast, use-of-color, resize, and reflow criteria.
 - **Files:** `src/styles.css`, affected screens.
 - **Done when:** Measured text and non-text contrast pass at the worst-case sky frame in both themes and across focus/pressed/selected/error states; meaning never relies on color alone; no essential text is below the documented practical minimum; 200% zoom and text-spacing overrides do not clip it; with Increase Contrast/forced colors enabled, surfaces, borders, focus, and state text remain legible. Stable visual-regression fixtures cover both themes and preference modes.
+- **Omitted (August 13, 2026):** The user explicitly removed contrast/readability work and its
+  remaining rendered matrix from the program scope. Existing partial improvements are preserved,
+  but this step is not claimed as completed or verified.
+- **Restored (August 14, 2026):** The user explicitly lifted the earlier omission. PLAN 8.9 is back
+  in scope and remains open until its rendered browser matrix passes.
+- **Progress (August 12, 2026):** Essential headings/readouts now sit on stable theme-aware surfaces;
+  normal and error text, pastel actions, ordinary control boundaries, and selected-state outlines use
+  measured AA/non-text contrast tokens; active mode text also gains an underline so selection is not
+  color-only. The practical 13 px floor now covers the newer History, day-plan, foundations,
+  parking, recovery, cadence, and setup controls as well as the original screens. Increase Contrast
+  and forced-colors layers replace translucent surfaces, strengthen boundaries/focus, and preserve
+  pressed/current states. A deterministic daily-target fixture exposes day/night, entry/error,
+  expanded text spacing, Increase Contrast, and forced-colors modes. Ten focused regressions, the
+  full 66-file/642-test suite, production build, local-only audit, Capacitor iOS sync, fixture bundle
+  compilation, and `git diff --check` pass. The available browser runtime reported no browser
+  instances, so the rendered worst-sky/preference/text-spacing matrix remains unclaimed and this
+  step stays open. See `docs/verification/plan-8.9-readability-2026-08-12.md`.
+- **Progress (August 14, 2026):** Restoring the step closed the three selectors named by the prior
+  night audit without reviving removed UI: PLAN 8.26 already removed `task-empty-action`; gradient
+  Goals actions and the `duty-badge` now expose an opaque measured fallback; the disabled Goals Add
+  state no longer fades its text into the parent (4.99:1 day, 5.00:1 night); and “on duty” uses the
+  13 px state-text floor plus its existing `aria-pressed` semantic. Focused coverage passed 16 tests;
+  the full suite passed 85 files/769 tests; ESLint, production build, independent 65-module fixture
+  build, local-only audit across 203 source files, and `git diff --check` passed. The in-app Browser
+  runtime again reported no browser instances, so the rendered matrix is still unclaimed and 8.9
+  remains open.
 
 ### - [x] 8.10 Self-host the fonts (offline constraint violation — fix now, don't wait for 7.2)
 
@@ -678,13 +758,27 @@ Rules of thumb:
 - **Science:** n/a — honest onboarding and empty-state usability.
 - **Quality:** `docs/product-quality.md` — Loading, empty, offline, conflict, and failure states; Visual hierarchy, readability, contrast, and motion.
 - **Files:** onboarding/task seed or default-state files, `Onboarding.tsx`, `TasksScreen.tsx`, affected styles and tests.
-- **Done when:** New users can distinguish example content from their own data or see an honest empty state with one obvious action; dismissing an example does not create or delete real work; keyboard, screen-reader, narrow-layout, migration, and visual-regression fixtures pass.
+- **Done when:** New users can distinguish example content from their own data or see an honest
+  empty state with one obvious entry path; dismissing an example does not create or delete real
+  work; keyboard, screen-reader, narrow-layout, migration, and visual-regression fixtures pass.
 - **Progress (July 2026):** Fresh installs now persist no sample tasks. Tasks presents one semantic
   empty-state region whose “add your first task” action focuses the real task-name input; focused
   store/hook coverage plus a fresh-origin 320×568 browser accessibility-tree and rendered-layout
   pass confirm the behavior. Existing users retain any historically seeded tasks as their local
   data. The step remains open for the named pinned visual-regression fixture; the manual narrow
   pass does not substitute for a CI-diffable baseline.
+- **Progress (August 12–13, 2026):** Added the named deterministic
+  `/fixtures/tasks-empty.html` baseline using the production TasksScreen with fixed empty and focused
+  states, day/night, expanded text spacing, Increase Contrast, and forced-color mirrors. Regression
+  coverage proves a fresh durable blob has no tasks, the labelled empty region points to the one real
+  entry form, the fixture's focused state targets that form's task-name input, the former realistic
+  sample titles are absent, the Add task control retains a 44 px minimum, and migration fixtures keep
+  existing task data. After correcting the fixture selector on August 13, focused coverage passed
+  4 files/167 tests; the full suite passed 84 files/766 tests; ESLint, the production build, the
+  independent 55-module fixture build, local-only audit, and `git diff --check` pass. Browser
+  discovery still returned no browser instances, so a current pinned rendered diff and its
+  keyboard/screen-reader/narrow-layout/console inspection remain unclaimed; the step stays open. See
+  `docs/verification/plan-8.13-honest-empty-state-2026-08-12.md`.
 
 ### - [x] 8.14 Guard the running timer against accidental resets
 
@@ -715,7 +809,7 @@ Rules of thumb:
   state and no console errors. The step remains open for the done-when’s deployed-web update and
   complete Phase 1–5 offline pass.
 
-### - [ ] 8.16 Add a linter, align dependencies/toolchain, and wire both into CI
+### - [x] 8.16 Add a linter, align dependencies/toolchain, and wire both into CI
 
 - **Goal:** The repo has **no ESLint/Prettier config at all**, and until July 2026 CI never ran the test suite (fixed during the audit: `.github/workflows/deploy.yml` now runs `npm test` before build/deploy). With many people and models committing, there is no automated correctness/style gate beyond `tsc`. Add an ESLint flat config (typescript-eslint recommended + react-hooks rules), fix or explicitly justify every finding, add `npm run lint`, and a CI lint step before tests. Also remove the current Vitest transform warnings caused by incompatible/duplicated Vite/plugin resolution: align supported Vite/Vitest/plugin-react versions or give Vitest a standalone config that does not load browser-only React transforms for pure tests. Pin the compatible set and document intentional major-version differences; do not suppress warnings. Align the Actions Node/npm toolchain with dependency engine requirements, regenerate the lockfile with that CI toolchain, and require a pristine CI-version `npm ci` check for every future dependency change. This closes the July 2026 regression where npm 11 accepted the committed lockfile but the Node 20/npm 10 runner rejected it as missing `esbuild@0.28.1` platform packages; the same resolution also introduced Wrangler packages requiring Node 22. The July 2026 hotfix that unblocked deploys pinned `npm@11.17.0` twice — a hardcoded `npm install --global` step in the workflow and `package.json`'s `packageManager` field, which is inert because corepack is never enabled; keep exactly one npm-version source of truth (corepack reading `packageManager`, or the workflow deriving its version from `package.json`) so the two cannot drift.
 - **Science:** n/a — engineering hygiene, found by the July 2026 full audit.
@@ -737,6 +831,18 @@ Rules of thumb:
   pinned npm 11.17.0 and recorded `engines`/`packageManager` in the manifest; consolidating that
   duplicate pin (Goal above) remains. ESLint, formatting policy, version alignment,
   dependency pinning, the clean-install gate, and the CI lint gate remain.
+- **Progress (August 12, 2026):** Added a flat ESLint gate from the standard JavaScript,
+  typescript-eslint recommended, and React Hooks recommended sets; fixed every reported error and
+  warning, with one inline-documented exception that keeps the 250 ms timer fields out of durable
+  persistence. Vite 8.2.1, plugin-react 6.0.5, and Vitest 4.1.10 now resolve through one Vite path.
+  Actions reads Node 22.23.2 from `.node-version`, enables Corepack, and gets npm 11.17.0 solely
+  from `packageManager`; lint runs before test/build. The lockfile carries all 26 esbuild platform
+  packages and no Linux x64 package rejects the runner. Exact-version install-script approvals are
+  strict, and the dependency audit is clean. In a fresh `/tmp` copy with no `node_modules`, exact
+  Node/npm completed `npm ci` without warnings, lint with zero warnings, 66 files / 642 tests, and
+  the Vite production build. Full evidence is in
+  `docs/verification/plan-8.16-release-toolchain-2026-08-12.md`; no deployment was executed or
+  required by this step.
 
 ### - [x] 8.17 Coordinate interruption, return, parking, and debrief surfaces
 
@@ -764,7 +870,7 @@ Rules of thumb:
   persistence are tested. The explicit coordinator, inert/modal truth surface, full Flow UX policy,
   priority table, and component/hook matrix remain.
 
-### - [ ] 8.18 Simplify pre-start hierarchy and surface the weekly experiment
+### - [x] 8.18 Simplify pre-start hierarchy and surface the weekly experiment
 
 - **Goal:** The primary Start action currently appears before optional if-then, target, ritual, and
   first-action inputs, so the screen asks for preparation after presenting the commit action. Define
@@ -778,8 +884,9 @@ Rules of thumb:
 - **Science:** n/a for the hierarchy and integration work; existing cadence mechanisms retain their
   evidence and claims from steps 4.1/4.6.
 - **Quality:** `docs/product-quality.md` — Accessibility and semantics; Responsive layout, safe areas, and virtual keyboards; Visual hierarchy, readability, contrast, and motion.
-- **Files:** `FocusScreen.tsx`, `App.tsx`, `SettingsSheet.tsx`, `WeeklyReview.tsx`, cadence engine/cache,
-  pre-start components and styles.
+- **Files:** `FocusScreen.tsx`, `RitualCard.tsx`, `surfaceCoordinator.ts`, pre-start styles and
+  lifecycle/responsive tests, `SettingsSheet.tsx`, `WeeklyReview.tsx`, cadence engine/cache,
+  `docs/verification/plan-8.18-usability-2026-08-11.md`.
 - **Done when:** Keyboard, screen-reader, mobile, and first-run tests show one obvious Start path with optional prep
   before it; started sessions retain task/target/planned duration; Weekly Review exposes its real
   experiment and has a discoverable entry condition; cadence controls share one set of bounds,
@@ -791,6 +898,19 @@ Rules of thumb:
   timer adopts the new pair, and open sessions retain their own task/target/planned duration. The
   Companion-local intention mirror was removed in favor of the session-owned target. Pre-start
   ordering/progressive disclosure, responsive/keyboard proof, and review discoverability remain.
+- **Closed (August 2026):** A hidden production-browser audit found that the one-time ritual
+  suggestion still inserted two choices immediately after onboarding and that, at 320×568, Start
+  sat entirely below the 497 px Focus region at y=605–665. The suggestion and its surface-owner path
+  are gone. Task context and every optional question now live in one reversible disclosure; the
+  collapsed state says plainly that a task is optional, exposes no coaching status/dialog, and puts
+  Start at y=405–465 with no initial scrolling or horizontal overflow. Expanding exposes target,
+  plan, and an already-enabled ritual in order and can be hidden again. Weekly Review retains its
+  real experiment and on-demand Settings entry. Desktop and short-phone production checks, prompt
+  ownership, accessible names/order, and first Start→Pause passed with no console output. The full
+  suite passed 629 tests; local-only audit, production build, Capacitor iOS sync, code-signing-free
+  iOS 26.5 Simulator build (including the Live Activity extension), and `git diff --check` passed.
+  Secondary Tasks/Settings findings are numbered in 8.26; automatic appearance is isolated in 8.25.
+  See `docs/verification/plan-8.18-usability-2026-08-11.md`.
 
 ### - [x] 8.19 Make insight time windows and evidence inputs trustworthy
 
@@ -874,6 +994,111 @@ Rules of thumb:
   than required by 7.5.
 - **Depends on:** coordinate with 8.4–8.10 and 8.16 so the primitives, visual states, and CI toolchain
   are stable enough to test.
+- **Split (August 13, 2026):** The inventory, missing component/accessibility coverage, pinned
+  browser/CI infrastructure, and exhaustive rendered/manual matrix cannot fit one implementation
+  run. They are now owned by 8.21a–8.21d below. This umbrella stays open until all four pass.
+
+### - [x] 8.21a Inventory every production surface and define baseline-review rules
+
+- **Goal:** Create one durable, machine-checked inventory for every current production screen,
+  shared overlay/check-in, interaction primitive, and visual owner. Reuse and name existing evidence
+  rather than duplicating it; distinguish direct component/integration coverage from indirect
+  selector/store/static checks, and distinguish fixture existence from a reviewed screenshot pass.
+  Document deterministic-fixture, baseline-update/review, CI-failure, and manual-evidence rules before
+  adding new snapshots.
+- **Science:** n/a — accessibility and engineering verification inventory.
+- **Quality:** `docs/product-quality.md` — Browser and device verification; Component, integration,
+  accessibility, and visual regression testing.
+- **Files:** machine-readable surface inventory and contract test, `docs/testing.md`, `PLAN.md`.
+- **Done when:** A regression fails if an interactive production TSX owner or deterministic fixture
+  is unlisted, any evidence path is stale, an inventory ID is duplicated, or documentation counts
+  drift; every row names representative states, current automated/visual evidence level, and its
+  remaining gap; baseline rules prohibit blanket regeneration and accepting known defects; focused
+  and full suites, lint, build, local-only audit, and `git diff --check` pass.
+- **Depends on:** 8.4–8.20 and 8.16's pinned toolchain.
+- **Closed (August 13, 2026):** Added a typed inventory of 30 production surface owners: every one
+  of the 27 interactive TSX owners plus the Day sky, Night sky, and PixelPal visual owners. Twenty
+  rows have direct rendered component/integration evidence, ten are truthfully marked indirect, and
+  six rows reference the four existing deterministic fixture pairs. A contract test discovers
+  production owners and fixture files independently, rejects missing/stale paths and duplicate IDs,
+  and pins exact documentation counts. `docs/testing.md` now defines evidence levels, deterministic
+  fixture requirements, the required viewport/theme/preference matrix, intentional baseline review,
+  and manual device-ledger boundaries; `docs/qa.md` links it and now includes the current lint gate.
+  Focused coverage passed 1 file/3 tests; the full suite passed 85 files/769 tests; lint, production
+  build, local-only audit across 203 source files, and `git diff --check` passed. No runtime bundle,
+  dependency, persisted state, network behavior, or deployment changed. See
+  `docs/verification/plan-8.21a-surface-inventory-2026-08-13.md`.
+
+### - [x] 8.21b Close cross-screen component and automated accessibility gaps
+
+- **Goal:** Use 8.21a's inventory to replace every indirect/missing automated row with direct,
+  observable component or integration evidence. Cover representative semantics, names, states,
+  keyboard/focus order, pointer-equivalent actions, announcements, validation, undo, recovery, and
+  modal/non-modal ownership without relying on DOM snapshots or store tests as UI proof.
+- **Science:** n/a — automated accessibility and interaction verification.
+- **Quality:** `docs/product-quality.md` — Accessibility and semantics; Keyboard, touch, and screen
+  readers; Error prevention, confirmation, undo, and recovery; Component and integration testing.
+- **Files:** focused component/screen tests, shared accessibility setup, surface inventory,
+  `docs/testing.md`, `PLAN.md`.
+- **Done when:** Every interactive inventory row has direct rendered evidence; critical undo,
+  recovery, and focus paths operate through user-facing controls; automated accessibility checks run
+  on representative screens and overlays with actionable failures; known manual-only boundaries stay
+  explicit; focused/full gates pass.
+- **Depends on:** 8.21a.
+- **Closed (August 14, 2026):** All 30 inventory rows now have direct automated evidence; the ten
+  former indirect owners gained rendered role/name/state, focus, validation, activation, dismissal,
+  and keyboard-path tests. A reusable jsdom semantic audit reports duplicate IDs, broken ARIA
+  references, unnamed controls, invalid pressed states, and dialog problems with rule names and
+  element locators; its own failure fixtures prove the diagnostics. Testing found and fixed five
+  production gaps: parked-save status announcement, item-specific parked-thought action names, a
+  stable soft-restart region name, live WOOP step status, and concise Friends duty/level names. The
+  inventory contract now fails if any interactive row becomes indirect or missing. Focused coverage
+  passed 4 files/15 tests; the full suite passed 88 files/781 tests; ESLint, production build,
+  local-only audit across 207 source files, voice lexicon grep, and `git diff --check` passed. Manual
+  screen-reader/browser/WebView/device claims remain explicitly open for 8.21d. See
+  `docs/verification/plan-8.21b-accessibility-2026-08-14.md`.
+
+### - [ ] 8.21c Add a pinned visual-regression runner and CI gate
+
+- **Goal:** Add the smallest maintainable browser visual runner that pins engine, OS image, fonts,
+  locale, timezone, color profile, scale, motion, and viewport. Wire deterministic fixtures and
+  before/after/diff artifacts into CI without changing the deploy boundary or adding runtime code.
+  Any dependency change follows 8.16's exact Node/npm clean-install contract.
+- **Science:** n/a — reproducible visual engineering verification.
+- **Quality:** `docs/product-quality.md` — Visual regression testing; Build and release
+  reproducibility; Performance; Privacy and security.
+- **Files:** visual-test configuration/scripts, fixture server, baseline directory, CI, lockfile only
+  if required, `docs/testing.md`, surface inventory, `PLAN.md`.
+- **Done when:** The pinned environment produces byte-stable representative captures locally and in
+  CI; a deliberate one-pixel fixture change fails with readable artifacts and a missing/stale
+  baseline fails; unrelated production/deployment behavior is unchanged; any dependency update
+  passes a pristine CI-version `npm ci`, lint, full tests, build, and lockfile audit.
+- **Depends on:** 8.21a and 8.16.
+- **Progress (August 14, 2026):** The exact Playwright/Chromium runner, two reviewed representative
+  baselines, manifest stale/missing checks, one-pixel failure proof, separate non-deploy workflow,
+  and local/pristine Node 22.23.2 + npm 11.17.0 gates are implemented and green. GitHub
+  authentication was restored on August 15 and the branch is being published. This step remains
+  open until the pull-request `macos-26` job proves the committed baselines byte-for-byte; no CI pass
+  is inferred from the local result. See
+  `docs/verification/plan-8.21c-visual-runner-2026-08-14.md`.
+
+### - [ ] 8.21d Populate the full visual matrix and record manual accessibility/device evidence
+
+- **Goal:** Use 8.21c to fill every inventory surface/state at the required small-phone,
+  short-landscape, tablet, and desktop sizes in both themes and relevant reduced-motion,
+  increased-contrast/forced-color, expanded-spacing, empty, dense, error, offline, modal, and
+  non-modal states. Review every baseline intentionally, fix defects instead of normalizing them,
+  and keep a truthful ledger for keyboard, screen-reader, touch, safe-area, virtual-keyboard, and
+  device-only cells.
+- **Science:** n/a — cross-screen visual, accessibility, and device verification.
+- **Quality:** `docs/product-quality.md` — complete browser/device and visual-regression matrix.
+- **Files:** deterministic fixtures, reviewed baselines, manual evidence ledger, surface inventory,
+  `docs/testing.md`, `PLAN.md`.
+- **Done when:** Every applicable inventory cell has a reviewed CI baseline; matrix coverage is
+  machine-checked; every current screen and shared sheet/dialog/check-in has normal plus relevant
+  empty/dense/error/offline/modal states; keyboard and screen-reader/device cells name actual
+  environment and outcome or remain explicitly open; no known defect is accepted by regeneration.
+- **Depends on:** 8.21b and 8.21c.
 
 ### - [x] 8.22 One clock per decision — stop treating the day-refresh timestamp as the current instant
 
@@ -968,6 +1193,68 @@ Rules of thumb:
   boundary and DST tests pass unchanged; no user-visible change.
 - **Depends on:** nothing; coordinate with 9.2 so the boundary hour keeps a single resolution point.
 
+### - [x] 8.25 Add manual and system-following appearance modes
+
+- **Goal:** Replace the persisted day/night Boolean with three explicit choices: **Day sky**,
+  **Night sky**, and **Follow system**. Follow system mirrors the browser or iOS appearance live,
+  including changes while the app is open. New installs default to Follow system; existing
+  `night: false/true` choices migrate to Day/Night so no person's current look changes. The user
+  canceled sunrise/sunset scheduling in August 2026: do not request location, calculate solar
+  boundaries, add a network lookup, or make appearance depend on connectivity.
+- **Science:** n/a — preference, legibility, privacy, and platform integration.
+- **Quality:** `docs/product-quality.md` — Accessibility and semantics; Privacy and security;
+  Local-first and offline behavior; Error prevention and recovery; Background/foreground lifecycle;
+  migration and native integration testing.
+- **Files:** appearance mode types and system preference helper, `src/store/useBloom.ts` migration,
+  `src/App.tsx`, `SettingsSheet.tsx`, browser preference listeners, typed iOS settings/tab bridges,
+  `BloomSettingsPlugin.swift`, `BloomBridgeViewController.swift`, focused browser/native/migration
+  tests, usability notes.
+- **Done when:** Existing `night: false/true` data migrates losslessly to Day/Night; manual modes stay
+  fixed; Follow system updates without reload and returns to the current device preference after
+  either manual mode. The Settings choice is one accessible radio/list selection rather than
+  competing switches; every native snapshot/action carries the same enum; no location permission
+  or network path is added; local-only audit, full suite/build, Capacitor sync, Simulator appearance
+  changes, and `git diff --check` pass. Physical-device and distribution checks remain release
+  evidence unless run on a device.
+- **Depends on:** 8.9, 13.4b. This is a persisted-settings and privacy-sensitive step; do not fold it
+  into an unrelated usability implementation run.
+- **Closed (August 2026):** Schema v33 now stores `day | night | system`; v32 `night` data migrates
+  losslessly to its fixed equivalent, while new installs default to Follow system. Web and native
+  Settings use one three-choice selection, browser preference changes apply live, and both native
+  bridges restore UIKit ownership with `.unspecified` for System. The local-only audit, 638 tests,
+  build, Capacitor sync, code-signing-free Simulator build, and live iOS 26.5 Dark → Light switch
+  passed. Evidence: `docs/verification/plan-8.25-appearance-2026-08-11.md`. Physical-device and
+  distribution checks remain release evidence.
+
+### - [ ] 8.26 Apply the non-start-path findings from the August usability audit
+
+- **Goal:** Finish the secondary issues recorded while closing 8.18: the empty Tasks screen presents
+  both an “add your first task” CTA and an already-visible add form; its one-session label says
+  “1 pomodoros”; and Settings opens with a dense no-history cadence explanation plus presets and
+  steppers before the person reaches simpler session choices. Remove duplicate actions, use correct
+  singular/plural copy, and progressively disclose learned-cadence detail without hiding direct
+  timer controls. Keep one primary action per empty state and preserve every existing capability.
+- **Science:** n/a for hierarchy, grammar, and disclosure. Existing cadence claims retain their
+  evidence and hedging from 4.6.
+- **Quality:** `docs/product-quality.md` — Visual hierarchy and readability; Accessibility and
+  semantics; Responsive layout and virtual keyboards; Component and integration testing.
+- **Files:** `TasksScreen.tsx`, `SettingsSheet.tsx`, styles, focused component/accessibility tests,
+  `docs/verification/plan-8.18-usability-2026-08-11.md`.
+- **Done when:** First-task entry has one obvious action and one form state; task-goal labels
+  pluralize correctly; a new user can reach manual timer lengths and Sessions without crossing an
+  unsupported recommendation wall; keyboard, screen-reader, 320×568, tablet, and desktop checks
+  retain 44 px controls, no clipping, and no new unsolicited surface.
+- **Depends on:** 8.18; coordinate Settings appearance work with 8.25 without combining their
+  persisted-state scope.
+- **Implementation note (August 2026):** The duplicate first-task CTA is removed in favor of the
+  one real add form; its goal control now says “1 focus session” / “2 focus sessions”; and web plus
+  native iOS Settings put the three direct timer controls before one optional Cadence suggestions
+  disclosure. Focused regressions, the full 723-test suite, lint, production build, local-only
+  audit, Capacitor iOS sync, code-signing-free Simulator build, and `git diff --check` pass. This
+  step remains open because the connected browser list was empty, so keyboard, screen-reader, and
+  rendered 320×568/tablet/desktop checks could not be observed. Evidence:
+  `docs/verification/plan-8.26-usability-cleanup-2026-08-12.md`.
+
 ---
 
 ## Phase 9 — Own your record (measurement integrity & data stewardship, July 2026)
@@ -1016,7 +1303,7 @@ Rules of thumb:
   deterministic America/New_York spring/fall DST, full-suite, build, and fresh-browser checks are
   green.
 
-### - [ ] 9.3 History ledger screen
+### - [x] 9.3 History ledger screen
 
 - **Goal:** A browsable record of past study days — a **calm ledger, not an analytics dashboard**. Sessions grouped by study day (9.2): each day row shows focus minutes, session count, drifts, recoveries, and completed-task count; expanding a day shows session cards (mode, planned vs actual, outcome, target, drift-phase chips, parked-thought count) plus task completions recorded by 8.20; load-more paging. Open tasks carried across days remain in the active list and are not duplicated as completions. Deliberately **no new aggregate metrics** beyond what `sessionStats` already computes. Also replace the silent 500-record ring-buffer drop: archive older records to a compact slice instead of discarding — a user's history must never silently truncate.
 - **Science:** §Measurement — progress monitoring row (Harkin 2016: d = 0.40 on attainment; works when behavior is *physically recorded and reflected back* — 1.2 built the recording half, this is the reflecting half; the row's design implication says the dashboard should "highlight behavior patterns, not just time totals"); §Measurement — feedback row (Krukowski 2024: simple, low-frequency feedback; hence a ledger and a hard cap on derived metrics); §Article brief "Why tracking helps and when it turns into pressure" (no judgment words, no red/failure styling anywhere).
@@ -1024,6 +1311,18 @@ Rules of thumb:
 - **Files:** `src/screens/HistoryScreen.tsx` (new), `TabBar.tsx`, task model, `src/store/sessions.ts` (archive slice, version bump), `sessionStats.ts`.
 - **Done when:** Fixture data renders grouped days with correct session/task summaries; semantic headings/lists and paging controls work by keyboard and screen reader; empty, loading/paging, large-history, and failure states are responsive and recoverable; carried-open and reopened tasks are not misreported as completed; no derived metric appears that doesn't already exist in `sessionStats`; archive path unit-tested (records past the cap survive); component and narrow/wide visual-regression fixtures pass; all copy passes docs/voice.md. If this exceeds one session, split UI and archive-storage into sub-steps before implementation.
 - **Depends on:** 9.2, 1.4, 8.20.
+- **Closed (August 2026):** The existing day-grouped ledger and hourly archive now include the
+  missing per-session wander-phase chips and a stable parked-thought count captured atomically at
+  finalization. Schema v32 adds the optional field through an append-only pass-through migration;
+  JSON preserves it, CSV exposes it, and legacy rows retain exact history without an invented count.
+  A deterministic nine-day dense/archive fixture covers paging plus day/night narrow/wide layout.
+  Focused coverage passed 162 tests; the full suite passed 613 tests; production build, Capacitor
+  iOS sync, and a code-signing-free iOS Simulator build (including the Live Activity extension)
+  passed. Hidden in-app-browser checks at 320 × 568 and 1024 × 768 found no horizontal overflow,
+  paging reached all nine days, touch height stayed 44 px, and the console stayed clean. History is
+  synchronous local state, so it deliberately has no fake loading spinner; existing storage
+  recovery remains app-level. See `docs/verification/plan-9.3-history-2026-08-10.md`. Physical-device
+  VoiceOver and signed distribution checks are not claimed here and remain release QA.
 
 ### - [x] 9.4 Data export & import
 
@@ -1045,7 +1344,7 @@ Rules of thumb:
   pass announced “Nothing changed” in the status region with both recovery actions reachable; the
   full suite, migration suite, production build, and diff check are green.
 
-### - [ ] 9.5 Session repair & retroactive drift notes
+### - [x] 9.5 Session repair & retroactive drift notes
 
 - **Goal:** From History (9.3) or the debrief, let the user fix a wrong record: adjust the end time or outcome of an `interrupted`/recent session within **clamped bounds** (cannot exceed the wall-clock gap; cannot overlap another session), or add a retroactive drift note ("was away ~20 min around 3pm"). Repaired fields set `edited: true` and render with the same **estimate label** 1.5 established for `estOnsetMin`. Insights prefer repaired values; **XP, confetti, and streak are never retroactively granted** — records serve truth, celebrations serve the moment, and this removes any incentive to flatter the record. Repair is offered only at natural pauses (reopening onto an interrupted session, History row) — never a nag.
 - **Science:** §Measurement — progress monitoring row (a force-closed laptop logging `interrupted` for a genuinely finished session is *false data* that then feeds every 2.x insight); 1.5's precedent (self-report is labeled an estimate — never fake precision); §Recovering — self-forgiveness row (Wohl 2010: false "failures" the user cannot correct create exactly the shame→avoidance loop Phase 5 exists to prevent); recall-bias entry in the 9.1 addendum (why edits are clamped and labeled, and automatic capture stays primary).
@@ -1059,8 +1358,21 @@ Rules of thumb:
   component fixtures cover valid, clamped, labeled, canceled, and error states; a test proves no XP
   path exists from repair; stats reflect repaired values.
 - **Depends on:** 9.3, 1.5, 9.1.
+- **Closed (August 2026):** History and debrief now share a labeled repair dialog for eligible
+  interrupted/recent sessions. End time is clamped against the session start, next session, and last
+  captured return; outcome and optional retrospective wander timing are validated. Each repair keeps
+  its id, sets `edited: true`, updates stats and insights, and has no route to completion rewards,
+  streak, confetti, pet progress, or credit. Main-store and Companion drift writes are staged with
+  rollback and app-level recovery on storage failure. Deterministic component fixtures cover valid,
+  bounded, labeled, canceled, and failed saves. The full suite passed 619 tests; production build,
+  Capacitor iOS sync, and a code-signing-free iOS Simulator build (including the Live Activity
+  extension) passed. Hidden in-app-browser checks at 320 × 568 and 1024 × 768 found no horizontal
+  overflow, maintained 44 px controls, announced validation and clamp feedback, restored focus on
+  dismissal, and produced no console warnings or errors. Safari stayed closed. See
+  `docs/verification/plan-9.5-session-repair-2026-08-10.md`. Physical-device VoiceOver and signed
+  distribution checks are not claimed here and remain release QA.
 
-### - [ ] 9.6 Today's slice — a daily target with planned vs actual
+### - [x] 9.6 Today's slice — a daily target with planned vs actual
 
 - **Goal:** Optional per-day target: pick a goal (or task) and set "today: N parts" — the pace math in `goals.ts` *suggests* N, the user decides (a target you chose yourself, per supportive accountability). A quiet chip on FocusScreen ("today: 2/3 lectures"); linked sessions/tasks advance it through 8.12's crediting; the debrief echoes it; the weekly review gains **one calibration line** from planned-vs-actual history ("you usually plan 5 and land 3 — planning 3 might feel better"). Planned/actual pairs persist (version bump). A missed target renders neutral-warm ("2 of 3 — that's real progress"), never as failure.
 - **Science:** §Staying — flow row (Fong et al. 2015: clear, specific, finishable goals with immediate feedback — this generalizes 4.2's session target to the day); §Measurement — progress monitoring row (Harkin 2016) and feature rank 8 (pattern-aware reflection); 9.1 addendum: proximal subgoals build self-efficacy and intrinsic interest (Bandura & Schunk 1981), specific beats vague (Locke & Latham 2002), and the calibration line is the planning-fallacy correction (Buehler 1994) — the most evidence-backed part of the step, not an optional garnish. Guardrails: §Do not build (metrics never moralized) and docs/voice.md on all missed-target copy.
@@ -1069,12 +1381,25 @@ Rules of thumb:
   component/integration/visual regression testing.
 - **Files:** `src/store/dailyTarget.ts` (new + tests), `FocusScreen.tsx` (chip), `DebriefCard.tsx`, `WeeklyReview.tsx`, `GoalsScreen.tsx` (link affordance).
 - **Done when:** Full loop works on fixtures (set target → linked session credits it → debrief echoes
-  → weekly calibration line appears with ≥2 weeks of data); target entry, editing, skip, invalid input,
+  → weekly calibration line appears under 10.6's later prior-week guard of ≥3 target days and ≥3
+  completed sessions); target entry, editing, skip, invalid input,
   reload, and recovery are covered; controls and progress state work by keyboard, touch, and screen
   reader with the virtual keyboard open and at narrow/wide sizes; representative empty, active,
   complete, and error visual states pass; the feature is entirely skippable with zero added friction; missed-target
   copy passes voice.md; grep for "behind|failed|missed!" over user-facing strings returns clean.
 - **Depends on:** 9.1, 8.12, 4.2, 2.3.
+- **Closed (August 2026):** Goal and task targets now share strict whole-number validation, durable
+  reload/retry behavior, derived actuals, Focus selection/arming, and multi-target debrief echoes.
+  Editing below actual soft-clamps without losing recorded work; removing or leaving a target short
+  uses neutral, data-based copy. The completed 10.6 calibration supersedes the original two-week
+  assumption with its tested prior-week guard of three target days plus three completed sessions.
+  Deterministic empty, active, complete, entry, and error fixtures passed hidden in-app-browser checks
+  at 320 × 568, keyboard-sized 320 × 360, and night-theme 1024 × 768 viewports with 44 px controls,
+  reachable scrolling, no horizontal overflow, and no console warnings or errors. Safari stayed
+  closed. The full suite passed 626 tests; production build, Capacitor iOS sync, and a
+  code-signing-free iOS Simulator build for the app and Live Activity extension passed. See
+  `docs/verification/plan-9.6-daily-target-2026-08-10.md`. Physical-device VoiceOver and signed
+  distribution checks are not claimed here and remain release QA.
 
 ---
 
@@ -1131,6 +1456,15 @@ Rules of thumb:
 - **Files:** `src/screens/GoalsScreen.tsx`, `src/screens/FocusScreen.tsx` (strip), `src/components/DebriefCard.tsx` (echo).
 - **Done when:** On fixtures: plan a target in two interactions with the pace prefill; a future-day target renders on its day and never before; run a credited session; strip and Today section update from the derived actual without any stored counter; debrief echoes it; with no targets, FocusScreen renders identically to before; every strip interaction ≤1 tap and nothing animates unprompted; progress semantics, focus order, keyboard and screen-reader operation, small-screen/virtual-keyboard layout, and representative component/visual states pass; `npm run build` green, no console errors.
 - **Depends on:** 10.2, 10.3; coordinates with 8.18.
+- **Progress (August 12, 2026):** The strip now sits immediately after the task row inside the
+  fresh-session hierarchy, reports overall goal plus ledger-derived today progress, opens Goals from
+  its label, and disappears for running, paused, no-target, and planner-off states. Lifecycle fixtures
+  prove the two-click pace-prefilled plan, future-day gating, arm/start/credit loop, debrief echo, and
+  matching Today update. A deterministic Goals/Focus fixture covers active/empty, theme, spacing, and
+  preference states. ESLint, 66 files / 647 tests, production build, independent fixture build, voice
+  scan, and `git diff --check` pass. The in-app browser list remained empty on both attempts, so the
+  rendered small-screen/virtual-keyboard, focus, screen-reader, and clean-console matrix is unclaimed
+  and this step stays open. See `docs/verification/plan-10.4-day-plan-ui-2026-08-12.md`.
 
 ### - [x] 10.5 Rollover triage — carry, spread, or let it rest (never an overdue pile)
 
@@ -1163,6 +1497,18 @@ Rules of thumb:
 - **Files:** `src/components/FoundationsCard.tsx` (new), picker sheet component (new), `src/screens/TasksScreen.tsx`, the break branch of `src/screens/FocusScreen.tsx` (beside the parking lot), `src/components/SettingsSheet.tsx`, `src/store/useBloom.ts` (no schema change — 10.7 landed the shape).
 - **Done when:** With the setting off, TasksScreen renders identically to before; in `npm run dev`, a check-off persists across reload (`bloom-state` devtools inspection); a 23:50 check with `dayStartHour` 03:00 lands on the intended study day; the derived chip renders no button element; the 4th enable is calmly refused with the cap copy; disable keeps history; both surfaces render the same state; touch targets meet 8.8's minimum; no percentage or red styling anywhere; all strings `PLACEHOLDER_COPY` and pre-checked against the never-ship lexicon; build green, no console errors.
 - **Depends on:** 10.7, 8.3, 8.4; break placement per 5.1.
+- **Progress (August 12, 2026):** The setting, Tasks card, accessible picker, one-tap manual chips,
+  read-only derived chip, three-active cap, history-preserving disable, visibility-driven study-day
+  rollover, and shared break surface are implemented. Lifecycle coverage now proves a 23:50 check
+  under the 03:00 boundary writes the intended natural key, persists through reload, rolls after the
+  next boundary, and remains in storage after disable and another reload. Static guards cover opt-out
+  absence, placement after the break parking lot, 44–48 px actions, non-interactive derived markup,
+  and no percentage or red grading. A deterministic Foundations fixture adds active, empty, picker,
+  theme, spacing, and preference states. ESLint, 66 files / 653 tests, production and fixture builds,
+  local-only audit, voice scan, and `git diff --check` pass. The required in-app browser discovery
+  still returned no browser instances, so direct devtools storage, rendered small-screen/focus/screen-
+  reader, and clean-console evidence is unclaimed and this step stays open. See
+  `docs/verification/plan-10.8-foundations-ui-2026-08-12.md`.
 
 ### - [x] 10.9 Two weeks of dots — consistency shown, never guarded (+ yesterday grace)
 
@@ -1221,12 +1567,15 @@ Open-step gates, stated plainly: **9.2**'s `dayKeyFor` is load-bearing for every
 
 ## Phase 11 — Optional accounts & cross-device sync (local-first, opt-in)
 
-> **Current milestone status:** Entire phase deferred. Accounts, networking, cross-device behavior,
-> and real-device sync QA are not part of the fast local browser milestone.
+> **Current milestone status:** 11.1's design contract and 11.2's network-free merge core are
+> complete. Runtime accounts, networking, cross-device transport, and real-device sync QA remain
+> open in 11.3-11.6 and are outside the fast
+> local browser milestone.
 >
 > Sync is an optional data-stewardship layer, never a gate around Bloom. A fresh install and every
 > existing user remain local-only by default. Signing in and enabling upload are two separate,
-> explicit choices. Until both happen, no user data leaves the device; after opt-in, only documented,
+> explicit choices. Sign-in sends only the minimized identity/session data documented in 11.1; until
+> upload is separately enabled, no Bloom content leaves the device. After opt-in, only documented,
 > allowlisted auth/sync endpoints may receive traffic. The app shell and every core feature keep
 > working offline, export/import remains available without an account, and remote state is never the
 > only copy. Pausing sync, signing out, deleting the cloud copy, and deleting local data are distinct
@@ -1245,7 +1594,7 @@ Open-step gates, stated plainly: **9.2**'s `dayKeyFor` is load-bearing for every
 > A future live-timer handoff must be an explicit ownership transfer; no device may silently take over
 > or finalize another device's timer.
 
-### - [ ] 11.1 Sync contract, privacy model, and architecture decision
+### - [x] 11.1 Sync contract, privacy model, and architecture decision
 
 - **Goal:** Write `docs/sync.md` as the binding design before adding a request to runtime code. Specify the exact synchronized and device-local fields; account identity and provider choice; documented endpoint allowlist; transport and at-rest encryption; whether payloads are end-to-end encrypted and how a second device recovers keys; per-user authorization; device ids; versioned envelopes; server-issued cursors/revisions (never device-clock last-write-wins); tombstone retention; quotas; backups; account switching; device revocation; cloud deletion; operational logging with no focus-content payloads; and the first-release exclusion of live timer state. Include state diagrams for local-only → signed-in/no-upload → sync-enabled → paused/signed-out, plus a data-flow and threat model.
 - **Science:** n/a — privacy, security, architecture, and user data stewardship.
@@ -1254,8 +1603,19 @@ Open-step gates, stated plainly: **9.2**'s `dayKeyFor` is load-bearing for every
 - **Files:** `docs/sync.md` (new), `README.md` (link from the roadmap note), privacy/deployment documentation if the chosen architecture needs it.
 - **Done when:** The document resolves provider/hosting, encryption/key recovery, retention/deletion, endpoint allowlist, schema compatibility, and conflict rules for every persisted slice; states exactly what the service can and cannot read; covers lost device/key, account A→B, long-offline device, old/new client, and remote outage cases; and receives a security/privacy review before implementation. No production network call lands in this step.
 - **Depends on:** 8.11, 9.4, and the persisted slices intended for the first synced release (currently through 10.11). If those shapes differ when this starts, update the contract before code.
+- **Closed (August 2026):** `docs/sync.md` now binds the optional account/sync states, Google +
+  Apple OIDC identity model, same-origin Cloudflare Pages Functions gateway, D1 control store, and one
+  SQLite Durable Object per account. It inventories every schema-33 persisted slice plus the separate
+  Companion log, keeps live/paused timer ownership device-local, specifies server-revision conflict,
+  tombstone/compaction, quota, retention/deletion, encrypted backup, long-offline, account-switch,
+  and outage behavior, and states the service-readable metadata/E2EE limits. A repository
+  security/privacy design review is recorded in
+  `docs/verification/plan-11.1-sync-contract-review-2026-08-12.md`; runtime/staging/production gates
+  remain assigned to 11.2–11.6. Contract tests, the full suite, lint, production build, and local-only
+  source/bundle audit passed; this step added no runtime request, service binding, secret, or
+  production network call.
 
-### - [ ] 11.2 Sync-safe envelope, mutation log, and deterministic merge engine
+### - [x] 11.2 Sync-safe envelope, mutation log, and deterministic merge engine
 
 - **Goal:** Build the network-free sync core around 9.4's validated export envelope. Give each installation a device-local id and each durable mutation a collision-safe id plus an authoritative revision/cursor; add tombstones and per-slice conflict rules so replays are idempotent and merges are deterministic. Append-only session/ledger data unions by stable id; revisions and repairs supersede explicitly; deletes beat stale offline edits for the documented retention window; scalar settings use field-level revisions; references never orphan; unknown newer-schema fields survive an older client's round-trip. Sync-enabled/account metadata stays in a separate device-local store and is never itself synced. Preserve every existing id during migration and never seed fake historical timestamps.
 - **Science:** n/a — deterministic merge and data-integrity engineering.
@@ -1264,8 +1624,24 @@ Open-step gates, stated plainly: **9.2**'s `dayKeyFor` is load-bearing for every
 - **Files:** new `src/sync/` pure protocol/merge modules + tests, persisted models and sanitizers, `src/store/useBloom.ts` (relative schema bump + forward migration), 7.1 migration fixtures, 9.4 export/import helpers.
 - **Done when:** Algebraic tests cover idempotence, commutativity, deterministic replay, duplicate delivery, concurrent create/edit/delete, delete-vs-long-offline-edit with no resurrection, stable-id collision, Companion's separate log, archives/compaction, corrupt input isolation, unknown-field preservation, and schema skew. A two-device fixture merges without losing any valid record, and the full core is still network-free.
 - **Depends on:** 11.1, 7.1, 9.4, and 10.11's stewardship shape.
+- **Closed (August 2026):** Added a bounded, versioned decrypted-mutation envelope with random-only
+  installation/device/mutation ids, opaque unknown-field retention, server revision/cursor ordering,
+  cursor-gap and revision-collision stops, tombstones, explicit generations/recreation, per-field
+  revisions, repair-only finalized logs, idempotent counters, provenance-bearing archive components,
+  and reference blocking that derives known links instead of trusting a mutation to declare them.
+  The separate abstract device store retains installation/account/cursor/outbox metadata without
+  credentials or root keys, preserves corrupt/future input for recovery, and refuses silent account
+  rebinding. Schema 34 is a pass-through sync baseline that preserves every existing id/timestamp;
+  Companion log v5 assigns exact deterministic content ids to legacy id-less moments. The 9.4 backup
+  adapter now round-trips every synchronized scalar, collection, composite, counter, archive, and
+  separate Companion slice while keeping active task choice, flow state, open sessions, and hidden
+  parked thoughts local. Algebraic, collision, stale-generation, no-orphan, compaction, corruption,
+  schema-skew, rich-envelope, and two-device fixtures pass. `npm run lint`, all 70 files/696 tests,
+  the production build, local-only source/bundle audit, and `git diff --check` pass; `src/sync/` has
+  no runtime request primitive or app integration, so accounts, encryption, service authorization,
+  consent UI, and transport remain explicitly assigned to 11.3-11.6 and production is unchanged.
 
-### - [ ] 11.3 Optional account service, encrypted sync API, and authorization
+### - [x] 11.3 Optional account service, encrypted sync API, and authorization
 
 - **Goal:** Implement the account and storage service selected in 11.1 behind a small adapter. Authentication creates access to an account but does **not** enable upload; the first upload requires separate client consent in 11.4. Enforce per-user/per-device authorization on every object, versioned encrypted envelopes, server-issued cursors, replay protection, rate/size limits, tombstone retention, device revocation, remote-export, and complete cloud/account deletion. Keep credentials out of `localStorage` (secure HttpOnly web sessions or platform-appropriate secure storage), never log decrypted focus content or secrets, and prevent one account from reading another's ciphertext or metadata.
 - **Science:** n/a — security, privacy, authorization, and service reliability.
@@ -1274,6 +1650,21 @@ Open-step gates, stated plainly: **9.2**'s `dayKeyFor` is load-bearing for every
 - **Files:** backend/API package selected by `docs/sync.md`, client auth/sync adapter, local development emulator or fake server, contract and authorization tests, deployment/secrets documentation.
 - **Done when:** Contract tests prove cross-account isolation, revoked-device denial, expired-session recovery, replay rejection, payload/size validation, remote export, cloud-only deletion, and account deletion; server logs contain no focus-content payloads or encryption keys; local-only builds do not instantiate the adapter or make a request.
 - **Depends on:** 11.1, 11.2.
+- **Closed (August 12, 2026):** Added the dependency-neutral optional service behind the binding
+  contract: exact same-origin Pages routes; Google/Apple authorization-code verification; rotating
+  web/native sessions; provider/challenge-bound one-use handoffs; HMAC-only identity aliases; CSRF,
+  recent-auth, rate/quota/size, device-consent/revocation, and cloud-generation controls; client ARK
+  HKDF/AES-GCM envelopes with authenticated snapshot coverage; opaque cursor/replay/export/deletion
+  storage; D1 control metadata; and a separately deployable chunked SQLite Durable Object. The
+  constructor-injected client has no default transport or app import, so sign-in cannot upload and
+  the production app remains local-only. Seven focused files / 26 service tests and the full 77-file
+  / 722-test suite passed, as did ESLint, TypeScript/Vite production build, local-only source/bundle
+  audit, D1 schema/foreign-key validation, Pages Functions compilation, Durable Object/contract
+  dry bundles, and `git diff --check`. The local Workerd harness could not bind a loopback port in
+  the managed environment, so no live Cloudflare or production persistence is claimed; disposable
+  staging, consent/secure storage, the durable sync client, independent crypto review, device QA,
+  privacy copy, export-compliance re-audit at app integration, and production release remain in
+  11.4-11.6. See `docs/verification/plan-11.3-account-service-2026-08-12.md`.
 
 ### - [ ] 11.4 Account, consent, sync status, and device controls
 
@@ -1553,7 +1944,7 @@ Open-step gates, stated plainly: **9.2**'s `dayKeyFor` is load-bearing for every
   Focus to 45 min left the preset control correctly showing nothing selected. `npm test` (63 files,
   609 tests), `npm run build`, `npx cap sync ios`, and an Xcode 26.6 Simulator build pass.
 
-### - [ ] 13.4d Run Your data through native document, share, and alert presentations
+### - [x] 13.4d Run Your data through native document, share, and alert presentations
 
 - **Goal:** Migrate the highest-risk section last: JSON/CSV export through a share sheet, import
   through `UIDocumentPickerViewController`, the read/prepare/save state machine with its cancel and
@@ -1572,8 +1963,21 @@ Open-step gates, stated plainly: **9.2**'s `dayKeyFor` is load-bearing for every
   confirmation; no user data reaches any file or presentation the user did not choose; migration and
   import fixtures pass unchanged.
 - **Depends on:** 13.4b, 9.x data-stewardship steps that touch the same fixtures.
+- **Closed (August 2026):** Your data now renders directly in the native Settings form. React still
+  generates the canonical JSON/CSV bytes, validates and migrates selected backups, previews and
+  merges stable records, commits atomically, and owns safety/recovery backups. After an explicit
+  export tap, native writes one protected temporary file, presents `UIActivityViewController`, and
+  deletes that temporary copy when the sheet finishes. Import uses a JSON-only
+  `UIDocumentPickerViewController`, reads exactly one selected security-scoped UTF-8 file within the
+  existing 5 MiB cap, and returns its text to the unchanged React state machine. Clear reflection
+  history uses a native destructive alert and reaches the React action only after confirmation.
+  Focused coverage passed 5 files/58 tests and the full suite passed 82 files/749 tests; every
+  migration/import fixture, lint, production build, iOS sync, local-only audit, `git diff --check`,
+  and native build passed. iPad Simulator interaction verified the share/save sheet, picker cancel,
+  open-timer disable rules, clear-scope detail, and canceling native alert. See
+  `docs/verification/plan-13.4d-native-data-2026-08-12.md`.
 
-### - [ ] 13.5 Adopt native iOS presentations and selectively glass remaining chrome
+### - [x] 13.5 Adopt native iOS presentations and selectively glass remaining chrome
 
 - **Goal:** Inventory Bloom's dialogs, sheets, menus, buttons, sliders, text fields, and contextual
   actions. Use native presentations and standard controls where they materially improve behavior;
@@ -1590,6 +1994,23 @@ Open-step gates, stated plainly: **9.2**'s `dayKeyFor` is load-bearing for every
   and exactly-once actions; no nested or decorative glass clutter ships; browser/Android behavior
   remains unchanged; the full release matrix passes.
 - **Depends on:** 13.2–13.4b.
+- **Closed (August 13, 2026):** The source-backed inventory now names every interactive owner in
+  `src/components` and `src/screens`, plus all native-only/system surfaces, and a regression fails if
+  a new production TSX owner lands without a native/keep-web decision. OS-owned boundaries use the
+  standard native sheet/form, share sheet, document picker, destructive alert, public app-settings
+  URL, notification, Live Activity, and fixed navigation/timer controls. Product-specific dialogs,
+  forms, cards, validation, and session workflows stay in React. Custom material is limited to one
+  `UIGlassEffect` host for the fixed upper rail and system glass configurations for fixed Settings
+  and timer buttons; no nested/decorative glass enters Settings or content. Cancellation, native
+  failure, destructive confirmation, focus restoration, and exactly-once action coverage passes.
+  On an iPhone 17 Pro Max/iOS 26.5 Simulator, export, import, destructive-clear cancel, native-sheet
+  dismissal, and restrained chrome all passed. Focused coverage passed 6 files/46 tests; the full
+  suite passed 84 files/766 tests; lint, production build, local-only audit, Android and iOS
+  Capacitor sync, a code-signing-free Xcode Simulator build, and `git diff --check` passed. The
+  machine has no JDK, so no APK compile is claimed; this close-out changes no Android/runtime source,
+  and the Android web bundle sync plus explicit non-iOS fallback coverage passed. Physical-device,
+  assistive-technology, and iOS 27 release QA remain in 13.6. See
+  `docs/verification/plan-13.5-native-presentations-2026-08-13.md`.
 
 ### - [ ] 13.6 iOS 26/27 Liquid Glass release QA
 
@@ -1651,13 +2072,120 @@ Open-step gates, stated plainly: **9.2**'s `dayKeyFor` is load-bearing for every
   advances without per-second bridge calls; pause/resume, terminal cleanup, relaunch sweep, foreground
   retry, data clear, and user-dismissal behavior have focused coverage. System UI receives only an
   opaque session identifier, mode, phase, and clock data — never task text — and the implementation
-  adds no server, APNs, or runtime network path. `npm test` passes 60 files/576 tests, `npm run build`,
+  adds no server, APNs, or runtime network path. `npm test` passes 79 files/726 tests, `npm run build`,
   `npx cap sync ios`, plist validation, and `git diff --check` pass. A code-signing-free App build
-  successfully embedded and validated the extension before the final stale-state/accessibility
-  refinement; a fresh post-refinement Xcode build was blocked before compilation by the sandboxed
-  Simulator/SPM environment. Physical-device signing plus Lock Screen, Dynamic Island, StandBy,
-  background, airplane-mode, and accessibility checks remain for user verification, so this step
-  stays open.
+  successfully embeds and validates the extension after the final presentation refinement. The
+  iPhone 17 Pro Simulator now visibly passes compact running, compact paused, and Lock Screen checks
+  with the new Bloom blossom and system-driven progress. The compact family replaces its exact
+  countdown with a bounded progress/status indicator, reducing the same Simulator pill by about 46%;
+  the exact countdown remains in expanded and Lock Screen views. Physical-device signing plus
+  expanded/minimal Dynamic Island, watch, StandBy, background, airplane-mode, and accessibility
+  checks remain for user verification, so this step stays open. See
+  `docs/verification/plan-13.8-live-activity-2026-08-12.md`.
+
+### - [x] 13.8a Control the reducer-owned timer from the expanded Live Activity
+
+- **Goal:** Add local pause and continue controls to the expanded Dynamic Island and Lock Screen
+  Live Activity on iOS 17+. Keep compact/minimal presentations glanceable: the system-owned compact
+  tap continues to open Bloom, while touch-and-hold reveals the controls Apple permits only in the
+  expanded and Lock Screen families. A `LiveActivityIntent` may update the native presentation and
+  completion-alert deadline immediately, but it must queue a bounded timestamped command for the
+  React reducer to validate, durably apply, and acknowledge; it never writes session records or
+  becomes a second timer authority. Preserve commands across suspension/termination, reconcile them
+  before the existing interrupted-session boot sweep, and reveal no task or target text.
+- **Science:** n/a — native background interaction, recoverable state ownership, and error
+  prevention.
+- **Quality:** `docs/product-quality.md` — Architecture changes; Privacy and security; Local-first
+  and offline behavior; Accessibility; Background/interrupt lifecycle; Error prevention and
+  recovery; Build and release reproducibility; integration and device testing. Apple limits Live
+  Activity buttons/toggles to expanded and Lock Screen presentations and runs `LiveActivityIntent`
+  work in the app process.
+- **Files:** shared ActivityKit/App Intents command model, Live Activity widget presentation, native
+  bridge and completion-alert scheduling, typed web adapter, reducer/hook lifecycle integration,
+  Xcode target membership, focused tests, verification evidence, `PLAN.md`.
+- **Done when:** Running Focus/Tiny activities show an accessible Pause control and paused activities
+  show Continue in expanded Dynamic Island and Lock Screen views on iOS 17+; either action updates
+  the native system timer and its one completion alert without opening Bloom; ordered native commands
+  survive suspension or termination, apply to the matching open session at their original timestamp,
+  persist before acknowledgment, replay idempotently after an interrupted handshake, and cannot
+  mutate a stale/different session; iOS 16.2 stays noninteractive; compact/minimal width and privacy
+  remain unchanged; focused lifecycle/native tests, the full web suite/build, local-only audit,
+  code-signing-free Xcode build, and Simulator interaction pass. Physical-device interaction remains
+  an explicit release-verification boundary.
+- **Depends on:** 7.4, 13.8, 13.11.
+- **Closed (August 2026):** Added iOS 17 `LiveActivityIntent` Pause and Continue buttons through one
+  shared control used by the expanded Dynamic Island and Lock Screen presentations. Each intent
+  immediately updates ActivityKit and the stable local completion-alert request, then stores a
+  maximum of 32 privacy-minimal commands containing only an opaque session id, action, original
+  timestamp, and frozen remaining seconds. On launch/foreground, the React hook defers the ordinary
+  interrupted-session sweep only for a matching command, applies ordered commands through the
+  reducer, persists first, and acknowledges afterward; exact remaining values make a lost
+  acknowledgment replay idempotent, while stale-session commands are ignored. iOS 16.2 keeps the
+  noninteractive presentation and compact/minimal layouts are unchanged. On the iPhone 17 Pro iOS
+  26.5 Simulator, Pause and Continue both worked from the Lock Screen without opening Bloom, the app
+  reconciled the exact paused/running value on return, Continue also survived explicit app-process
+  termination, and the native queue was absent after reducer acknowledgment. The shared expanded
+  control is source-guarded and compiled into both targets; the available Computer Use interface
+  cannot generate Dynamic Island touch-and-hold, so its physical interaction remains in release QA.
+  Focused coverage passed 4 files/75 tests, the full suite passed 79 files/732 tests, lint, production
+  build, iOS sync, local-only audit, `git diff --check`, and the post-sync code-signing-free Xcode
+  build passed. See `docs/verification/plan-13.8-live-activity-2026-08-12.md`.
+
+### - [x] 13.8b Give the in-app iOS timer a native countdown and control surface
+
+- **Goal:** Replace the iOS Focus screen's web-drawn clock/control affordance with a native,
+  accessibility-complete surface that mirrors the same reducer-owned Focus, Tiny, break, and Flow
+  lifecycle. Keep the web implementation for browsers and leave Android deferred. Do not introduce
+  a second timer authority or per-second native/JavaScript traffic.
+- **Science:** n/a — platform-native presentation, accessibility, and lifecycle reliability.
+- **Quality:** `docs/product-quality.md` — Architecture changes; Accessibility; Background/interrupt
+  lifecycle; Performance; integration and device testing.
+- **Files:** native iOS overlay/controller and bridge, Focus-screen/native-surface coordination,
+  lifecycle/accessibility tests, verification evidence, `PLAN.md`.
+- **Done when:** Every iOS timer mode is operable through one native in-app clock/control surface,
+  web retains the accessible React clock, reducer events remain exactly once, dialogs/keyboard and
+  system rails do not collide, and supported-device plus performance/VoiceOver checks pass.
+- **Depends on:** 7.4, 8.4, 13.4b, 13.8a.
+- **Closed (August 2026):** iOS now overlays one measured UIKit countdown/control surface across
+  Focus, Tiny, Short, Long, and Flow while `useBloom` remains the only timer and session authority.
+  Swift derives the visible value from a stable deadline or Flow start/accumulator with a local
+  display timer, and the React 250 ms display tick does not cross the native bridge. Native actions
+  route through the existing Start/Pause/Continue, Reset, Skip, and Finish reducer handlers exactly
+  once. Dialogs, Settings, and text entry hide all competing native rails together; the accessible
+  web timer/controls return as a fallback and restore native ownership afterward. UIKit accessibility
+  labels/values, 44-point targets, Dynamic Type sizing, and system glass/tinted configurations are
+  covered by source contracts and iPhone/iPad Simulator accessibility-tree interaction. Focused
+  coverage passed 4 files/64 tests; lint, production build, iOS sync, local-only audit,
+  `git diff --check`, and the post-sync code-signing-free Xcode build passed. Physical-device spoken
+  VoiceOver and distribution checks remain in parent 13.8 release QA. See
+  `docs/verification/plan-13.8b-native-timer-2026-08-12.md`.
+
+### - [x] 13.8c Audit remaining iOS surfaces for materially better native alternatives
+
+- **Goal:** Audit Bloom's iOS-only experience for web affordances whose native alternative materially
+  improves reliability, accessibility, system integration, or release quality. Record measured
+  recommendations and split each accepted conversion into its own bounded numbered step. Respect the
+  already deferred AlarmKit, broad native-sheet/glass conversion, account/sync, and Android scopes;
+  do not convert UI merely for visual novelty.
+- **Science:** n/a — platform fit and product-quality audit.
+- **Quality:** `docs/product-quality.md` — Architecture changes; Accessibility; Error prevention and
+  recovery; Performance; Build and release reproducibility; integration and device testing.
+- **Files:** iOS/web surface inventory, audit evidence, follow-up plan steps, `PLAN.md`.
+- **Done when:** Every major timer, navigation, settings, picker, sharing/export, alert, and lifecycle
+  surface has a recorded keep-web/use-native recommendation with evidence, privacy and rollback
+  implications, and no accepted implementation is hidden inside the audit step.
+- **Depends on:** 8.26, 13.4d, 13.8b.
+- **Closed (August 2026):** The audit records an explicit use-native/keep-web decision for in-app and
+  system timer surfaces, primary navigation and segmented rails, the Settings form, text/number/date
+  input, JSON/CSV export, JSON import, destructive confirmation, content dialogs/workflows, local
+  alerts and permissions, app lifecycle, launcher identity, and currently unnecessary system
+  capabilities. Native remains limited to OS-owned reliability/integration boundaries; React/store
+  stays authoritative for validation, product workflows, session state, and persistence, with web
+  fallbacks retained. 13.8b and 13.4d implement the timer and data-system boundaries. Two further
+  accepted changes are split rather than hidden here: 13.9b corrects the generated launcher identity
+  and 13.11a adds direct user-initiated system-settings recovery. AlarmKit, broad native-sheet/glass
+  conversion, accounts/sync/cloud, and Android stay deferred. See
+  `docs/verification/plan-13.8c-ios-native-alternatives-audit-2026-08-12.md`.
 
 ### - [x] 13.9 An app icon for each friend, following whoever is on duty
 
@@ -1694,6 +2222,38 @@ Open-step gates, stated plainly: **9.2**'s `dayKeyFor` is load-bearing for every
   Mochi, including the primary-icon path, and survived a device reboot. `npm test` (52 files, 518
   tests) plus two new native suites, `npm run build`, `npx cap sync ios`, and `git diff --check`
   passed. Alternate icons are iOS-only: Android and the PWA keep the blossom mark.
+
+### - [x] 13.9b Redesign the generated iOS and web launcher family around a Pomodoro timer
+
+- **Goal:** Remove the flower backing entirely from the primary and every alternate iOS icon plus
+  the web/PWA launcher and launch mark, and
+  make the launcher identity read first as a Pomodoro/focus timer rather than floral, very feminine,
+  health, period, or cycle tracking. Preserve the on-duty friend's recognizable face as a secondary
+  personality cue. Inspect git history and the icon generator before drawing so the earlier better
+  direction is understood and generated output cannot silently return to the old design.
+- **Science:** n/a — launcher identity and category recognition.
+- **Quality:** `docs/product-quality.md` — UX/UI correctness; Platform conventions and constraints;
+  Build and release reproducibility; visual regression and supported-device testing.
+- **Files:** icon history/evidence, `scripts/gen-icons.mjs`, generated web/PWA assets,
+  primary/alternate iOS asset catalogs and contracts, verification evidence, `PLAN.md`.
+- **Done when:** No shipping iOS or web/PWA icon contains a flower, blossom, petal backing, or ambiguous
+  cycle-tracker motif; a clear timer silhouette/readout survives small launcher and Settings sizes;
+  all six friend variants remain distinguishable but share one neutral Pomodoro family; the generator
+  is the fixed source of truth; asset/catalog tests, `actool`/Xcode build, and iPhone/iPad Simulator
+  inspection pass; the history finding and reversion prevention are documented. Android launcher
+  assets remain byte-for-byte unchanged because Android publishing is deferred.
+- **Depends on:** 13.9, 13.10, 13.8c.
+- **Closed (August 2026):** Git history confirmed that the earlier timer-dial artwork lived only in
+  unmerged commit `73261fc` on the `ios-alarmkit-finish-alarms` branch; main's old generator was why
+  regenerating assets restored the flower. The fixed generator now draws a crowned Pomodoro dial for
+  web/PWA and every light/dark/tinted iOS friend icon, with deeper neutral gradients and the friend as
+  a secondary cue. The iOS launch image is flower-free too. A deterministic manifest records all 25
+  publishing-target exports and their SHA-256 digests; contract tests keep both generator boundaries
+  flower-free. Android's generated launcher hashes were identical before and after the run. Focused
+  icon tests, ESLint, the 82-file/751-test suite, production build, local-only audit, Capacitor sync,
+  Release `-validate-for-store` Simulator build, and `git diff --check` pass. The rebuilt icon was
+  inspected on iPhone 17 Pro and iPad mini Simulator home screens without cropping. See
+  `docs/verification/plan-13.9b-pomodoro-icon-2026-08-12.md`.
 
 ### - [x] 13.10 Icon appearances, and stop cropping the native mode rail
 
@@ -1769,6 +2329,44 @@ Open-step gates, stated plainly: **9.2**'s `dayKeyFor` is load-bearing for every
   permitted`, and the available Computer Use route timed out against Simulator, so actual locked
   system delivery remains intentionally unchecked for user/device verification rather than being
   claimed from an injected push payload.
+- **Verification continuation (August 13, 2026):** On an authorized iPhone 17 Pro iOS 26.5
+  Simulator, a real one-minute Short break was backgrounded and the device was locked. The Lock
+  Screen showed exactly one generic Bloom completion notification; opening it returned to idle
+  Focus with no second banner, and History remained at 14 focus sessions. Focused coverage passed
+  6 files/38 tests; the full suite passed 84 files/766 tests; lint, production build, local-only
+  audit, Capacitor iOS sync, a code-signing-free Xcode build, bundled-cue/plist inspection, and the
+  ordinary locked smoke passed. The Airplane Mode smoke still requires an explicitly confirmed
+  Simulator network-setting change, so this step remains open. See
+  `docs/verification/plan-13.11-ios-completion-alerts-2026-08-13.md`.
+
+### - [x] 13.11a Open Bloom's iOS system settings from permission recovery rows
+
+- **Goal:** When local timer notifications or Live Activities are disabled or only partly enabled,
+  add one explicit native Settings action that opens Bloom's own page in iOS Settings. Never open it
+  automatically. Refresh the existing system-owned status when the person returns; do not persist or
+  infer permission state, and keep the complete timer usable if the open call is unavailable.
+- **Science:** n/a — permission recovery and system integration.
+- **Quality:** `docs/product-quality.md` — Permissions and interruption lifecycle; Error prevention
+  and recovery; Accessibility and semantics; Privacy and security; integration testing.
+- **Files:** native Settings bridge/presentation, typed adapter, `SettingsSheet.tsx`, focused tests,
+  Simulator evidence, `PLAN.md`.
+- **Done when:** Each applicable native recovery note has one accessible Open iOS Settings action;
+  one tap invokes `UIApplication.openSettingsURLString` once; no allowed/prompt state shows the
+  action unnecessarily; cancel/failure changes no Bloom state; returning refreshes notification and
+  Live Activity status through their existing visibility lifecycle; web/Android are unchanged.
+- **Depends on:** 13.4b, 13.8, 13.11, 13.8c.
+- **Closed (August 13, 2026):** Disabled and partial notification states plus supported-disabled
+  Live Activities now receive one explicit recovery button in both the native snapshot and web
+  fallback, while prompt, allowed, checking, unavailable, and unsupported states receive none. The
+  typed adapter quietly no-ops away from iOS and normalizes native open failure without touching
+  store state; the Swift bridge uses only `UIApplication.openSettingsURLString`, after an explicit
+  tap, and the existing visibility lifecycle re-reads both system-owned statuses on return. On a
+  clean iPhone 17 Pro Max Simulator, denying Bloom's notification prompt exposed the recovery row;
+  one tap opened Bloom's page in iOS Settings showing Notifications Off and Live Activities On, and
+  returning restored the sheet with the denied status. Focused coverage passed 6 files/63 tests;
+  the full suite passed 83 files/760 tests; lint, production build, local-only audit, Capacitor iOS
+  sync, a code-signing-free Xcode 26.5 Simulator build, and `git diff --check` passed. See
+  `docs/verification/plan-13.11a-ios-settings-recovery-2026-08-13.md`.
 
 ### - [ ] 13.12 Use AlarmKit for prominent finish alarms on supported iOS versions
 
@@ -1966,13 +2564,13 @@ Phase 4: 4.1 ← (1.4, 2.4)  |  4.2 ← 2.1  |  4.3 ← 0.2  |  4.4 ← 2.4  |  
 Phase 5: 5.1 ← 1.3 → 5.2 ← 4.2 → 5.3     |  5.4 ← 0.2
 Phase 6: 6.1 ← (0.1, 2.2) → 6.2 → 6.3 ← 2.4 → 6.4 ← 0.2
 Phase 7: 7.4 harness after Phase 1; relevant Phase 8 fixes add regressions → 7.1–7.4 all pass → 7.5 fast browser QA
-Phase 8: independent unless noted  |  8.10 → 7.2  |  8.15 deployed-offline proof deferred  |  8.17 ← (5.1–5.3, 8.4)  |  8.18 ← (3.2, 3.4, 4.1, 4.2, 4.6, 8.5)  |  8.20 ← (7.1, 8.3)  |  8.12 ← 1.2  |  8.16 anytime  |  8.21 post-milestone and not a 7.5 gate
+Phase 8: independent unless noted  |  8.10 → 7.2  |  8.15 deployed-offline proof deferred  |  8.17 ← (5.1–5.3, 8.4)  |  8.18 ← (3.2, 3.4, 4.1, 4.2, 4.6, 8.5) → 8.26  |  8.25 ← (8.9, 13.4b)  |  8.20 ← (7.1, 8.3)  |  8.12 ← 1.2  |  8.16 anytime  |  8.21 post-milestone and not a 7.5 gate
 Phase 9: 9.1 ← 0.1  |  9.2 ← 1.4 → 9.3 ← 8.20 → 9.5 ← (1.5, 9.1)  |  9.4 ← 1.1  |  9.6 ← (9.1, 8.12, 4.2, 2.3)
 Phase 10: 10.1 ← (9.2, 1.1) → 10.2 ← (10.1, 8.12, 4.2, 9.2)  |  10.3 ← (9.6, 9.2, 10.1)  |  (10.2, 10.3) → 10.4 → 10.5 ← (8.3, 9.2)  |  10.6 ← (9.1 blocking, 10.1–10.3, 2.3, 8.2)
           10.7 ← (9.2, 5.4, 1.2) → 10.8 ← (8.3, 8.4, 5.1) → 10.9 ← (9.5, 5.4) → 10.10 ← (3.1, 3.2, 5.3)  |  10.11 ← (9.3, 9.4, 2.3, 10.1, 10.7, 7.1 fixtures)  |  10.12 last ← (10.2–10.11, 0.2)
 Phase 11: 11.1 ← (8.11, 9.4, synced release slices through 10.11) → 11.2 ← (7.1, 9.4, 10.11) → 11.3  |  11.4 ← (8.4, 11.1, 11.3)  |  11.5 ← (11.2–11.4, 8.15) → 11.6 ← (7.1–7.4, 8.11, 8.15)
 Phase 12: 12.1 ← (8.4, 8.8, 8.9, 4.3, 5.3)  →  12.2
-Phase 13: 13.1 ← existing Capacitor 7 Android wrapper and local production build → 13.2 → 13.3 → 13.4a → 13.4b → 13.5 → 13.6  |  13.7 ← 13.1  |  13.8 ← (7.4, 8.3, 8.4, 13.1)  |  13.11 ← (7.4, 8.4, 13.1) → 13.12 → 13.6  |  13.13 ← (13.3, 13.10) → 13.16  |  13.14 ← 13.4a → 13.4b → (13.4c, 13.4d, 13.15) → 13.5  |  13.17 ← (13.3, 13.13)
+Phase 13: 13.1 ← existing Capacitor 7 Android wrapper and local production build → 13.2 → 13.3 → 13.4a → 13.4b → 13.5 → 13.6  |  13.7 ← 13.1  |  13.8 ← (7.4, 8.3, 8.4, 13.1) → 13.8a → 13.8b → 13.8c  |  13.9 → 13.10 → 13.9b  |  13.11 ← (7.4, 8.4, 13.1) → 13.11a  |  13.12 ← (13.8, 13.11) → 13.6  |  13.13 ← (13.3, 13.10) → 13.16  |  13.14 ← 13.4a → 13.4b → (13.4c, 13.4d, 13.15) → 13.5  |  13.17 ← (13.3, 13.13)
 ```
 
 ## What this plan deliberately does NOT include (per §Do not build)

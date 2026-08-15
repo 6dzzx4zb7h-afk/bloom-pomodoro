@@ -1,0 +1,18 @@
+[
+  {
+    "id": "goals-day-active-390x844",
+    "path": "/fixtures/daily-target.html?surface=goals&state=active&theme=day",
+    "width": 390,
+    "height": 844,
+    "readySelector": ".goal-card",
+    "baseline": "goals-day-active-390x844.png"
+  },
+  {
+    "id": "tasks-night-empty-320x568",
+    "path": "/fixtures/tasks-empty.html?state=empty&theme=night",
+    "width": 320,
+    "height": 568,
+    "readySelector": ".task-empty",
+    "baseline": "tasks-night-empty-320x568.png"
+  }
+]
