@@ -12,7 +12,6 @@ export type FocusSurface =
   | 'weekly'
   | 'ritual'
   | 'woop'
-  | 'ritualSuggestion'
   | 'companionRecovery'
   | 'companionCheckin'
   | 'none';
@@ -29,7 +28,6 @@ export interface FocusSurfaceState {
   weekly?: boolean;
   ritual?: boolean;
   woop?: boolean;
-  ritualSuggestion?: boolean;
   companionPrompt?: CompanionPromptState;
 }
 
@@ -85,7 +83,6 @@ export const FOCUS_SURFACE_PRIORITY: readonly SurfaceRule[] = [
   { owner: 'weekly', when: (state) => Boolean(state.weekly) },
   { owner: 'ritual', when: (state) => Boolean(state.ritual) },
   { owner: 'woop', when: (state) => Boolean(state.woop) },
-  { owner: 'ritualSuggestion', when: (state) => Boolean(state.ritualSuggestion) },
   { owner: 'companionRecovery', when: (state) => isCompanionRecovery(state.companionPrompt ?? null) },
   { owner: 'companionCheckin', when: (state) => isOrdinaryCompanionPrompt(state.companionPrompt ?? null) },
 ] as const;

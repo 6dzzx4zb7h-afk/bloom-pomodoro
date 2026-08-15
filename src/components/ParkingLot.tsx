@@ -117,7 +117,11 @@ export function ParkingLot({
               park it 🌱
             </button>
           )}
-          {parkedNote && <span className="parking-saved">tucked away until your next pause ♡</span>}
+          {parkedNote && (
+            <span className="parking-saved" role="status">
+              tucked away until your next pause ♡
+            </span>
+          )}
         </div>
       )}
 
@@ -136,13 +140,25 @@ export function ParkingLot({
                 <div className="parking-item" key={item.id}>
                   <div className="parking-item-text">{item.text}</div>
                   <div className="parking-item-actions">
-                    <button className="pop-btn primary" onClick={() => onDismiss(item.id)}>
+                    <button
+                      className="pop-btn primary"
+                      onClick={() => onDismiss(item.id)}
+                      aria-label={`Mark parked thought done: ${item.text}`}
+                    >
                       did it ✓
                     </button>
-                    <button className="pop-btn" onClick={() => onSendToTasks(item.id)}>
+                    <button
+                      className="pop-btn"
+                      onClick={() => onSendToTasks(item.id)}
+                      aria-label={`Make task from parked thought: ${item.text}`}
+                    >
                       make a task
                     </button>
-                    <button className="pop-btn" onClick={() => onDismiss(item.id)}>
+                    <button
+                      className="pop-btn"
+                      onClick={() => onDismiss(item.id)}
+                      aria-label={`Let parked thought go: ${item.text}`}
+                    >
                       let it go
                     </button>
                   </div>

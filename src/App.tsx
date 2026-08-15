@@ -12,6 +12,7 @@ import { GoalsScreen } from './screens/GoalsScreen';
 import { CollectionScreen } from './screens/CollectionScreen';
 import { timerTransitionPolicy, useBloom } from './store/useBloom';
 import { useCompanion } from './store/useCompanion';
+import { loadEvents } from './store/companion';
 import type { GuideArticleId } from './content/guide';
 import { resolveFocusSurface } from './store/surfaceCoordinator';
 import {
@@ -19,8 +20,10 @@ import {
   isNativeIOSTabsPlatform,
   isNativeTabScreen,
   listenForNativeIOSTabSelection,
+  type NativeTabConfiguration,
 } from './native/iosTabs';
 import { isNativeAppIconPlatform, selectNativeAppIcon } from './native/iosAppIcon';
+import { readSystemNight, resolveNight, watchSystemNight } from './store/appearance';
 
 export default function App() {
   const bloom = useBloom();
@@ -29,17 +32,19 @@ export default function App() {
   const [guideArticleId, setGuideArticleId] = useState<GuideArticleId | null>(null);
   const [nativeTabsReady, setNativeTabsReady] = useState(false);
   const [focusOverlayOpen, setFocusOverlayOpen] = useState(false);
+  const [systemNight, setSystemNight] = useState(readSystemNight);
   const navigationRef = useRef<(next: ScreenName) => ScreenName>(() => 'focus');
-  const nativeTabConfigurationRef = useRef({
+  const nativeTabConfigurationRef = useRef<NativeTabConfiguration>({
     selected: screen,
     showGoals: false,
-    night: false,
+    appearance: 'system',
     visible: false,
   });
 
   const needsName = !bloom.state.settings.name.trim();
   const pal = bloom.state.settings.pal;
-  const night = bloom.state.settings.night;
+  const appearance = bloom.state.settings.appearance;
+  const night = resolveNight(appearance, systemNight);
   const mode = bloom.state.mode;
   const showGoals = bloom.state.settings.planner;
   const hasPendingReturnTruth = Boolean(
@@ -58,7 +63,7 @@ export default function App() {
   nativeTabConfigurationRef.current = {
     selected: screen,
     showGoals,
-    night,
+    appearance,
     visible: !needsName && !focusOverlayOpen,
   };
 
@@ -86,6 +91,13 @@ export default function App() {
       .querySelector('meta[name="theme-color"]')
       ?.setAttribute('content', night ? '#1b1535' : '#79bff2');
   }, [night]);
+
+  // PLAN 8.25: system mode follows browser/iOS changes live. Manual themes do
+  // not subscribe, and returning to System reads the current preference first.
+  useEffect(() => {
+    if (appearance !== 'system') return;
+    return watchSystemNight(setSystemNight);
+  }, [appearance]);
 
   // If the planner is switched off while its screen is open, step back to Tasks.
   useEffect(() => {
@@ -143,7 +155,7 @@ export default function App() {
     void configureNativeIOSTabs({
       selected: screen,
       showGoals,
-      night,
+      appearance,
       visible: !needsName && !focusOverlayOpen,
     })
       .then(({ active }) => {
@@ -158,7 +170,7 @@ export default function App() {
     return () => {
       disposed = true;
     };
-  }, [focusOverlayOpen, needsName, night, screen, showGoals]);
+  }, [appearance, focusOverlayOpen, needsName, screen, showGoals]);
 
   // PLAN 13.9: the iOS home-screen icon shows whoever is on duty. The store
   // stays the authority; this only mirrors its choice onto the app icon.
@@ -226,7 +238,9 @@ export default function App() {
                 foundations={bloom.state.foundations}
                 goalLedger={bloom.state.goalLedger}
                 goals={bloom.state.goals}
-                onRepair={bloom.actions.repairSession}
+                events={loadEvents()}
+                parking={bloom.state.parking}
+                onRepair={(proposal) => Boolean(bloom.actions.repairSession(proposal))}
                 dayStartHour={bloom.state.settings.dayStartHour}
                 now={bloom.state.now}
               />

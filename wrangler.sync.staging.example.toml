@@ -1,0 +1,19 @@
+# Copy to a private staging config only after provisioning the resources described in
+# docs/sync-deployment.md. Never replace these sentinels with production ids in source control.
+name = "bloom-pomodoro-sync-staging"
+compatibility_date = "2025-06-01"
+pages_build_output_dir = "dist"
+
+[vars]
+BLOOM_SYNC_ORIGIN = "https://STAGING_HOST"
+BLOOM_COOKIE_SUFFIX = "staging"
+
+[[d1_databases]]
+binding = "SYNC_CONTROL"
+database_name = "bloom-sync-control-staging"
+database_id = "STAGING_D1_DATABASE_ID"
+
+[[durable_objects.bindings]]
+name = "SYNC_CONTENT"
+class_name = "BloomSyncContent"
+script_name = "bloom-sync-content-staging"

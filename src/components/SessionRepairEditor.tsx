@@ -20,6 +20,7 @@ const ERROR_COPY: Record<SessionRepairError, string> = {
   'invalid-end': 'Choose a valid end time.',
   'existing-overlap': 'Another session already overlaps this record. Nothing changed.',
   'invalid-drift': 'Keep the estimated wander inside the repaired session.',
+  'save-failed': 'Bloom kept the original record. Use the storage recovery card, then try again.',
 };
 
 export function SessionRepairEditor({
@@ -32,7 +33,7 @@ export function SessionRepairEditor({
   record: SessionRecord;
   records: readonly SessionRecord[];
   wallClockEndAt: number;
-  onSave: (proposal: SessionRepairProposal) => void;
+  onSave: (proposal: SessionRepairProposal) => boolean | void;
   onCancel: () => void;
 }) {
   const bounds = sessionRepairBounds(record, records, wallClockEndAt);
@@ -66,8 +67,11 @@ export function SessionRepairEditor({
       setError(result.error);
       return;
     }
+    if (onSave(result.proposal) === false) {
+      setError('save-failed');
+      return;
+    }
     setError(null);
-    onSave(result.proposal);
   }
 
   return (
@@ -89,6 +93,7 @@ export function SessionRepairEditor({
             value={endedAt}
             min={bounds ? localInputValue(bounds.earliestEndAt) : undefined}
             max={bounds ? localInputValue(bounds.latestEndAt) : undefined}
+            onInput={(event) => setEndedAt(event.currentTarget.value)}
             onChange={(event) => setEndedAt(event.target.value)}
             aria-invalid={error === 'invalid-end' || error === 'invalid-window'}
           />
@@ -120,6 +125,7 @@ export function SessionRepairEditor({
               <input
                 type="datetime-local"
                 value={driftAt}
+                onInput={(event) => setDriftAt(event.currentTarget.value)}
                 onChange={(event) => setDriftAt(event.target.value)}
                 aria-invalid={error === 'invalid-drift'}
               />
@@ -131,6 +137,7 @@ export function SessionRepairEditor({
                 min={1}
                 step={1}
                 value={driftMinutes}
+                onInput={(event) => setDriftMinutes(event.currentTarget.value)}
                 onChange={(event) => setDriftMinutes(event.target.value)}
                 aria-invalid={error === 'invalid-drift'}
               />

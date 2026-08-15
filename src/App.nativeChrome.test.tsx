@@ -9,9 +9,18 @@ const nativeBridge = vi.hoisted(() => ({
   hideSegment: vi.fn(async () => undefined),
   configureControl: vi.fn(async () => ({ active: true })),
   hideControl: vi.fn(async () => undefined),
+  configureTimer: vi.fn(async (...configuration: [Record<string, unknown>]) => {
+    void configuration;
+    return { active: true };
+  }),
+  hideTimer: vi.fn(async () => undefined),
   controlListener: undefined as
     | ((event: { id: string; value?: boolean }) => void)
     | undefined,
+  timerListener: undefined as
+    | ((action: 'primary' | 'reset' | 'secondary') => void)
+    | undefined,
+  timerPlatform: true,
 }));
 const nativeCompletionAlerts = vi.hoisted(() => ({
   readStatus: vi.fn(),
@@ -54,11 +63,31 @@ vi.mock('./native/iosTabs', async (importOriginal) => {
       return { remove: vi.fn() };
     },
     observeNativeControlFrame: (
-      _element: HTMLElement,
+      element: HTMLElement,
       onFrame: (frame: { x: number; y: number; width: number; height: number }) => void,
     ) => {
-      onFrame({ x: 12, y: 96, width: 360, height: 44 });
+      const frame = { x: 12, y: 96, width: 360, height: 44 };
+      Object.defineProperty(element, 'getClientRects', {
+        configurable: true,
+        value: () => [frame],
+      });
+      onFrame(frame);
       return () => undefined;
+    },
+  };
+});
+vi.mock('./native/iosTimerSurface', async (importOriginal) => {
+  const original = await importOriginal<typeof import('./native/iosTimerSurface')>();
+  return {
+    ...original,
+    isNativeIOSTimerSurfacePlatform: () => nativeBridge.timerPlatform,
+    configureNativeIOSTimerSurface: nativeBridge.configureTimer,
+    hideNativeIOSTimerSurface: nativeBridge.hideTimer,
+    listenForNativeIOSTimerAction: async (
+      listener: (action: 'primary' | 'reset' | 'secondary') => void,
+    ) => {
+      nativeBridge.timerListener = listener;
+      return { remove: vi.fn() };
     },
   };
 });
@@ -97,7 +126,11 @@ describe('native iOS chrome visibility', () => {
     nativeBridge.hideSegment.mockClear();
     nativeBridge.configureControl.mockClear();
     nativeBridge.hideControl.mockClear();
+    nativeBridge.configureTimer.mockClear();
+    nativeBridge.hideTimer.mockClear();
     nativeBridge.controlListener = undefined;
+    nativeBridge.timerListener = undefined;
+    nativeBridge.timerPlatform = true;
     nativeCompletionAlerts.readStatus.mockReset().mockResolvedValue({
       permission: 'prompt',
       alertsEnabled: false,
@@ -166,6 +199,48 @@ describe('native iOS chrome visibility', () => {
     });
   });
 
+  it('follows live system appearance without changing the native appearance enum', async () => {
+    let listener: ((event: MediaQueryListEvent) => void) | undefined;
+    const media = {
+      matches: false,
+      media: '(prefers-color-scheme: dark)',
+      onchange: null,
+      addEventListener: vi.fn((_name: string, next: (event: MediaQueryListEvent) => void) => {
+        listener = next;
+      }),
+      removeEventListener: vi.fn(),
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    } as unknown as MediaQueryList;
+    vi.stubGlobal('matchMedia', vi.fn(() => media));
+    localStorage.setItem('bloom-state', JSON.stringify({
+      version: 33,
+      settings: { name: 'Mira', appearance: 'system' },
+      ritual: { enabled: false, suggestionSeen: true },
+    }));
+    const themeColor = document.createElement('meta');
+    themeColor.name = 'theme-color';
+    document.head.appendChild(themeColor);
+
+    render(<App />);
+
+    await waitFor(() => expect(nativeBridge.configureTabs).toHaveBeenCalledWith(
+      expect.objectContaining({ appearance: 'system' }),
+    ));
+    expect(document.querySelector('.phone')?.classList.contains('night')).toBe(false);
+
+    act(() => listener?.({ matches: true } as MediaQueryListEvent));
+
+    expect(document.querySelector('.phone')?.classList.contains('night')).toBe(true);
+    expect(document.body.classList.contains('night')).toBe(true);
+    expect(document.querySelector('meta[name="theme-color"]')?.getAttribute('content'))
+      .toBe('#1b1535');
+    expect(nativeBridge.configureTabs).toHaveBeenLastCalledWith(
+      expect.objectContaining({ appearance: 'system' }),
+    );
+  });
+
   it('removes both native rails while the foundations picker owns the Focus surface', async () => {
     localStorage.setItem('bloom-state', JSON.stringify({
       version: 31,
@@ -219,5 +294,73 @@ describe('native iOS chrome visibility', () => {
     expect(await screen.findByRole('heading', { name: 'Foreground chime only' })).toBeTruthy();
     expect(screen.getByRole('status').textContent).toMatch(/Timer alerts are off/);
     expect(screen.queryByRole('button', { name: 'allow notifications' })).toBeNull();
+  });
+
+  it('routes native Start, Pause, and Continue through the reducer without per-tick bridge traffic', async () => {
+    localStorage.setItem('bloom-state', JSON.stringify({
+      version: 33,
+      settings: { name: 'Mira', sound: false },
+      ritual: { enabled: false, suggestionSeen: true },
+    }));
+    render(<App />);
+
+    await waitFor(() => {
+      expect(nativeBridge.timerListener).toBeTypeOf('function');
+      expect(nativeBridge.configureTimer).toHaveBeenCalledWith(
+        expect.objectContaining({
+          mode: 'focus',
+          running: false,
+          primaryLabel: 'Start',
+        }),
+      );
+    });
+
+    act(() => nativeBridge.timerListener?.('primary'));
+    await waitFor(() => expect(nativeBridge.configureTimer).toHaveBeenCalledWith(
+      expect.objectContaining({
+        mode: 'focus',
+        running: true,
+        remainingSeconds: 0,
+        primaryLabel: 'Pause',
+        deadlineMs: expect.any(Number),
+      }),
+    ));
+
+    const callsWhileRunning = nativeBridge.configureTimer.mock.calls.length;
+    await act(async () => {
+      await new Promise((resolve) => window.setTimeout(resolve, 700));
+    });
+    expect(nativeBridge.configureTimer).toHaveBeenCalledTimes(callsWhileRunning);
+
+    act(() => nativeBridge.timerListener?.('primary'));
+    await waitFor(() => expect(nativeBridge.configureTimer).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        mode: 'focus',
+        running: false,
+        primaryLabel: 'Continue',
+      }),
+    ));
+    const pausedSnapshot = nativeBridge.configureTimer.mock.calls[
+      nativeBridge.configureTimer.mock.calls.length - 1
+    ]?.[0];
+    expect(pausedSnapshot?.remainingSeconds as number).toBeGreaterThan(0);
+    expect(pausedSnapshot?.deadlineMs).toBeUndefined();
+
+    act(() => nativeBridge.timerListener?.('primary'));
+    await waitFor(() => expect(nativeBridge.configureTimer).toHaveBeenLastCalledWith(
+      expect.objectContaining({ running: true, primaryLabel: 'Pause' }),
+    ));
+  });
+
+  it('retains the accessible React clock and controls when UIKit is unavailable', async () => {
+    nativeBridge.timerPlatform = false;
+    render(<App />);
+
+    const timer = await screen.findByRole('timer', { name: 'Time remaining' });
+    expect(timer.textContent).toBe('25:00');
+    expect(timer.getAttribute('aria-hidden')).toBeNull();
+    expect(timer.classList.contains('native-timer-slot-ready')).toBe(false);
+    expect(screen.getByRole('button', { name: 'Start' })).toBeTruthy();
+    expect(nativeBridge.configureTimer).not.toHaveBeenCalled();
   });
 });

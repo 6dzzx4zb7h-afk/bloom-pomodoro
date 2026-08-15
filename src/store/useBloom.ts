@@ -12,9 +12,12 @@ import {
   type IOSCompletionAlertStatus,
 } from '../native/iosCompletionAlerts';
 import {
+  acknowledgeIOSLiveActivityCommands,
   isIOSLiveActivityPlatform,
+  readPendingIOSLiveActivityCommands,
   readIOSLiveActivityStatus,
   reconcileIOSLiveActivity,
+  type IOSLiveActivityCommand,
   type IOSLiveActivityMode,
   type IOSLiveActivitySnapshot,
   type IOSLiveActivityStatus,
@@ -38,12 +41,14 @@ import {
   type PersonalCadenceRecommendation,
 } from '../insights/cadence';
 import {
-  appendDriftEvent,
+  appendEvent,
   clearEvents,
   DEFAULT_COMPANION,
   loadEvents,
+  newEventId,
   replaceCompanionLog,
   type Chronotype,
+  type CompanionEvent,
   type CompanionSettings,
 } from './companion';
 import type { SessionRepairProposal } from './sessionRepair';
@@ -92,6 +97,7 @@ import {
   type GoalCreditStatus,
   type ReturnResolution,
   type SessionRecord,
+  type SessionOutcome,
   type TargetOutcome,
 } from './sessions';
 import {
@@ -148,6 +154,7 @@ import {
   reportStorageFailure,
   storageWritesBlocked,
 } from './storageHealth';
+import { isAppearanceMode, type AppearanceMode } from './appearance';
 
 /** 'flow' is the opt-in count-up stopwatch; the rest count down. */
 export type TimerMode = 'focus' | 'tiny' | 'short' | 'long' | 'flow';
@@ -209,8 +216,8 @@ export interface Settings {
   sound: boolean;
   /** Automatically start the next timer after the celebrate animation. */
   autoStart: boolean;
-  /** Night sky theme: dark palette + animated stars and meteors. */
-  night: boolean;
+  /** Fixed Day/Night sky, or live browser/iOS system appearance. */
+  appearance: AppearanceMode;
   /** Name of the friend on duty (drives the focus-screen sprite). */
   pal: string;
   /** Companion Mode: gentle check-ins + local focus-pattern insights. */
@@ -312,7 +319,7 @@ export const DEFAULT_SETTINGS: Settings = {
   durations: { focus: 1500, short: 300, long: 900 },
   sound: true,
   autoStart: false,
-  night: false,
+  appearance: 'system',
   pal: 'Mochi',
   companion: DEFAULT_COMPANION,
   flow: false,
@@ -382,7 +389,7 @@ export const BLOOM_STORAGE_KEY = 'bloom-state';
 const STORAGE_KEY = BLOOM_STORAGE_KEY;
 /** Older keys we still read from once, newest first. */
 const LEGACY_KEYS = ['bloom-state-v2', 'bloom-state-v1'];
-export const SCHEMA_VERSION = 31;
+export const SCHEMA_VERSION = 34;
 
 export interface PersistedShape {
   version: number;
@@ -643,11 +650,35 @@ const MIGRATIONS: Array<(blob: Record<string, unknown>) => Record<string, unknow
   (blob) => {
     const settings = (blob.settings ?? {}) as Record<string, unknown>;
     const { bgSound: _bgSound, ...rest } = settings;
+    void _bgSound;
     return {
       ...blob,
       settings: rest,
     };
   },
+  // v31 -> v32: finalized sessions may retain `parkedThoughtCount` for the
+  // History ledger (PLAN 9.3). The field is optional, so existing records
+  // remain exact instead of acquiring an invented historical count.
+  (blob) => blob,
+  // v32 -> v33: explicit appearance modes (PLAN 8.25). Preserve the exact
+  // look existing users chose; fresh installs get Follow system from defaults.
+  (blob) => {
+    const settings = (blob.settings ?? {}) as Record<string, unknown>;
+    const { night, ...rest } = settings;
+    return {
+      ...blob,
+      settings: {
+        ...rest,
+        appearance: night === true ? 'night' : 'day',
+      },
+    };
+  },
+  // v33 -> v34: sync-safe envelope baseline (PLAN 11.2). Sync revisions,
+  // device/account binding, cursors, tombstones, and outbox state live under
+  // their own device-local key and are never part of bloom-state or a synced
+  // payload. No existing id or timestamp is rewritten; this pass-through
+  // version marks the exact main schema the first sync protocol understands.
+  (blob) => blob,
 ];
 
 type ValidationNote = (reason: string) => void;
@@ -781,7 +812,7 @@ function withDefaults(blob: Record<string, unknown>, note?: ValidationNote): Per
   invalidSetting('name', (value) => typeof value === 'string');
   invalidSetting('sound', (value) => typeof value === 'boolean');
   invalidSetting('autoStart', (value) => typeof value === 'boolean');
-  invalidSetting('night', (value) => typeof value === 'boolean');
+  invalidSetting('appearance', isAppearanceMode);
   invalidSetting('pal', (value) => typeof value === 'string' && value.length > 0);
   invalidSetting('flow', (value) => typeof value === 'boolean');
   invalidSetting('planner', (value) => typeof value === 'boolean');
@@ -865,7 +896,9 @@ function withDefaults(blob: Record<string, unknown>, note?: ValidationNote): Per
       typeof bSettings.autoStart === 'boolean'
         ? bSettings.autoStart
         : DEFAULT_SETTINGS.autoStart,
-    night: typeof bSettings.night === 'boolean' ? bSettings.night : DEFAULT_SETTINGS.night,
+    appearance: isAppearanceMode(bSettings.appearance)
+      ? bSettings.appearance
+      : DEFAULT_SETTINGS.appearance,
     pal:
       typeof bSettings.pal === 'string' && bSettings.pal.length > 0
         ? bSettings.pal
@@ -1129,7 +1162,33 @@ export function readPersisted(): PersistedShape | null {
 /** A flow run restored past this is treated as forgotten, not still going. */
 const FLOW_RESTORE_CAP_S = 4 * 3600;
 
-export function loadState(): BloomState {
+function withParkedThoughtCount(
+  record: SessionRecord,
+  parking: readonly ParkedThought[],
+): SessionRecord {
+  const parkedThoughtCount = parking.filter(
+    (thought) => thought.sessionId === record.id,
+  ).length;
+  return { ...record, parkedThoughtCount };
+}
+
+/** Finalize first, then snapshot the session-owned parking count atomically. */
+function finalizeSessionWithParking(
+  open: OpenSession,
+  outcome: SessionOutcome,
+  actualMin: number,
+  parking: readonly ParkedThought[],
+  endedAt?: number,
+): SessionRecord {
+  return withParkedThoughtCount(
+    finalizeSession(open, outcome, actualMin, endedAt),
+    parking,
+  );
+}
+
+export function loadState(
+  options: { deferOpenFocusSweep?: boolean } = {},
+): BloomState {
   const now = Date.now();
   const p = readPersisted();
   if (!p) return initializeDay(DEFAULT_STATE, now);
@@ -1137,7 +1196,15 @@ export function loadState(): BloomState {
   // as-is. Every other stale focus countdown keeps the existing safety rule:
   // finalize it as interrupted and offer a one-tap re-entry cue.
   const pendingReturn = Boolean(p.openFocus?.returnSnapshot?.returnedAt);
-  const swept = p.openFocus && !pendingReturn ? sweepStaleOpenSession(p.openFocus) : null;
+  const deferredOpenFocus = Boolean(
+    options.deferOpenFocusSweep && p.openFocus && !pendingReturn,
+  );
+  const sweptRecord = p.openFocus && !pendingReturn && !deferredOpenFocus
+    ? sweepStaleOpenSession(p.openFocus)
+    : null;
+  const swept = sweptRecord
+    ? withParkedThoughtCount(sweptRecord, p.parking)
+    : null;
   const sweptHistory = swept
     ? appendSessionRecordWithArchive(p.sessionRecords, p.historyArchive, swept)
     : null;
@@ -1170,7 +1237,7 @@ export function loadState(): BloomState {
     flowAcc: p.flow.acc,
     sessionRecords,
     historyArchive,
-    openFocus: pendingReturn ? p.openFocus : null,
+    openFocus: pendingReturn || deferredOpenFocus ? p.openFocus : null,
     openFlow: p.openFlow,
     lastWeeklyReviewWeek: p.lastWeeklyReviewWeek,
     ifThenPlans: p.ifThenPlans,
@@ -1181,13 +1248,13 @@ export function loadState(): BloomState {
     parking,
     guideRead: p.guideRead,
   };
-  if (pendingReturn && p.openFocus?.returnSnapshot) {
+  if ((pendingReturn || deferredOpenFocus) && p.openFocus) {
     // The clock kept moving while away; show the live countdown (held at
     // zero — completion waits for the return question's answer).
     const live =
       p.openFocus.running && p.openFocus.endsAt != null
         ? Math.max(0, Math.ceil((p.openFocus.endsAt - now) / 1000))
-        : p.openFocus.returnSnapshot.remainingSec;
+        : p.openFocus.returnSnapshot?.remainingSec ?? p.openFocus.remainingSec;
     return initializeDay({
       ...base,
       mode: p.openFocus.mode,
@@ -1609,6 +1676,7 @@ export type Action =
   | { type: 'replaceState'; state: BloomState }
   | { type: 'tick'; at?: number }
   | { type: 'rollOverDay'; at: number }
+  | { type: 'applyIOSLiveActivityCommand'; command: IOSLiveActivityCommand }
   | { type: 'toggle'; ifThenPlanId?: string; targetText?: string }
   | { type: 'reset' }
   | { type: 'discardFalseStart' }
@@ -1729,6 +1797,60 @@ export function reducer(s: BloomState, a: Action): BloomState {
     }
     case 'rollOverDay':
       return rollOverDay(s, a.at);
+    case 'applyIOSLiveActivityCommand': {
+      const command = a.command;
+      if (
+        !s.openFocus ||
+        s.openFocus.id !== command.sessionId ||
+        (s.mode !== 'focus' && s.mode !== 'tiny') ||
+        s.mode !== s.openFocus.mode ||
+        !Number.isFinite(command.atMs) ||
+        command.atMs < s.openFocus.startedAt ||
+        !Number.isInteger(command.remainingSeconds) ||
+        command.remainingSeconds <= 0 ||
+        command.remainingSeconds > 7 * 24 * 60 * 60
+      ) {
+        return s;
+      }
+
+      if (command.action === 'pause') {
+        if (!s.running || s.endsAt == null) return s;
+        const openFocus = {
+          ...s.openFocus,
+          running: false,
+          endsAt: null,
+          remainingSec: command.remainingSeconds,
+        };
+        return {
+          ...s,
+          running: false,
+          endsAt: null,
+          remaining: command.remainingSeconds,
+          justDone: false,
+          openFocus,
+        };
+      }
+
+      if (command.action === 'resume') {
+        if (s.running || s.endsAt != null) return s;
+        const endsAt = command.atMs + command.remainingSeconds * 1_000;
+        const openFocus = {
+          ...s.openFocus,
+          running: true,
+          endsAt,
+          remainingSec: command.remainingSeconds,
+        };
+        return {
+          ...s,
+          running: true,
+          endsAt,
+          remaining: command.remainingSeconds,
+          justDone: false,
+          openFocus,
+        };
+      }
+      return s;
+    }
     case 'toggle': {
       if (s.mode === 'flow') {
         if (s.running) {
@@ -1835,7 +1957,12 @@ export function reducer(s: BloomState, a: Action): BloomState {
           ? appendSessionRecordWithArchive(
               s.sessionRecords,
               s.historyArchive,
-              finalizeSession(s.openFlow, 'abandoned', flowElapsed(s) / 60),
+              finalizeSessionWithParking(
+                s.openFlow,
+                'abandoned',
+                flowElapsed(s) / 60,
+                s.parking,
+              ),
             )
           : null;
         const parking = revealParkedThoughts(s.parking, s.openFlow?.id);
@@ -1862,7 +1989,12 @@ export function reducer(s: BloomState, a: Action): BloomState {
         ? appendSessionRecordWithArchive(
             s.sessionRecords,
             s.historyArchive,
-            finalizeSession(s.openFocus, 'abandoned', focusElapsedMin(s)),
+            finalizeSessionWithParking(
+              s.openFocus,
+              'abandoned',
+              focusElapsedMin(s),
+              s.parking,
+            ),
           )
         : null;
       const parking = revealParkedThoughts(s.parking, s.openFocus?.id);
@@ -1892,7 +2024,12 @@ export function reducer(s: BloomState, a: Action): BloomState {
         const appended = appendSessionRecordWithArchive(
           sessionRecords,
           historyArchive,
-          finalizeSession(openFocus, 'abandoned', focusElapsedMin(s)),
+          finalizeSessionWithParking(
+            openFocus,
+            'abandoned',
+            focusElapsedMin(s),
+            parking,
+          ),
         );
         sessionRecords = appended.records;
         historyArchive = appended.archive;
@@ -1927,7 +2064,12 @@ export function reducer(s: BloomState, a: Action): BloomState {
     case 'finishFlow': {
       if (s.mode !== 'flow' || !s.openFlow) return s;
       const elapsed = flowElapsed(s);
-      const record = finalizeSession(s.openFlow, 'completed', elapsed / 60);
+      const record = finalizeSessionWithParking(
+        s.openFlow,
+        'completed',
+        elapsed / 60,
+        s.parking,
+      );
       const credit = beginGoalCredit(
         s.goalLedger,
         s.goals,
@@ -2060,10 +2202,11 @@ export function reducer(s: BloomState, a: Action): BloomState {
       const sessions = s.sessions + (wasFocus ? 1 : 0);
       const completedRecord =
         wasWork && s.openFocus
-          ? finalizeSession(
+          ? finalizeSessionWithParking(
               s.openFocus,
               'completed',
               s.openFocus.plannedMin ?? dur.focus / 60,
+              s.parking,
             )
           : null;
       const streakPatch = completedRecord
@@ -3074,7 +3217,12 @@ export function reducer(s: BloomState, a: Action): BloomState {
           ? appendSessionRecordWithArchive(
               current.sessionRecords,
               current.historyArchive,
-              finalizeSession(current.openFlow, 'abandoned', flowElapsed(current) / 60),
+              finalizeSessionWithParking(
+                current.openFlow,
+                'abandoned',
+                flowElapsed(current) / 60,
+                current.parking,
+              ),
             )
           : null;
         return {
@@ -3121,26 +3269,108 @@ export function reducer(s: BloomState, a: Action): BloomState {
 }
 
 export function useBloom() {
-  const [state, dispatch] = useReducer(reducer, undefined, loadState);
+  const liveActivityPlatform = isIOSLiveActivityPlatform();
+  const [state, dispatch] = useReducer(
+    reducer,
+    liveActivityPlatform,
+    (deferOpenFocusSweep) => loadState({ deferOpenFocusSweep }),
+  );
+  const stateRef = useRef(state);
+  stateRef.current = state;
   const dayStartHour = state.settings.dayStartHour;
+  const deferredNativeFocusIdRef = useRef(
+    liveActivityPlatform && state.openFocus && !state.openFocus.returnSnapshot?.returnedAt
+      ? state.openFocus.id
+      : null,
+  );
+  const [nativeTimerReconciliationReady, setNativeTimerReconciliationReady] =
+    useState(deferredNativeFocusIdRef.current == null);
+  const nativeCommandDrainActiveRef = useRef(false);
+
+  const drainNativeTimerCommands = useCallback(
+    async (settleDeferredOpenFocus: boolean) => {
+      if (!liveActivityPlatform || nativeCommandDrainActiveRef.current) return;
+      nativeCommandDrainActiveRef.current = true;
+      try {
+        const commands = await readPendingIOSLiveActivityCommands();
+        const current = stateRef.current;
+        const deferredId = deferredNativeFocusIdRef.current;
+        const targetsDeferredSession = Boolean(
+          deferredId &&
+          commands.some(
+            (command) =>
+              command.sessionId === deferredId &&
+              command.atMs >= (current.openFocus?.startedAt ?? Number.POSITIVE_INFINITY),
+          ),
+        );
+        let next = commands.reduce(
+          (candidate, command) =>
+            reducer(candidate, { type: 'applyIOSLiveActivityCommand', command }),
+          current,
+        );
+
+        // Preserve the established honesty rule when a normal relaunch has no
+        // matching native interaction: reload through the ordinary path so
+        // the open work record is swept to interrupted exactly once. A queued
+        // Pause/Continue command is the sole reason to defer that boot sweep.
+        if (settleDeferredOpenFocus && deferredId && !targetsDeferredSession) {
+          next = loadState();
+        }
+
+        const targetedCurrentSession = Boolean(
+          current.openFocus &&
+          commands.some(
+            (command) => command.sessionId === current.openFocus?.id,
+          ),
+        );
+        const needsDurableWrite = next !== current || targetedCurrentSession;
+        const durable = !needsDurableWrite || persist(next);
+        if (next !== current) dispatch({ type: 'replaceState', state: next });
+        if (durable && commands.length) {
+          await acknowledgeIOSLiveActivityCommands(commands.map((command) => command.id));
+        }
+        if (settleDeferredOpenFocus) deferredNativeFocusIdRef.current = null;
+        setNativeTimerReconciliationReady(true);
+      } finally {
+        nativeCommandDrainActiveRef.current = false;
+      }
+    },
+    [liveActivityPlatform],
+  );
+
+  useEffect(() => {
+    if (!liveActivityPlatform) return;
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') {
+        void drainNativeTimerCommands(false);
+      }
+    };
+    void drainNativeTimerCommands(true);
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, [drainNativeTimerCommands, liveActivityPlatform]);
 
   // Persist durable fields whenever they change. Flow start/pause lands here
   // too (running/mode/flowStart), so a live stopwatch survives a reload; the
   // per-second tick only touches `remaining`, which is not persisted.
   useEffect(() => {
+    if (!nativeTimerReconciliationReady) return;
     persist(state);
-  }, [state.sessions, state.streak, state.lastFocusDay, state.restDayUsedOn, state.comeBack, state.tasks, state.activeTaskId, state.palXp, state.goals, state.goalLedger, state.foundations, state.dayPlan, state.lastRolloverOfferDay, state.flowStart, state.flowAcc, state.running, state.mode, state.sessionRecords, state.openFocus, state.openFlow, state.lastWeeklyReviewWeek, state.ifThenPlans, state.ritual, state.lastWoopOfferAt, state.preSlump, state.personalCadence, state.parking, state.guideRead, state.settings]);
+    // `remaining` and `now` are tick-derived and intentionally excluded so
+    // the local store is not rewritten four times per second.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- persist only durable fields
+  }, [nativeTimerReconciliationReady, state.sessions, state.streak, state.lastFocusDay, state.restDayUsedOn, state.comeBack, state.tasks, state.activeTaskId, state.palXp, state.goals, state.goalLedger, state.foundations, state.dayPlan, state.lastRolloverOfferDay, state.flowStart, state.flowAcc, state.running, state.mode, state.sessionRecords, state.openFocus, state.openFlow, state.lastWeeklyReviewWeek, state.ifThenPlans, state.ritual, state.lastWoopOfferAt, state.preSlump, state.personalCadence, state.parking, state.guideRead, state.settings]);
 
   // Wall-clock tick: recompute remaining ~4x/sec and let the same reducer
   // decision own a day rollover while a timer is active.
   useEffect(() => {
-    if (!state.running) return;
+    if (!nativeTimerReconciliationReady || !state.running) return;
     const iv = setInterval(
       () => dispatch({ type: 'tick', at: Date.now() }),
       250,
     );
     return () => clearInterval(iv);
-  }, [dayStartHour, state.running]);
+  }, [dayStartHour, nativeTimerReconciliationReady, state.running]);
 
   // Idle apps still wake at the local boundary. A running app normally rolls
   // over on its 250 ms tick first; the reducer makes the scheduled duplicate
@@ -3242,6 +3472,7 @@ export function useBloom() {
   // request. This effect never completes or persists a session; after process
   // termination, the existing boot sweep remains the source of record truth.
   useEffect(() => {
+    if (!nativeTimerReconciliationReady) return;
     void reconcileIOSCompletionAlert({
       enabled: state.settings.sound,
       running: state.running,
@@ -3250,6 +3481,7 @@ export function useBloom() {
     });
   }, [
     completionAlertStatus.permission,
+    nativeTimerReconciliationReady,
     state.endsAt,
     state.mode,
     state.running,
@@ -3278,7 +3510,6 @@ export function useBloom() {
     liveActivityPhase === 'running' ? state.endsAt : null;
   const liveActivityRemainingSeconds =
     liveActivityPhase === 'paused' ? state.remaining : null;
-  const liveActivityPlatform = isIOSLiveActivityPlatform();
   const [liveActivityStatus, setLiveActivityStatus] = useState<IOSLiveActivityStatus>({
     supported: false,
     enabled: false,
@@ -3329,6 +3560,7 @@ export function useBloom() {
   );
 
   useEffect(() => {
+    if (!nativeTimerReconciliationReady) return;
     let snapshot: IOSLiveActivitySnapshot | null = null;
     if (
       liveActivitySessionId &&
@@ -3343,6 +3575,7 @@ export function useBloom() {
               state: 'running',
               startedAtMs: liveActivityStartedAtMs,
               deadlineMs: liveActivityDeadlineMs,
+              completionAlertsEnabled: state.settings.sound,
             }
           : {
               sessionId: liveActivitySessionId,
@@ -3353,17 +3586,20 @@ export function useBloom() {
                 0,
                 Math.floor(liveActivityRemainingSeconds ?? 0),
               ),
+              completionAlertsEnabled: state.settings.sound,
             };
     }
     mirrorLiveActivity(snapshot);
   }, [
     liveActivityDeadlineMs,
     liveActivityMode,
+    nativeTimerReconciliationReady,
     liveActivityPhase,
     liveActivityRemainingSeconds,
     liveActivitySessionId,
     liveActivityStartedAtMs,
     mirrorLiveActivity,
+    state.settings.sound,
   ]);
 
   // Refresh system-owned availability on return. If iOS declined an initial
@@ -3414,7 +3650,6 @@ export function useBloom() {
     return () => {
       if (celRef.current) clearTimeout(celRef.current);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.justDone, state.mode, state.sessionRecords]);
 
   // Derived animal mood.
@@ -3541,9 +3776,9 @@ export function useBloom() {
       applyCadence: (pair: CadencePair) => dispatch({ type: 'applyCadence', pair }),
       setTargetOutcome: (sessionId: string, targetOutcome: TargetOutcome) =>
         dispatch({ type: 'setTargetOutcome', sessionId, targetOutcome }),
-      repairSession: (proposal: SessionRepairProposal): SessionRecord => {
+      repairSession: (proposal: SessionRepairProposal): SessionRecord | null => {
         const editedAt = Date.now();
-        let driftEventId: string | undefined;
+        let repairEvent: CompanionEvent | undefined;
         if (proposal.retroactiveDrift) {
           const onsetMin = Math.max(
             0,
@@ -3554,7 +3789,8 @@ export function useBloom() {
             proposal.record.plannedMin ?? proposal.record.actualMin,
             Math.ceil(onsetMin),
           );
-          driftEventId = appendDriftEvent({
+          repairEvent = {
+            id: newEventId(editedAt),
             sessionId: proposal.record.id,
             ts: Math.max(editedAt, proposal.retroactiveDrift.onsetAt),
             shownAt: proposal.retroactiveDrift.onsetAt,
@@ -3565,18 +3801,32 @@ export function useBloom() {
               Math.max(1, proposal.retroactiveDrift.durationMin),
             ),
             len,
+            kind: 'drift',
             src: 'repair',
-          }).id;
+          };
         }
         const record: SessionRecord = {
           ...proposal.record,
           driftEventIds:
-            driftEventId && !proposal.record.driftEventIds.includes(driftEventId)
-              ? [...proposal.record.driftEventIds, driftEventId]
+            repairEvent?.id && !proposal.record.driftEventIds.includes(repairEvent.id)
+              ? [...proposal.record.driftEventIds, repairEvent.id]
               : [...proposal.record.driftEventIds],
           edited: true,
           editedAt,
         };
+        const current = stateRef.current;
+        const next = reducer(current, { type: 'repairSession', record });
+        if (next === current) return null;
+
+        const priorEvents = repairEvent ? loadEvents() : [];
+        if (repairEvent) {
+          appendEvent(repairEvent);
+          if (!loadEvents().some((event) => event.id === repairEvent?.id)) return null;
+        }
+        if (!persist(next)) {
+          if (repairEvent) replaceCompanionLog(priorEvents);
+          return null;
+        }
         dispatch({ type: 'repairSession', record });
         return record;
       },
@@ -3625,7 +3875,7 @@ export function useBloom() {
         dispatch({ type: 'patchSettings', patch, at: Date.now() }),
       reloadPersistedState: () => dispatch({ type: 'replaceState', state: loadState() }),
     }),
-    [],
+    [maybeOfferCompletionAlertPermission],
   );
 
   const retryStorage = useCallback(() => {

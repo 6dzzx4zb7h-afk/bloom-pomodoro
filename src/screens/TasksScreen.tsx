@@ -19,6 +19,15 @@ import type { GuideArticleId } from '../content/guide';
 import { guideArticleForEvidenceKey } from '../insights/surfacing';
 import { FoundationsCard } from '../components/FoundationsCard';
 import { currentSurface, wordsFor } from '../content/platformWords';
+import {
+  isTaskDailyTarget,
+  parseDailyTargetAmount,
+  targetActual,
+  type TaskDailyTarget,
+} from '../store/dailyTarget';
+import { dayKeyFor } from '../store/dayKey';
+import { sessionCountsTowardDay } from '../store/sessions';
+import { daysBetween } from '../store/streak';
 
 const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
@@ -43,6 +52,10 @@ export function TasksScreen({
   const [addedNotice, setAddedNotice] = useState(0);
   const [deletedTask, setDeletedTask] = useState<DeletedTask | null>(null);
   const [draftTouched, setDraftTouched] = useState(false);
+  const [planningTaskId, setPlanningTaskId] = useState<number | null>(null);
+  const [taskPlanAmount, setTaskPlanAmount] = useState('1');
+  const [taskPlanError, setTaskPlanError] = useState('');
+  const [taskPlanStatus, setTaskPlanStatus] = useState('');
   const taskNameRef = useRef<HTMLInputElement>(null);
 
   // Optional task→goal link (a first slice of PLAN 8.12): only offered while
@@ -68,6 +81,20 @@ export function TasksScreen({
   const total = state.tasks.length;
   const progPct = total ? Math.round((doneCount / total) * 100) : 0;
   const allDone = total > 0 && doneCount === total;
+  const todayTaskTarget = (state.dayPlan?.targets ?? []).find(
+    (target) => target.dayKey === state.today && isTaskDailyTarget(target),
+  );
+  const taskActual = (target: TaskDailyTarget) =>
+    state.sessionRecords.filter(
+      (record) =>
+        record.taskId === target.taskId &&
+        sessionCountsTowardDay(record) &&
+        dayKeyFor(record.endedAt, state.settings.dayStartHour) === target.dayKey,
+    ).length;
+  const yesterdayTaskTarget = (state.dayPlan?.targets ?? []).find(
+    (target) =>
+      isTaskDailyTarget(target) && daysBetween(target.dayKey, state.today) === 1,
+  );
 
   // The heading follows the store-resolved study day, so a chosen late
   // rollover cannot disagree with streaks, goals, or History grouping.
@@ -86,11 +113,14 @@ export function TasksScreen({
   const surface = currentSurface();
   const awayWords = wordsFor(surface);
   const insights = useMemo(
-    () => companionOn
-      // Rolling windows need the fresh computation instant; the store-owned
-      // day signal only controls when an otherwise-stable memo is invalidated.
-      ? computeInsights(localEvents, Date.now(), patternsWindow === 'today' ? 1 : 7)
-      : null,
+    () => {
+      // `now` is the store-owned refresh signal; the rolling window captures
+      // the actual instant when this memo recomputes.
+      void now;
+      return companionOn
+        ? computeInsights(localEvents, Date.now(), patternsWindow === 'today' ? 1 : 7)
+        : null;
+    },
     [companionOn, localEvents, now, patternsWindow],
   );
   const phaseWord = { early: 'early on', mid: 'mid-session', late: 'in the late stretch' } as const;
@@ -103,9 +133,10 @@ export function TasksScreen({
     [state.sessionRecords],
   );
   const recipe = useMemo(
-    () =>
-      companionOn
-        // Same clock role as insights above: fresh window, day-keyed refresh.
+    () => {
+      // Same clock role as the insight window above.
+      void now;
+      return companionOn
         ? computeAttentionPlan(
             localEvents,
             focusLenMins,
@@ -117,7 +148,8 @@ export function TasksScreen({
             },
             surface,
           )
-        : [],
+        : [];
+    },
     [
       companionOn,
       completionByStartHour,
@@ -137,7 +169,9 @@ export function TasksScreen({
   );
   const cadenceDecision = useMemo(
     () => {
-      // Staleness and recommendation share this exact computation instant.
+      // `now` is the store-owned refresh signal; staleness and recommendation
+      // share the actual instant when this memo recomputes.
+      void now;
       const computedAt = Date.now();
       return {
         cadence: personalCadenceForSurface(
@@ -201,12 +235,47 @@ export function TasksScreen({
     setDeletedTask(null);
   }
 
+  function beginTaskPlan(task: Task) {
+    setPlanningTaskId(task.id);
+    setTaskPlanAmount(String(Math.max(1, task.goal - task.pomos)));
+    setTaskPlanError('');
+  }
+
+  function confirmTaskPlan(task: Task) {
+    const plannedAmount = parseDailyTargetAmount(taskPlanAmount);
+    if (plannedAmount == null) {
+      setTaskPlanError('Choose a whole number from 1 to 99.');
+      return;
+    }
+    if (todayTaskTarget) {
+      setTaskPlanError('Today already has a task target. Keep it or remove it first.');
+      return;
+    }
+    actions.addTaskDailyTarget(task.id, plannedAmount, now);
+    setPlanningTaskId(null);
+    setTaskPlanError('');
+    setTaskPlanStatus(`Today’s target for ${task.t} is ${plannedAmount} sessions.`);
+  }
+
   return (
     <main className="screen tasks-bg" id="tasks-screen" aria-labelledby="tasks-heading">
       <div className="head">
         <h1 className="head-title" id="tasks-heading">Tasks</h1>
         <div className="head-sub">ongoing list · {dateLabel}</div>
       </div>
+
+      {taskPlanStatus && (
+        <p className="day-plan-status" role="status" aria-live="polite">
+          {taskPlanStatus}
+        </p>
+      )}
+      {state.settings.planner && yesterdayTaskTarget && (
+        <p className="day-plan-status task-day-plan-prior" role="status">
+          Yesterday: {targetActual(yesterdayTaskTarget, state.goalLedger, taskActual)} of{' '}
+          {yesterdayTaskTarget.plannedAmount} {yesterdayTaskTarget.snapshot.unit} for{' '}
+          {yesterdayTaskTarget.snapshot.title} — that’s real progress.
+        </p>
+      )}
 
       {state.settings.foundations && (
         <FoundationsCard
@@ -342,6 +411,71 @@ export function TasksScreen({
                   )}
                 </div>
               )}
+              {state.settings.planner && !task.done && (
+                <div className="task-day-plan-tools">
+                  {todayTaskTarget?.taskId === task.id && (
+                    <span className="task-day-plan-progress" role="status">
+                      today {targetActual(todayTaskTarget, state.goalLedger, taskActual)}/
+                      {todayTaskTarget.plannedAmount} sessions
+                    </span>
+                  )}
+                  {!todayTaskTarget && planningTaskId !== task.id && (
+                    <button
+                      type="button"
+                      className="task-day-plan-open"
+                      onClick={() => beginTaskPlan(task)}
+                    >
+                      plan {task.t} today
+                    </button>
+                  )}
+                  {planningTaskId === task.id && (
+                    <form
+                      className="task-day-plan-form"
+                      noValidate
+                      onSubmit={(event) => {
+                        event.preventDefault();
+                        confirmTaskPlan(task);
+                      }}
+                    >
+                      <label>
+                        <span>Sessions today</span>
+                        <input
+                          type="number"
+                          min={1}
+                          max={99}
+                          value={taskPlanAmount}
+                          aria-label={`Sessions today for ${task.t}`}
+                          aria-invalid={Boolean(taskPlanError)}
+                          aria-describedby={`task-day-plan-error-${task.id}`}
+                          onChange={(event) => {
+                            setTaskPlanAmount(event.target.value);
+                            setTaskPlanError('');
+                          }}
+                        />
+                      </label>
+                      <button type="submit">confirm</button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPlanningTaskId(null);
+                          setTaskPlanError('');
+                        }}
+                      >
+                        cancel
+                      </button>
+                      {taskPlanError && (
+                        <span
+                          className="field-error"
+                          id={`task-day-plan-error-${task.id}`}
+                          role="alert"
+                        >
+                          {taskPlanError}
+                        </span>
+                      )}
+                    </form>
+                  )}
+                </div>
+              )}
               <button className="task-del" onClick={() => removeTask(task, index)} aria-label={`Delete ${task.t}`}>
                 &times;
               </button>
@@ -351,15 +485,7 @@ export function TasksScreen({
         {total === 0 && (
           <section className="task-empty" aria-labelledby="task-empty-heading">
             <h2 id="task-empty-heading">your list starts here</h2>
-            <p>name one small thing you’d like to begin.</p>
-            <button
-              type="button"
-              className="task-empty-action"
-              aria-controls="new-task-name"
-              onClick={() => taskNameRef.current?.focus()}
-            >
-              add your first task
-            </button>
+            <p>name one small thing in the form below.</p>
           </section>
         )}
 
@@ -555,7 +681,7 @@ export function TasksScreen({
             className="goal-btn"
             onClick={() => setGoal((g) => (g % 4) + 1)}
             title="pomodoros needed"
-            aria-label={`Goal: ${goal} pomodoros`}
+            aria-label={`Goal: ${goal} focus ${goal === 1 ? 'session' : 'sessions'}`}
           >
             {goal}
             <span className="goal-cherry" />

@@ -81,6 +81,11 @@ export interface SessionRecord {
   ifThenPlanId?: string;
   /** The smallest visible action to restore after an interruption (PLAN 5.2). */
   nextActionText?: string;
+  /**
+   * Thoughts parked during this session. Stamped at finalization so removing
+   * an individual parked note later does not rewrite the History ledger.
+   */
+  parkedThoughtCount?: number;
   /** Last tab-leave snapshot, retained on interrupted records for re-entry. */
   returnSnapshot?: TimerSnapshot;
   /** Reopening onto this interrupted record should offer its resume cue. */
@@ -177,6 +182,8 @@ export function isValidSessionRecord(r: unknown): r is SessionRecord {
     (x.targetOutcome === undefined || TARGET_OUTCOMES.includes(x.targetOutcome as TargetOutcome)) &&
     (x.ifThenPlanId === undefined || typeof x.ifThenPlanId === 'string') &&
     (x.nextActionText === undefined || typeof x.nextActionText === 'string') &&
+    (x.parkedThoughtCount === undefined ||
+      (Number.isSafeInteger(x.parkedThoughtCount) && (x.parkedThoughtCount as number) >= 0)) &&
     (x.returnSnapshot === undefined || isValidTimerSnapshot(x.returnSnapshot, x.id as string)) &&
     (x.resumeCuePending === undefined || typeof x.resumeCuePending === 'boolean') &&
     (x.edited === undefined
@@ -311,6 +318,7 @@ export function markTimerReturn(
   if (snapshot.returnedAt != null) return { open, shouldPrompt: true };
   if (returnedAt - snapshot.capturedAt < Math.max(0, thresholdSec) * 1000) {
     const { returnSnapshot: _discarded, ...rest } = open;
+    void _discarded;
     return { open: rest, shouldPrompt: false };
   }
   return {
@@ -328,6 +336,7 @@ export function resolveTimerReturn(
   const snapshot = open.returnSnapshot;
   if (!snapshot) return open;
   const { returnSnapshot: _resolved, ...rest } = open;
+  void _resolved;
   if (resolution === 'pauseBack') {
     return {
       ...rest,

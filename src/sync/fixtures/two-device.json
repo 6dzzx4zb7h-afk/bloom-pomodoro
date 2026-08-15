@@ -1,0 +1,201 @@
+[
+  {
+    "format": "bloom-sync-mutation",
+    "protocolVersion": 1,
+    "contentSchemaVersion": 34,
+    "deviceId": "device_alpha",
+    "mutationId": "mutation_alpha_task",
+    "baseRevision": 0,
+    "revision": 1,
+    "cursor": "cursor_1",
+    "mutation": {
+      "operation": "create",
+      "kind": "task",
+      "id": "11",
+      "value": { "id": 11, "t": "Alpha task", "done": false, "goal": 1 }
+    }
+  },
+  {
+    "format": "bloom-sync-mutation",
+    "protocolVersion": 1,
+    "contentSchemaVersion": 34,
+    "deviceId": "device_beta",
+    "mutationId": "mutation_beta_task",
+    "baseRevision": 0,
+    "revision": 2,
+    "cursor": "cursor_2",
+    "mutation": {
+      "operation": "create",
+      "kind": "task",
+      "id": "12",
+      "value": { "id": 12, "t": "Beta task", "done": false, "goal": 1 }
+    }
+  },
+  {
+    "format": "bloom-sync-mutation",
+    "protocolVersion": 1,
+    "contentSchemaVersion": 34,
+    "deviceId": "device_alpha",
+    "mutationId": "mutation_alpha_session",
+    "baseRevision": 0,
+    "revision": 3,
+    "cursor": "cursor_3",
+    "mutation": {
+      "operation": "create",
+      "kind": "session-record",
+      "id": "s-alpha",
+      "value": {
+        "id": "s-alpha",
+        "startedAt": 100,
+        "endedAt": 1600,
+        "mode": "focus",
+        "plannedMin": 25,
+        "actualMin": 25,
+        "outcome": "completed",
+        "startHour": 0,
+        "driftEventIds": []
+      }
+    }
+  },
+  {
+    "format": "bloom-sync-mutation",
+    "protocolVersion": 1,
+    "contentSchemaVersion": 34,
+    "deviceId": "device_beta",
+    "mutationId": "mutation_beta_session",
+    "baseRevision": 0,
+    "revision": 4,
+    "cursor": "cursor_4",
+    "mutation": {
+      "operation": "create",
+      "kind": "session-record",
+      "id": "s-beta",
+      "value": {
+        "id": "s-beta",
+        "startedAt": 2000,
+        "endedAt": 3200,
+        "mode": "focus",
+        "plannedMin": 20,
+        "actualMin": 20,
+        "outcome": "completed",
+        "startHour": 0,
+        "driftEventIds": []
+      }
+    }
+  },
+  {
+    "format": "bloom-sync-mutation",
+    "protocolVersion": 1,
+    "contentSchemaVersion": 34,
+    "deviceId": "device_alpha",
+    "mutationId": "mutation_alpha_ledger",
+    "baseRevision": 0,
+    "revision": 5,
+    "cursor": "cursor_5",
+    "mutation": {
+      "operation": "create",
+      "kind": "goal-ledger-row",
+      "id": "credit-alpha",
+      "value": {
+        "id": "credit-alpha",
+        "goalId": 4,
+        "delta": 1,
+        "source": "session",
+        "sessionId": "s-alpha",
+        "dayKey": "1970-01-01",
+        "at": 1600
+      },
+      "references": [{ "kind": "goal", "id": "4" }]
+    }
+  },
+  {
+    "format": "bloom-sync-mutation",
+    "protocolVersion": 1,
+    "contentSchemaVersion": 34,
+    "deviceId": "device_beta",
+    "mutationId": "mutation_beta_ledger",
+    "baseRevision": 0,
+    "revision": 6,
+    "cursor": "cursor_6",
+    "mutation": {
+      "operation": "create",
+      "kind": "goal-ledger-row",
+      "id": "credit-beta",
+      "value": {
+        "id": "credit-beta",
+        "goalId": 4,
+        "delta": 1,
+        "source": "session",
+        "sessionId": "s-beta",
+        "dayKey": "1970-01-01",
+        "at": 3200
+      },
+      "references": [{ "kind": "goal", "id": "4" }]
+    }
+  },
+  {
+    "format": "bloom-sync-mutation",
+    "protocolVersion": 1,
+    "contentSchemaVersion": 34,
+    "deviceId": "device_alpha",
+    "mutationId": "mutation_alpha_companion",
+    "baseRevision": 0,
+    "revision": 7,
+    "cursor": "cursor_7",
+    "mutation": {
+      "operation": "create",
+      "kind": "companion-event",
+      "id": "event-alpha",
+      "value": { "id": "event-alpha", "ts": 700, "min": 5, "len": 25, "kind": "focused", "src": "checkin" }
+    }
+  },
+  {
+    "format": "bloom-sync-mutation",
+    "protocolVersion": 1,
+    "contentSchemaVersion": 34,
+    "deviceId": "device_beta",
+    "mutationId": "mutation_beta_companion",
+    "baseRevision": 0,
+    "revision": 8,
+    "cursor": "cursor_8",
+    "mutation": {
+      "operation": "create",
+      "kind": "companion-event",
+      "id": "event-beta",
+      "value": { "id": "event-beta", "ts": 800, "min": 8, "len": 20, "kind": "drift", "src": "checkin" }
+    }
+  },
+  {
+    "format": "bloom-sync-mutation",
+    "protocolVersion": 1,
+    "contentSchemaVersion": 34,
+    "deviceId": "device_alpha",
+    "mutationId": "mutation_alpha_counter",
+    "baseRevision": 0,
+    "revision": 9,
+    "cursor": "cursor_9",
+    "mutation": { "operation": "increment", "kind": "counter", "id": "sessions", "delta": 1 }
+  },
+  {
+    "format": "bloom-sync-mutation",
+    "protocolVersion": 1,
+    "contentSchemaVersion": 34,
+    "deviceId": "device_beta",
+    "mutationId": "mutation_beta_counter",
+    "baseRevision": 0,
+    "revision": 10,
+    "cursor": "cursor_10",
+    "mutation": { "operation": "increment", "kind": "counter", "id": "sessions", "delta": 1 }
+  },
+  {
+    "format": "bloom-sync-mutation",
+    "protocolVersion": 1,
+    "contentSchemaVersion": 34,
+    "deviceId": "device_beta",
+    "mutationId": "mutation_beta_name",
+    "baseRevision": 0,
+    "revision": 11,
+    "cursor": "cursor_11",
+    "mutation": { "operation": "set", "kind": "setting", "id": "name", "fields": { "value": "Shared name" } }
+  }
+]

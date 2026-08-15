@@ -51,12 +51,12 @@ class MemoryStorage implements Storage {
   }
 }
 
-function renderSettings() {
+function renderSettings(onPatch = vi.fn()) {
   const state = {
     ...DEFAULT_STATE,
     settings: { ...DEFAULT_STATE.settings, name: 'Mira' },
   };
-  return render(
+  const view = render(
     <SettingsSheet
       settings={state.settings}
       records={[]}
@@ -65,7 +65,7 @@ function renderSettings() {
       running={false}
       hasOpenSession={false}
       persistedState={persistedShapeFromState(state)}
-      onPatch={vi.fn()}
+      onPatch={onPatch}
       onCacheCadence={vi.fn()}
       onApplyCadence={vi.fn()}
       ritual={DEFAULT_RITUAL}
@@ -88,6 +88,7 @@ function renderSettings() {
       }))}
     />,
   );
+  return { ...view, onPatch };
 }
 
 function openDataSection() {
@@ -144,6 +145,24 @@ describe('Settings data import status', () => {
       ),
     ).toBe(false);
     expect(screen.queryByText(/coffee shop|white noise|background sound/i)).toBeNull();
+  });
+
+  it('presents appearance as one accessible three-choice selection', () => {
+    const { onPatch } = renderSettings();
+    fireEvent.click(screen.getByText('Appearance', { selector: 'summary' }));
+
+    const group = screen.getByLabelText('Sky appearance');
+    const choices = Array.from(group.querySelectorAll('button'));
+    expect(choices.map((choice) => choice.textContent)).toEqual([
+      'Day skykeep the light sky',
+      'Night skykeep stars & meteors',
+      'Follow systemmatch this device',
+    ]);
+    expect(screen.getByRole('button', { name: /Follow system/ }).getAttribute('aria-pressed'))
+      .toBe('true');
+
+    fireEvent.click(screen.getByRole('button', { name: /Night sky/ }));
+    expect(onPatch).toHaveBeenCalledExactlyOnceWith({ appearance: 'night' });
   });
 
   it('announces a calm validation failure and keeps recovery actions available', async () => {

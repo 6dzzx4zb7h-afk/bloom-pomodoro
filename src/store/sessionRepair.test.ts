@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import { proposeSessionRepair, sessionRepairBounds } from './sessionRepair';
+import {
+  isSessionRepairEligible,
+  proposeSessionRepair,
+  sessionRepairBounds,
+  sessionRepairSavedMessage,
+} from './sessionRepair';
 import type { SessionRecord } from './sessions';
 
 const minute = 60_000;
@@ -68,6 +73,53 @@ describe('session repair proposals', () => {
         adjustments: ['next-session'],
       },
     });
+    expect(sessionRepairSavedMessage(['next-session'])).toBe(
+      'Repair saved as an estimate. Its end time stops at the next session.',
+    );
+  });
+
+  it('clamps both ends of the captured wall-clock window', () => {
+    const source = record('target', 10 * minute, 20 * minute);
+    const beforeStart = proposeSessionRepair({
+      record: source,
+      records: [source],
+      wallClockEndAt: 40 * minute,
+      endedAt: 5 * minute,
+      outcome: 'abandoned',
+    });
+    const afterReturn = proposeSessionRepair({
+      record: source,
+      records: [source],
+      wallClockEndAt: 40 * minute,
+      endedAt: 50 * minute,
+      outcome: 'completed',
+    });
+
+    expect(beforeStart).toMatchObject({
+      ok: true,
+      proposal: {
+        record: { endedAt: 10 * minute, actualMin: 0 },
+        adjustments: ['session-start'],
+      },
+    });
+    expect(afterReturn).toMatchObject({
+      ok: true,
+      proposal: {
+        record: { endedAt: 40 * minute, actualMin: 25 },
+        adjustments: ['wall-clock-cap'],
+      },
+    });
+  });
+
+  it('offers old interrupted records and only recent terminal records', () => {
+    const week = 7 * 86_400_000;
+    const oldInterrupted = record('interrupted', 0, minute);
+    const oldCompleted = record('completed', 0, minute, { outcome: 'completed' });
+    const now = minute + week + 1;
+
+    expect(isSessionRepairEligible(oldInterrupted, now)).toBe(true);
+    expect(isSessionRepairEligible(oldCompleted, now)).toBe(false);
+    expect(isSessionRepairEligible(oldCompleted, minute + week)).toBe(true);
   });
 
   it('rejects an existing overlap and an out-of-session drift estimate', () => {

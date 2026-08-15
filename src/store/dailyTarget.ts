@@ -127,6 +127,27 @@ function amount(raw: unknown): number | null {
   return rounded;
 }
 
+/**
+ * Strict entry validation shared by the goal and task target forms. A daily
+ * plan is user-chosen, so blank, fractional, or out-of-range input stays in
+ * the form for correction instead of being silently rewritten to one part.
+ */
+export function parseDailyTargetAmount(
+  raw: string | number,
+  maximum = DAILY_TARGET_AMOUNT_MAX,
+): number | null {
+  const normalizedMaximum = Math.min(
+    DAILY_TARGET_AMOUNT_MAX,
+    Math.max(1, Math.floor(maximum)),
+  );
+  if (typeof raw === 'string' && raw.trim() === '') return null;
+  const value = typeof raw === 'number' ? raw : Number(raw);
+  if (!Number.isSafeInteger(value) || value < 1 || value > normalizedMaximum) {
+    return null;
+  }
+  return value;
+}
+
 function validLinkId(raw: unknown): raw is number {
   return typeof raw === 'number' && Number.isInteger(raw) && raw >= 0;
 }

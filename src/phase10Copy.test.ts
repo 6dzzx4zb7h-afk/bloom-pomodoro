@@ -75,7 +75,8 @@ describe('PLAN 10.12 phase copy guardrail', () => {
     expect(foundations).toContain('months, and timing');
     expect(foundations).toContain('worth an experiment');
     expect(foundations).toContain('A gap is just weather');
-    expect(rollover).toContain('Yesterday’s plan still has');
+    expect(rollover).toContain('You recorded');
+    expect(rollover).toContain('that’s real');
     expect(rollover).toContain('Today can start fresh');
     expect(debriefCredit).toContain('Bloom can count the');
     expect(observedPace).toContain('From your recorded goal credits');

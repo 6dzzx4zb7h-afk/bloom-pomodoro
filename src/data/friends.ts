@@ -36,8 +36,8 @@ export const FRIENDS: Friend[] = [
     tile: '#fdeef6',
     tileNight: '#46315c',
     blurb: 'your first friend',
-    // Mochi keeps Bloom's blossom gradient and is the primary app icon.
-    appIcon: { icon: null, from: '#ffb0d4', to: '#c79fe6' },
+    // Mochi wears Bloom's neutral timer gradient and is the primary app icon.
+    appIcon: { icon: null, from: '#3fbfae', to: '#215f78' },
   },
   {
     name: 'Pudding',
@@ -45,7 +45,7 @@ export const FRIENDS: Friend[] = [
     tile: '#f3eefb',
     tileNight: '#3b2f66',
     blurb: 'naps professionally',
-    appIcon: { icon: 'AppIcon-Pudding', from: '#b98ef0', to: '#6f5bd4' },
+    appIcon: { icon: 'AppIcon-Pudding', from: '#8f7bea', to: '#3f3480' },
   },
   {
     name: 'Biscuit',
@@ -53,7 +53,7 @@ export const FRIENDS: Friend[] = [
     tile: '#fff7e6',
     tileNight: '#463b5a',
     blurb: 'waddles with purpose',
-    appIcon: { icon: 'AppIcon-Biscuit', from: '#f6a86a', to: '#d96f8f' },
+    appIcon: { icon: 'AppIcon-Biscuit', from: '#f2b154', to: '#a4522b' },
   },
   {
     name: 'Luna',
@@ -61,7 +61,7 @@ export const FRIENDS: Friend[] = [
     tile: '#eef4fd',
     tileNight: '#323a6a',
     blurb: 'wise little night owl',
-    appIcon: { icon: 'AppIcon-Luna', from: '#7fa6e8', to: '#4f57bd' },
+    appIcon: { icon: 'AppIcon-Luna', from: '#6f8fe0', to: '#252f6b' },
   },
   {
     name: 'Snappy',
@@ -69,7 +69,7 @@ export const FRIENDS: Friend[] = [
     tile: '#ffecec',
     tileNight: '#4c3157',
     blurb: 'pinches with love',
-    appIcon: { icon: 'AppIcon-Snappy', from: '#ff9ec4', to: '#cf4b7e' },
+    appIcon: { icon: 'AppIcon-Snappy', from: '#ff9d6e', to: '#a83a2e' },
   },
   {
     name: 'Coral',
@@ -77,7 +77,7 @@ export const FRIENDS: Friend[] = [
     tile: '#ffeee6',
     tileNight: '#4a3854',
     blurb: 'eight arms, all hugs',
-    appIcon: { icon: 'AppIcon-Coral', from: '#ffc2dd', to: '#ad63a6' },
+    appIcon: { icon: 'AppIcon-Coral', from: '#9ec96b', to: '#33663f' },
   },
 ];
 

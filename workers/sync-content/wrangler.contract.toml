@@ -1,0 +1,14 @@
+name = "bloom-sync-content-contract"
+main = "contract-harness.ts"
+compatibility_date = "2025-06-01"
+
+[vars]
+CONTENT_INTERNAL_SECRET = "local-contract-secret-at-least-32-characters"
+
+[[durable_objects.bindings]]
+name = "SYNC_CONTENT"
+class_name = "BloomSyncContent"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["BloomSyncContent"]

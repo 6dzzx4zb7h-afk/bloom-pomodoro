@@ -33,7 +33,7 @@ describe('RolloverTriageCard', () => {
 
     const card = screen.getByRole('region', { name: 'Yesterday’s plan' });
     expect(within(card).getByText(
-      'Yesterday’s plan still has 2 lectures open for Biology review. Today can start fresh: carry them, spread them, or let them rest?',
+      'You recorded 1 of 3 lectures for Biology review — that’s real progress. 2 lectures are still open. Today can start fresh: carry them, spread them, or let them rest?',
     )).toBeTruthy();
     expect(within(card).getByText('Shows at most once a day.')).toBeTruthy();
     expect(screen.queryByRole('dialog')).toBeNull();

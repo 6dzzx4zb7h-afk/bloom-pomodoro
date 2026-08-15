@@ -4,6 +4,7 @@ import companionV1 from './fixtures/migrations/companion-v1.json';
 import companionV2 from './fixtures/migrations/companion-v2.json';
 import companionV3 from './fixtures/migrations/companion-v3.json';
 import companionV4 from './fixtures/migrations/companion-v4.json';
+import companionV5 from './fixtures/migrations/companion-v5.json';
 import mainV00 from './fixtures/migrations/main-v00.json';
 import mainV01 from './fixtures/migrations/main-v01.json';
 import mainV02 from './fixtures/migrations/main-v02.json';
@@ -36,8 +37,16 @@ import mainV28 from './fixtures/migrations/main-v28.json';
 import mainV29 from './fixtures/migrations/main-v29.json';
 import mainV30 from './fixtures/migrations/main-v30.json';
 import mainV31 from './fixtures/migrations/main-v31.json';
+import mainV32 from './fixtures/migrations/main-v32.json';
+import mainV33 from './fixtures/migrations/main-v33.json';
+import mainV34 from './fixtures/migrations/main-v34.json';
 import { loadEvents, updateEvent } from './companion';
-import { readPersisted, SCHEMA_VERSION } from './useBloom';
+import {
+  DEFAULT_SETTINGS,
+  migratePersistedBlob,
+  readPersisted,
+  SCHEMA_VERSION,
+} from './useBloom';
 
 interface MainFixture {
   version: number;
@@ -128,16 +137,20 @@ const mainFixtures: MainFixture[] = [
   mainV29,
   mainV30,
   mainV31,
+  mainV32,
+  mainV33,
+  mainV34,
 ];
 const companionFixtures: CompanionFixture[] = [
   companionV1,
   companionV2,
   companionV3,
   companionV4,
+  companionV5,
 ];
 const latestMainFixtureVersion = Math.max(...mainFixtures.map((fixture) => fixture.version));
 
-const expectedCore = {
+const expectedHistoricalCore = {
   sessions: 41,
   streak: 7,
   lastFocusDay: '2026-07-10',
@@ -172,6 +185,15 @@ const expectedCore = {
   },
 };
 
+const expectedCore = {
+  ...expectedHistoricalCore,
+  settings: {
+    ...expectedHistoricalCore.settings,
+    appearance: 'night',
+  },
+};
+delete (expectedCore.settings as Record<string, unknown>).night;
+
 beforeEach(() => {
   vi.stubGlobal('localStorage', new MemoryStorage());
 });
@@ -191,7 +213,9 @@ describe('main persisted-state migrations', () => {
   it.each(mainFixtures)('migrates schema v$version to latest without losing user data', (fixture) => {
     // Keeping the fixture assertion independent from the migrated result makes
     // an accidental or intentionally corrupted fixture fail loudly.
-    expect(fixture).toMatchObject(expectedCore);
+    expect(fixture).toMatchObject(
+      fixture.version < 33 ? expectedHistoricalCore : expectedCore,
+    );
     localStorage.setItem('bloom-state', JSON.stringify(fixture));
 
     const migrated = readPersisted();
@@ -248,6 +272,54 @@ describe('main persisted-state migrations', () => {
     });
     // The ambient choice is dropped; the completion cue remains.
     expect(migrated?.settings).not.toHaveProperty('bgSound');
+    expect(migrated?.settings).not.toHaveProperty('night');
+  });
+
+  it('preserves both existing theme choices and defaults fresh installs to Follow system', () => {
+    localStorage.setItem(
+      'bloom-state',
+      JSON.stringify({ ...mainV32, settings: { ...mainV32.settings, night: false } }),
+    );
+    expect(readPersisted()?.settings.appearance).toBe('day');
+
+    localStorage.setItem('bloom-state', JSON.stringify(mainV32));
+    expect(readPersisted()?.settings.appearance).toBe('night');
+
+    localStorage.clear();
+    expect(DEFAULT_SETTINGS.appearance).toBe('system');
+  });
+
+  it('marks the sync baseline without changing existing ids or timestamps', () => {
+    const before = {
+      ...mainV33,
+      version: 33,
+      tasks: [{ id: 7301, t: 'Keep exact id', done: false, pomos: 0, goal: 1 }],
+      sessionRecords: [{
+        id: 'session-exact',
+        startedAt: 1_700_000_000_123,
+        endedAt: 1_700_000_060_123,
+        mode: 'focus',
+        plannedMin: 1,
+        actualMin: 1,
+        outcome: 'completed',
+        startHour: 9,
+        driftEventIds: ['event-exact'],
+      }],
+    };
+
+    const migrated = migratePersistedBlob(before);
+
+    expect(migrated.version).toBe(34);
+    expect(migrated.tasks[0].id).toBe(7301);
+    expect(migrated.sessionRecords[0]).toMatchObject({
+      id: 'session-exact',
+      startedAt: 1_700_000_000_123,
+      endedAt: 1_700_000_060_123,
+      driftEventIds: ['event-exact'],
+    });
+    expect(migrated).not.toHaveProperty('deviceId');
+    expect(migrated).not.toHaveProperty('cursor');
+    expect(migrated).not.toHaveProperty('sync');
   });
 
   // PLAN 12.1: removing ambience must not reset the completion-chime choice.
@@ -269,7 +341,7 @@ describe('main persisted-state migrations', () => {
 
 describe('independent companion-log migrations', () => {
   it('has one fixture for every shipped companion-log version', () => {
-    expect(companionFixtures.map((fixture) => fixture.version)).toEqual([1, 2, 3, 4]);
+    expect(companionFixtures.map((fixture) => fixture.version)).toEqual([1, 2, 3, 4, 5]);
   });
 
   it.each(companionFixtures)('loads companion log v$version and rewrites it at latest', (fixture) => {
@@ -279,8 +351,30 @@ describe('independent companion-log migrations', () => {
     updateEvent(fixture.events[0].id, { min: fixture.events[0].min });
 
     expect(JSON.parse(localStorage.getItem('bloom-companion-v1')!)).toEqual({
-      version: 4,
+      version: 5,
       events: fixture.events,
     });
+  });
+
+  it('gives an idless legacy moment a stable content id without inventing a timestamp', () => {
+    const legacy = {
+      ts: 1_784_217_600_000,
+      min: 8,
+      len: 25,
+      kind: 'focused',
+      src: 'checkin',
+    };
+    localStorage.setItem(
+      'bloom-companion-v1',
+      JSON.stringify({ version: 1, events: [legacy] }),
+    );
+
+    const first = loadEvents();
+    const second = loadEvents();
+
+    expect(first).toEqual(second);
+    expect(first[0]).toMatchObject(legacy);
+    expect(first[0].id).toMatch(/^legacy_/);
+    expect(first[0].ts).toBe(legacy.ts);
   });
 });

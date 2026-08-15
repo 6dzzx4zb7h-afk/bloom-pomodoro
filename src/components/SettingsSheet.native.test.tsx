@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
 
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { IOSCompletionAlertStatus } from '../native/iosCompletionAlerts';
 import { EMPTY_PERSONAL_CADENCE } from '../insights/cadence';
+import { createBackupEnvelope, serializeBackup } from '../store/exportImport';
 import { DEFAULT_RITUAL } from '../store/ritual';
 import { DEFAULT_STATE, persistedShapeFromState } from '../store/useBloom';
 import type {
@@ -17,6 +18,28 @@ const native = vi.hoisted(() => ({
   nativeIOS: true,
   present: vi.fn(),
   dismiss: vi.fn(async () => undefined),
+  openAppSettings: vi.fn(async () => ({ opened: true })),
+  exportFile: vi.fn(async (file: {
+    fileName: string;
+    mimeType: 'application/json' | 'text/csv';
+    contents: string;
+  }) => {
+    void file;
+    return { completed: true };
+  }),
+  pickDocument: vi.fn(async (): Promise<
+    | { canceled: true }
+    | { canceled: false; fileName: string; size: number; contents: string }
+  > => ({ canceled: true })),
+  confirmDestructive: vi.fn(async (options: {
+    title: string;
+    message: string;
+    confirmTitle: string;
+    cancelTitle: string;
+  }) => {
+    void options;
+    return { confirmed: false };
+  }),
   action: undefined as ((action: NativeSettingsAction) => void) | undefined,
   dismissed: undefined as (() => void) | undefined,
   removeAction: vi.fn(async () => undefined),
@@ -30,6 +53,10 @@ vi.mock('../native/iosSettings', async (importOriginal) => {
     isNativeIOSSettingsPlatform: () => native.nativeIOS,
     presentNativeIOSSettings: native.present,
     dismissNativeIOSSettings: native.dismiss,
+    openNativeIOSAppSettings: native.openAppSettings,
+    presentNativeIOSExportFile: native.exportFile,
+    pickNativeIOSBackupFile: native.pickDocument,
+    presentNativeIOSDestructiveConfirmation: native.confirmDestructive,
     listenForNativeIOSSettingsAction: async (
       listener: (action: NativeSettingsAction) => void,
     ) => {
@@ -70,6 +97,8 @@ function renderSettings(overrides: Partial<Parameters<typeof SettingsSheet>[0]> 
     onPatch: vi.fn(),
     onPatchRitual: vi.fn(),
     onUpdateRitualItem: vi.fn(),
+    onClearFocusData: vi.fn(),
+    onDataImported: vi.fn(),
     onClose: vi.fn(),
   };
   const view = render(
@@ -84,8 +113,6 @@ function renderSettings(overrides: Partial<Parameters<typeof SettingsSheet>[0]> 
       onCacheCadence={vi.fn()}
       onApplyCadence={vi.fn()}
       ritual={DEFAULT_RITUAL}
-      onClearFocusData={vi.fn()}
-      onDataImported={vi.fn()}
       completionAlertStatus={unsupported}
       onRequestCompletionAlertPermission={vi.fn(async () => unsupported)}
       {...handlers}
@@ -97,12 +124,17 @@ function renderSettings(overrides: Partial<Parameters<typeof SettingsSheet>[0]> 
 
 describe('Settings on iOS (PLAN 13.4b)', () => {
   beforeEach(() => {
+    localStorage.clear();
     native.active = true;
     native.nativeIOS = true;
     native.action = undefined;
     native.dismissed = undefined;
     native.present.mockReset().mockImplementation(async () => ({ active: native.active }));
     native.dismiss.mockClear();
+    native.openAppSettings.mockReset().mockResolvedValue({ opened: true });
+    native.exportFile.mockClear();
+    native.pickDocument.mockReset().mockResolvedValue({ canceled: true });
+    native.confirmDestructive.mockReset().mockResolvedValue({ confirmed: false });
     native.removeAction.mockClear();
     native.removeDismissed.mockClear();
   });
@@ -128,13 +160,99 @@ describe('Settings on iOS (PLAN 13.4b)', () => {
     ]);
   });
 
-  it('routes a native switch back through the reducer exactly once', async () => {
+  it('renders and routes the three-way appearance choice exactly once', async () => {
     const { onPatch } = renderSettings();
     await waitFor(() => expect(native.action).toBeTypeOf('function'));
 
-    native.action?.({ id: 'settings.night', value: true });
+    const row = rowsOf('appearance')[0];
+    expect(row).toMatchObject({
+      kind: 'segmented',
+      id: 'settings.appearance',
+      selected: 'system',
+      options: [
+        { id: 'day', title: 'Day' },
+        { id: 'night', title: 'Night' },
+        { id: 'system', title: 'System' },
+      ],
+    });
 
-    expect(onPatch).toHaveBeenCalledExactlyOnceWith({ night: true });
+    native.action?.({ id: 'settings.appearance', value: 'night' });
+
+    expect(onPatch).toHaveBeenCalledExactlyOnceWith({ appearance: 'night' });
+  });
+
+  it('routes each applicable permission-recovery row to Bloom’s iOS Settings page', async () => {
+    const { onPatch, onPatchRitual } = renderSettings({
+      completionAlertStatus: {
+        permission: 'denied',
+        alertsEnabled: false,
+        soundsEnabled: false,
+        lockScreenEnabled: false,
+      },
+      liveActivityStatus: {
+        supported: true,
+        enabled: false,
+        active: false,
+      },
+    });
+    await waitFor(() => expect(native.action).toBeTypeOf('function'));
+
+    expect(rowsOf('sessions')).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        kind: 'button',
+        id: 'action.openIOSSettings.liveActivity',
+        title: 'open iOS Settings for Live Activities',
+      }),
+      expect.objectContaining({
+        kind: 'button',
+        id: 'action.openIOSSettings.notificationsDenied',
+        title: 'open iOS Settings for timer alerts',
+      }),
+    ]));
+
+    native.action?.({ id: 'action.openIOSSettings.liveActivity' });
+    native.action?.({ id: 'action.openIOSSettings.notificationsDenied' });
+    await waitFor(() => expect(native.openAppSettings).toHaveBeenCalledTimes(2));
+    expect(onPatch).not.toHaveBeenCalled();
+    expect(onPatchRitual).not.toHaveBeenCalled();
+  });
+
+  it('shows no recovery action while permission is prompt or fully allowed', async () => {
+    const first = renderSettings({
+      completionAlertStatus: {
+        permission: 'prompt',
+        alertsEnabled: false,
+        soundsEnabled: false,
+        lockScreenEnabled: false,
+      },
+      liveActivityStatus: {
+        supported: true,
+        enabled: true,
+        active: false,
+      },
+    });
+    await waitFor(() => expect(native.present).toHaveBeenCalled());
+    expect(rowsOf('sessions').some((row) => row.id.startsWith('action.openIOSSettings')))
+      .toBe(false);
+
+    first.unmount();
+    native.present.mockClear();
+    renderSettings({
+      completionAlertStatus: {
+        permission: 'granted',
+        alertsEnabled: true,
+        soundsEnabled: true,
+        lockScreenEnabled: true,
+      },
+      liveActivityStatus: {
+        supported: true,
+        enabled: true,
+        active: false,
+      },
+    });
+    await waitFor(() => expect(native.present).toHaveBeenCalled());
+    expect(rowsOf('sessions').some((row) => row.id.startsWith('action.openIOSSettings')))
+      .toBe(false);
   });
 
   it('maps a prefixed hour option back to a real clock hour', async () => {
@@ -163,7 +281,8 @@ describe('Settings on iOS (PLAN 13.4b)', () => {
     await waitFor(() => expect(native.action).toBeTypeOf('function'));
 
     native.action?.({ id: 'settings.doesNotExist', value: true });
-    native.action?.({ id: 'settings.night', value: 'true' });
+    native.action?.({ id: 'settings.appearance', value: true });
+    native.action?.({ id: 'settings.appearance', value: 'sunrise' });
     native.action?.({ id: 'ritual.enabled' });
 
     expect(onPatch).not.toHaveBeenCalled();
@@ -181,62 +300,179 @@ describe('Settings on iOS (PLAN 13.4b)', () => {
     expect(onPatch).toHaveBeenCalledExactlyOnceWith({ name: 'Sam' });
   });
 
-  it('opens the scoped web sheet from a disclosure row and dismisses the native one', async () => {
+  it('renders Your data directly in the native form with no disclosure detour', async () => {
+    renderSettings();
+    await waitFor(() => expect(native.present).toHaveBeenCalled());
+
+    expect(rowsOf('data').map((row) => row.id)).toEqual([
+      'note.dataTransfer',
+      'action.exportJSON',
+      'action.exportCSV',
+      'action.importJSON',
+      'note.focusHistory',
+      'action.reviewClearScope',
+    ]);
+    expect(rowsOf('data').some((row) => row.kind === 'disclosure')).toBe(false);
+    expect(native.dismiss).not.toHaveBeenCalled();
+  });
+
+  it('sends the canonical JSON and CSV bytes only after a native export action', async () => {
     renderSettings();
     await waitFor(() => expect(native.action).toBeTypeOf('function'));
 
-    native.action?.({ id: 'detail.data' });
+    native.action?.({ id: 'action.exportJSON' });
+    native.action?.({ id: 'action.exportCSV' });
 
-    await waitFor(() => expect(native.dismiss).toHaveBeenCalled());
-    expect(await screen.findByText('Your data', { selector: 'summary' })).toBeTruthy();
-    // Only the requested section travels with it.
-    expect(screen.queryByText('Sessions', { selector: 'summary' })).toBeNull();
-    expect(screen.queryByText('Companion', { selector: 'summary' })).toBeNull();
+    await waitFor(() => expect(native.exportFile).toHaveBeenCalledTimes(2));
+    const json = native.exportFile.mock.calls[0][0];
+    expect(json.fileName).toMatch(/^bloom-backup-\d{4}-\d{2}-\d{2}\.json$/);
+    expect(json.mimeType).toBe('application/json');
+    expect(JSON.parse(json.contents)).toMatchObject({ format: 'bloom-backup' });
+    expect(native.exportFile.mock.calls[1][0]).toMatchObject({
+      mimeType: 'text/csv',
+      contents: expect.stringContaining('"id","started_at","ended_at","mode"'),
+    });
   });
 
-  it('renders Timer lengths as real controls, not a disclosure (PLAN 13.4c)', async () => {
+  it('runs a picked native document through the same preview and atomic commit path', async () => {
+    const state = {
+      ...DEFAULT_STATE,
+      settings: { ...DEFAULT_STATE.settings, name: 'From backup' },
+    };
+    const contents = serializeBackup(
+      createBackupEnvelope(persistedShapeFromState(state), []),
+    );
+    native.pickDocument.mockResolvedValueOnce({
+      canceled: false,
+      fileName: 'bloom-backup.json',
+      size: new TextEncoder().encode(contents).byteLength,
+      contents,
+    });
+    const { onDataImported } = renderSettings();
+    await waitFor(() => expect(native.action).toBeTypeOf('function'));
+
+    native.action?.({ id: 'action.importJSON' });
+
+    await waitFor(() => {
+      expect(rowsOf('data').some((row) => row.id === 'note.importReady')).toBe(true);
+    });
+    native.action?.({ id: 'action.commitImport' });
+
+    await waitFor(() => expect(onDataImported).toHaveBeenCalledOnce());
+    expect(JSON.parse(localStorage.getItem('bloom-state') ?? '{}').settings.name)
+      .toBe('Mira');
+    expect(rowsOf('data').some((row) => row.id === 'note.importSuccess')).toBe(true);
+  });
+
+  it('treats document-picker cancellation as a no-op and restores the import action', async () => {
+    const { onDataImported, onClearFocusData } = renderSettings();
+    await waitFor(() => expect(native.action).toBeTypeOf('function'));
+
+    native.action?.({ id: 'action.importJSON' });
+
+    await waitFor(() => expect(native.pickDocument).toHaveBeenCalledOnce());
+    await waitFor(() => {
+      expect(rowsOf('data').some((row) => row.id === 'action.importJSON')).toBe(true);
+      expect(rowsOf('data').some((row) => row.id.startsWith('note.import'))).toBe(false);
+    });
+    expect(onDataImported).not.toHaveBeenCalled();
+    expect(onClearFocusData).not.toHaveBeenCalled();
+  });
+
+  it('reports native presentation failure without mutating Bloom data', async () => {
+    native.exportFile.mockRejectedValueOnce(new Error('presentation unavailable'));
+    const { onDataImported, onClearFocusData, onPatch } = renderSettings();
+    await waitFor(() => expect(native.action).toBeTypeOf('function'));
+
+    native.action?.({ id: 'action.exportJSON' });
+
+    await waitFor(() => {
+      expect(rowsOf('data')).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          id: 'note.dataTransferStatus',
+          body: 'That file could not be prepared. Your data is still safe in Bloom.',
+        }),
+      ]));
+    });
+    expect(onDataImported).not.toHaveBeenCalled();
+    expect(onClearFocusData).not.toHaveBeenCalled();
+    expect(onPatch).not.toHaveBeenCalled();
+  });
+
+  it('clears only after the native destructive confirmation resolves true', async () => {
+    native.confirmDestructive.mockResolvedValueOnce({ confirmed: true });
+    const { onClearFocusData } = renderSettings();
+    await waitFor(() => expect(native.action).toBeTypeOf('function'));
+
+    native.action?.({ id: 'action.reviewClearScope' });
+    await waitFor(() => {
+      expect(rowsOf('data').some((row) => row.id === 'action.clearFocusHistory')).toBe(true);
+    });
+    native.action?.({ id: 'action.clearFocusHistory' });
+
+    await waitFor(() => expect(native.confirmDestructive).toHaveBeenCalledOnce());
+    expect(onClearFocusData).toHaveBeenCalledOnce();
+    expect(native.confirmDestructive.mock.calls[0][0]).toMatchObject({
+      title: 'Clear reflection history?',
+      confirmTitle: 'clear reflection history',
+      cancelTitle: 'keep it',
+    });
+  });
+
+  it('keeps reflection history when native destructive confirmation is canceled', async () => {
+    const { onClearFocusData, onDataImported, onPatch } = renderSettings();
+    await waitFor(() => expect(native.action).toBeTypeOf('function'));
+
+    native.action?.({ id: 'action.reviewClearScope' });
+    await waitFor(() => {
+      expect(rowsOf('data').some((row) => row.id === 'action.clearFocusHistory')).toBe(true);
+    });
+    native.action?.({ id: 'action.clearFocusHistory' });
+
+    await waitFor(() => expect(native.confirmDestructive).toHaveBeenCalledOnce());
+    expect(onClearFocusData).not.toHaveBeenCalled();
+    expect(onDataImported).not.toHaveBeenCalled();
+    expect(onPatch).not.toHaveBeenCalled();
+  });
+
+  it('puts direct Timer lengths before one optional cadence disclosure (PLAN 8.26)', async () => {
     renderSettings();
     await waitFor(() => expect(native.present).toHaveBeenCalled());
 
     const rows = rowsOf('durations');
-    expect(rows.some((row) => row.kind === 'disclosure')).toBe(false);
+    expect(rows.map((row) => row.id)).toEqual([
+      'duration.focus',
+      'duration.short',
+      'duration.long',
+      'detail.cadence',
+    ]);
     expect(rows.filter((row) => row.kind === 'stepper').map((row) => row.id)).toEqual([
       'duration.focus',
       'duration.short',
       'duration.long',
     ]);
-    // Each rung is announced on its own rather than read out of one sentence.
-    const ladder = rows.find((row) => row.id === 'cadence.ladder');
-    expect(ladder?.kind).toBe('values');
-    if (ladder?.kind === 'values') {
-      expect(ladder.items.map((item) => item.caption)).toEqual([
-        'shorter',
-        'current',
-        'longer',
-      ]);
-      ladder.items.forEach((item) => expect(item.spoken).toContain('minutes focus'));
-    }
+    expect(rows[rows.length - 1]).toMatchObject({
+      kind: 'disclosure',
+      title: 'Cadence suggestions',
+    });
+    expect(rows.some((row) => row.id === 'action.applyCadence')).toBe(false);
+    expect(rows.some((row) => row.id === 'cadence.ladder')).toBe(false);
   });
 
-  it('conveys the already-set cadence by disabling the row, not by the glyph alone', async () => {
-    renderSettings();
-    await waitFor(() => expect(native.present).toHaveBeenCalled());
-
-    const apply = rowsOf('durations').find((row) => row.id === 'action.applyCadence');
-    expect(apply?.kind).toBe('button');
-    if (apply?.kind === 'button') {
-      // Default state matches the default cadence, so the recommendation is set.
-      expect(apply.enabled).toBe(false);
-      expect(apply.title).toContain('is set');
-    }
-  });
-
-  it('applies a preset through the cadence action, prefix and all', async () => {
+  it('opens cadence suggestions as one scoped detail and keeps every cadence action', async () => {
     const onApplyCadence = vi.fn();
     renderSettings({ onApplyCadence });
     await waitFor(() => expect(native.action).toBeTypeOf('function'));
 
-    native.action?.({ id: 'cadence.preset', value: 'p40-8' });
+    native.action?.({ id: 'detail.cadence' });
+
+    await waitFor(() => expect(native.dismiss).toHaveBeenCalled());
+    expect(await screen.findByText('Cadence suggestions', { selector: 'summary' })).toBeTruthy();
+    expect(screen.queryByText('Sessions', { selector: 'summary' })).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', {
+      name: '40 minutes focus, 8 minutes break',
+    }));
 
     expect(onApplyCadence).toHaveBeenCalledExactlyOnceWith(
       expect.objectContaining({ focusMin: 40, breakMin: 8 }),

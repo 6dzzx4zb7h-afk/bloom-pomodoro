@@ -64,7 +64,13 @@ export function WoopCard({
         <div className="woop-note">
           want a 60-second reset? optional, and quiet for seven days.
         </div>
-        <div className="woop-steps" aria-label={`Step ${stepIndex + 1} of ${STEPS.length}`}>
+        <div
+          className="woop-steps"
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+          aria-label={`Step ${stepIndex + 1} of ${STEPS.length}`}
+        >
           {STEPS.map((label, i) => (
             <span key={label} className={`woop-step${i <= stepIndex ? ' on' : ''}`}>
               <span className="woop-step-dot">{i + 1}</span>

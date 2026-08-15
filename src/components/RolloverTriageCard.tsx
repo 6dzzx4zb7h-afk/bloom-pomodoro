@@ -26,9 +26,10 @@ export function RolloverTriageCard({
     >
       <h3 id={headingId}>Yesterday’s plan</h3>
       <p id={detailId}>
-        Yesterday’s plan still has {offer.remainder} {offer.target.snapshot.unit} open for{' '}
-        {offer.target.snapshot.title}. Today can start fresh: carry them, spread them, or
-        let them rest?
+        You recorded {offer.actual} of {offer.target.plannedAmount}{' '}
+        {offer.target.snapshot.unit} for {offer.target.snapshot.title} — that’s real
+        progress. {offer.remainder} {offer.target.snapshot.unit} are still open.{' '}
+        Today can start fresh: carry them, spread them, or let them rest?
       </p>
       <div className="rollover-actions" role="group" aria-label="Choose what happens next">
         <button type="button" onClick={onCarry}>Carry to today</button>

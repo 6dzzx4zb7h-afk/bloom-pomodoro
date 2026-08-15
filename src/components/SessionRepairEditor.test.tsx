@@ -115,4 +115,31 @@ describe('SessionRepairEditor', () => {
     );
     expect(onSave).not.toHaveBeenCalled();
   });
+
+  it('keeps the dialog and original record available when storage rejects the save', () => {
+    const source = record('target', at(9, 0), at(9, 10));
+    const onSave = vi.fn(() => false);
+    const onCancel = vi.fn();
+    render(
+      <div className="phone">
+        <SessionRepairEditor
+          record={source}
+          records={[source]}
+          wallClockEndAt={at(9, 30)}
+          onSave={onSave}
+          onCancel={onCancel}
+        />
+      </div>,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'save repair' }));
+
+    expect(onSave).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('alert').textContent).toBe(
+      'Bloom kept the original record. Use the storage recovery card, then try again.',
+    );
+    expect(screen.getByRole('dialog', { name: 'Repair session record' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'keep original' })).toBeTruthy();
+    expect(source).toMatchObject({ endedAt: at(9, 10), outcome: 'interrupted' });
+  });
 });

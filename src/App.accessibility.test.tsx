@@ -165,7 +165,9 @@ describe('screen semantics and named controls', () => {
     })).toBeTruthy();
 
     const taskName = screen.getByRole('textbox', { name: 'Task name' });
-    expect(screen.getByRole('button', { name: 'Goal: 1 pomodoros' })).toBeTruthy();
+    const taskGoal = screen.getByRole('button', { name: 'Goal: 1 focus session' });
+    fireEvent.click(taskGoal);
+    expect(screen.getByRole('button', { name: 'Goal: 2 focus sessions' })).toBeTruthy();
     expect(screen.getByRole('combobox', { name: 'goal (optional)' })).toBeTruthy();
     fireEvent.blur(taskName);
     expect(screen.getByRole('alert').textContent).toBe('Add a task name to continue.');
@@ -196,6 +198,23 @@ describe('screen semantics and named controls', () => {
     expect(screen.getByRole('main', { name: 'welcome to Bloom' })).toBeTruthy();
     expect(screen.getByRole('heading', { level: 1, name: 'welcome to Bloom' })).toBeTruthy();
     expect(screen.getByRole('textbox', { name: 'Your name' })).toBeTruthy();
+  });
+
+  it('resets a keyboard-scrolled phone shell before onboarding hands off to Focus', () => {
+    const { container } = render(<App />);
+    const phone = container.querySelector<HTMLElement>('.phone');
+    expect(phone).toBeTruthy();
+    phone!.scrollTop = 42;
+    phone!.scrollLeft = 7;
+
+    const name = screen.getByRole('textbox', { name: 'Your name' });
+    fireEvent.change(name, { target: { value: 'Mira' } });
+    name.focus();
+    fireEvent.click(screen.getByRole('button', { name: /let's bloom/i }));
+
+    expect(phone!.scrollTop).toBe(0);
+    expect(phone!.scrollLeft).toBe(0);
+    expect(screen.getByRole('main', { name: /Focus\. Hi, Mira/i })).toBeTruthy();
   });
 
   it('keeps unresolved return truth modal, focused, and visible across navigation attempts', () => {

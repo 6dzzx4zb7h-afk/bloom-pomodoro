@@ -60,8 +60,9 @@ export const DRIFT_KINDS: DriftKind[] = ['rabbit', 'external', 'urge', 'wander',
 
 export interface CompanionEvent {
   /**
-   * Unique id, stamped on append (PLAN 1.3). Optional because events logged
-   * before linking existed have none — they stay valid, just unlinkable.
+   * Unique id, stamped on append (PLAN 1.3). Optional on pre-linking input;
+   * PLAN 11.2 derives a stable content id before that legacy row is stored,
+   * exported, or used as a sync entity.
    */
   id?: string;
   /**
@@ -121,7 +122,7 @@ export const KIND_NAMES: Record<DriftKind, string> = {
 };
 
 export const COMPANION_STORAGE_KEY = 'bloom-companion-v1';
-export const COMPANION_LOG_VERSION = 4;
+export const COMPANION_LOG_VERSION = 5;
 export const COMPANION_EVENT_CAP = 400;
 const LOG_KEY = COMPANION_STORAGE_KEY;
 const LOG_VERSION = COMPANION_LOG_VERSION;
@@ -151,6 +152,38 @@ export function isValidCompanionEvent(value: unknown): value is CompanionEvent {
   );
 }
 
+function stableCompanionValue(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableCompanionValue).join(',')}]`;
+  if (value && typeof value === 'object') {
+    const object = value as Record<string, unknown>;
+    return `{${Object.keys(object)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${stableCompanionValue(object[key])}`)
+      .join(',')}}`;
+  }
+  return JSON.stringify(value);
+}
+
+/**
+ * Pre-linking Companion rows had no id. Encode their exact canonical payload
+ * instead of inventing a timestamp or using a device clock; identical legacy
+ * rows intentionally deduplicate just as 9.4's pre-sync merge already did.
+ */
+export function companionEventStableId(event: CompanionEvent): string {
+  if (event.id) return event.id;
+  const bytes = new TextEncoder().encode(stableCompanionValue(event));
+  let binary = '';
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return `legacy_${btoa(binary)
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/g, '')}`;
+}
+
+export function withCompanionEventId(event: CompanionEvent): StoredCompanionEvent {
+  return { ...event, id: companionEventStableId(event) };
+}
+
 export function loadEvents(): CompanionEvent[] {
   let raw: string | null = null;
   try {
@@ -170,7 +203,10 @@ export function loadEvents(): CompanionEvent[] {
       throw new Error('the log version is not supported');
     }
     if (!Array.isArray(blob.events)) throw new Error('the event log is not a list');
-    const events = blob.events.filter(isValidCompanionEvent).slice(-MAX_EVENTS);
+    const events = blob.events
+      .filter(isValidCompanionEvent)
+      .map(withCompanionEventId)
+      .slice(-MAX_EVENTS);
     const ids = new Set<string>();
     const unique = events.filter((event) => {
       if (!event.id) return true;
@@ -368,7 +404,10 @@ export function clearEvents() {
 
 /** Explicit recovery path: called only after the user chooses the recovered copy. */
 export function replaceCompanionLog(events: CompanionEvent[]): boolean {
-  const safe = events.filter(isValidCompanionEvent).slice(-MAX_EVENTS);
+  const safe = events
+    .filter(isValidCompanionEvent)
+    .map(withCompanionEventId)
+    .slice(-MAX_EVENTS);
   let prior: string | null = null;
   try {
     prior = localStorage.getItem(LOG_KEY);

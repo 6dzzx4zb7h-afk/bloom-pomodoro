@@ -71,7 +71,7 @@ describe('SystemSwitch', () => {
 
     render(
       <SystemSwitch
-        nativeId="settings.night"
+        nativeId="settings.sound"
         checked={true}
         label="Night sky"
         ariaLabel="Night sky backdrop"

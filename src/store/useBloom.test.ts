@@ -294,6 +294,55 @@ describe('timer lifecycle invariants', () => {
     expect(twice.sessionRecords).toHaveLength(1);
   });
 
+  it('stamps the parked-thought count before individual notes can be removed', () => {
+    const openFocus = {
+      ...newOpenSession('focus', 25, 1),
+      endsAt: Date.now(),
+      remainingSec: 0,
+    };
+    const state = makeState({
+      mode: 'focus',
+      running: true,
+      endsAt: Date.now(),
+      remaining: 0,
+      openFocus,
+      parking: [
+        {
+          id: 'park-one',
+          text: 'Check the sources',
+          parkedAt: Date.now() - 60_000,
+          sessionId: openFocus.id,
+          revealedAt: null,
+        },
+        {
+          id: 'park-two',
+          text: 'Reply after focus',
+          parkedAt: Date.now() - 30_000,
+          sessionId: openFocus.id,
+          revealedAt: null,
+        },
+      ],
+    });
+
+    const completed = reducer(state, { type: 'complete' });
+    expect(completed.sessionRecords[0]?.parkedThoughtCount).toBe(2);
+    expect(completed.parking.every((thought) => thought.revealedAt != null)).toBe(true);
+
+    const dismissed = reducer(completed, { type: 'dismissParked', id: 'park-one' });
+    expect(dismissed.parking).toHaveLength(1);
+    expect(dismissed.sessionRecords[0]?.parkedThoughtCount).toBe(2);
+
+    const withoutNotes = reducer(makeState({
+      mode: 'focus',
+      running: true,
+      endsAt: Date.now(),
+      remaining: 0,
+      openFocus,
+      parking: [],
+    }), { type: 'complete' });
+    expect(withoutNotes.sessionRecords[0]?.parkedThoughtCount).toBe(0);
+  });
+
   it('counts a deliberately finished short Flow session as a day without minting XP', () => {
     const state = makeState({
       mode: 'flow',
@@ -686,6 +735,80 @@ describe('completionNotice', () => {
   });
 });
 
+describe('Live Activity reducer commands', () => {
+  it('applies timestamped pause/continue commands and replays the ordered handshake idempotently', () => {
+    const startedAt = 1_800_000_000_000;
+    const openFocus = {
+      ...newOpenSession('focus', 25, undefined, undefined, startedAt),
+      running: true,
+      endsAt: startedAt + 1_500_000,
+      remainingSec: 1_500,
+    };
+    const running = makeState({
+      mode: 'focus',
+      running: true,
+      endsAt: openFocus.endsAt,
+      remaining: 1_500,
+      openFocus,
+    });
+    const pause = {
+      id: 'aa11-bb22',
+      sessionId: openFocus.id,
+      action: 'pause' as const,
+      atMs: startedAt + 10_000,
+      remainingSeconds: 1_490,
+    };
+    const resume = {
+      id: 'cc33-dd44',
+      sessionId: openFocus.id,
+      action: 'resume' as const,
+      atMs: startedAt + 20_000,
+      remainingSeconds: 1_490,
+    };
+
+    const paused = reducer(running, {
+      type: 'applyIOSLiveActivityCommand',
+      command: pause,
+    });
+    expect(paused).toMatchObject({
+      running: false,
+      endsAt: null,
+      remaining: 1_490,
+      openFocus: { id: openFocus.id, running: false, remainingSec: 1_490 },
+    });
+
+    const resumed = reducer(paused, {
+      type: 'applyIOSLiveActivityCommand',
+      command: resume,
+    });
+    expect(resumed).toMatchObject({
+      running: true,
+      endsAt: resume.atMs + 1_490_000,
+      openFocus: { id: openFocus.id, running: true },
+    });
+
+    const replayed = reducer(
+      reducer(resumed, { type: 'applyIOSLiveActivityCommand', command: pause }),
+      { type: 'applyIOSLiveActivityCommand', command: resume },
+    );
+    expect(replayed).toEqual(resumed);
+  });
+
+  it('ignores native commands for a stale session', () => {
+    const state = makeState();
+    expect(reducer(state, {
+      type: 'applyIOSLiveActivityCommand',
+      command: {
+        id: 'aa11-bb22',
+        sessionId: 'another-session',
+        action: 'pause',
+        atMs: 1_800_000_000_000,
+        remainingSeconds: 60,
+      },
+    })).toBe(state);
+  });
+});
+
 describe('persisted-state recovery', () => {
   beforeEach(() => {
     vi.stubGlobal('localStorage', new MemoryStorage());
@@ -733,6 +856,40 @@ describe('persisted-state recovery', () => {
 
     expect(state.streak).toBe(40);
     expect(state.comeBack).toBe(true);
+  });
+
+  it('keeps the parked-thought count when boot sweeps an interrupted session', () => {
+    const openFocus = {
+      ...newOpenSession('focus', 25, undefined, undefined, Date.now() - 5 * 60_000),
+      endsAt: Date.now() + 20 * 60_000,
+      remainingSec: 20 * 60,
+      running: true,
+    };
+    localStorage.setItem(
+      'bloom-state',
+      JSON.stringify({
+        version: SCHEMA_VERSION,
+        settings: { name: 'Mira' },
+        sessionRecords: [],
+        openFocus,
+        parking: [{
+          id: 'park-before-close',
+          text: 'Read this later',
+          parkedAt: Date.now() - 60_000,
+          sessionId: openFocus.id,
+          revealedAt: null,
+        }],
+      }),
+    );
+
+    const state = loadState();
+
+    expect(state.sessionRecords[0]).toMatchObject({
+      id: openFocus.id,
+      outcome: 'interrupted',
+      parkedThoughtCount: 1,
+    });
+    expect(state.parking[0]?.revealedAt).toBe(state.sessionRecords[0]?.endedAt);
   });
 
   it('migrates v20 through guide and study-day settings without moving existing data', () => {

@@ -67,7 +67,7 @@ export function KindRestart({
 
   if (stage === 'offer') {
     return (
-      <div className="kind-restart">
+      <div className="kind-restart" role="region" aria-label="Soft restart">
         <div className="kind-restart-title">
           {kind === 'abandon'
             ? 'Want one soft reset before a tiny next step?'
@@ -88,7 +88,12 @@ export function KindRestart({
 
   if (stage === 'breath') {
     return (
-      <div className="kind-restart kind-restart-breath" aria-live="polite">
+      <div
+        className="kind-restart kind-restart-breath"
+        role="region"
+        aria-label="Soft restart"
+        aria-live="polite"
+      >
         <div className="breath-orb" aria-hidden="true">
           <span />
         </div>
@@ -105,6 +110,7 @@ export function KindRestart({
   return (
     <form
       className="kind-restart"
+      aria-label="Soft restart"
       onSubmit={(event) => {
         event.preventDefault();
         if (trimmed) onContinue(trimmed);

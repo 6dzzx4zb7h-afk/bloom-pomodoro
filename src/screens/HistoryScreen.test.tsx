@@ -1,7 +1,7 @@
 /** @vitest-environment jsdom */
 
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   foundationEntryId,
@@ -15,7 +15,12 @@ import {
   completedTaskArchiveRow,
   emptyHistoryArchive,
 } from '../store/historyArchive';
-import { buildHistoryDays, HistoryScreen } from './HistoryScreen';
+import type { CompanionEvent } from '../store/companion';
+import {
+  buildHistoryDays,
+  historySessionDetails,
+  HistoryScreen,
+} from './HistoryScreen';
 
 function localAt(year: number, month: number, day: number, hour: number, minute = 0): number {
   return new Date(year, month - 1, day, hour, minute).getTime();
@@ -171,6 +176,124 @@ describe('HistoryScreen', () => {
     expect(screen.getByText('Draft outline')).toBeTruthy();
     expect(screen.queryByText('Carried task')).toBeNull();
     expect(screen.queryByText('Legacy completion')).toBeNull();
+  });
+
+  it('shows linked wander phases and a stable parked-thought count in session details', () => {
+    const now = localAt(2026, 7, 27, 12);
+    const endedAt = localAt(2026, 7, 26, 10);
+    const session = record('session-details', endedAt, {
+      driftEventIds: ['wander-early', 'wander-late'],
+      parkedThoughtCount: 2,
+      edited: true,
+      editedAt: now,
+    });
+    const events: CompanionEvent[] = [
+      {
+        id: 'wander-early',
+        sessionId: session.id,
+        ts: endedAt - 20 * 60_000,
+        shownAt: endedAt - 20 * 60_000,
+        min: 2,
+        len: 25,
+        kind: 'wander',
+        src: 'checkin',
+      },
+      {
+        id: 'wander-late',
+        sessionId: session.id,
+        ts: endedAt - 2 * 60_000,
+        shownAt: endedAt - 2 * 60_000,
+        min: 22,
+        len: 25,
+        kind: 'rabbit',
+        src: 'checkin',
+      },
+    ];
+
+    expect(historySessionDetails(session, events, [], now)).toEqual({
+      driftCount: 2,
+      phaseCounts: { early: 1, mid: 0, late: 1 },
+      parkedThoughtCount: 2,
+    });
+    expect(historySessionDetails(
+      { ...session, parkedThoughtCount: undefined },
+      events,
+      [{
+        id: 'legacy-linked-note',
+        text: 'Retained note',
+        parkedAt: endedAt - 10 * 60_000,
+        sessionId: session.id,
+        revealedAt: endedAt,
+      }],
+      now,
+    ).parkedThoughtCount).toBe(1);
+
+    const { container } = render(
+      <HistoryScreen
+        records={[session]}
+        tasks={[]}
+        events={events}
+        parking={[]}
+        dayStartHour={0}
+        now={now}
+      />,
+    );
+    fireEvent.click(container.querySelector('summary')!);
+
+    const timing = screen.getByRole('list', { name: 'Wander timing' });
+    expect(within(timing).getByText('early ×1')).toBeTruthy();
+    expect(within(timing).getByText('late ×1')).toBeTruthy();
+    expect(screen.getByText('2 parked thoughts')).toBeTruthy();
+    expect(screen.getByText('Edited estimate')).toBeTruthy();
+  });
+
+  it('announces when a saved repair was clamped before the next session', () => {
+    const now = localAt(2026, 7, 26, 12);
+    const source = record('repair-source', localAt(2026, 7, 26, 9, 10), {
+      actualMin: 10,
+      outcome: 'interrupted',
+      returnSnapshot: {
+        capturedAt: localAt(2026, 7, 26, 9, 10),
+        returnedAt: localAt(2026, 7, 26, 9, 40),
+        elapsedSec: 600,
+        remainingSec: 900,
+        mode: 'focus',
+        round: 1,
+        sessionId: 'repair-source',
+      },
+    });
+    const next = record('repair-next', localAt(2026, 7, 26, 9, 35), {
+      startedAt: localAt(2026, 7, 26, 9, 18),
+      actualMin: 17,
+    });
+    const onRepair = vi.fn();
+    const { container } = render(
+      <HistoryScreen
+        records={[source, next]}
+        tasks={[]}
+        dayStartHour={0}
+        now={now}
+        onRepair={onRepair}
+      />,
+    );
+
+    fireEvent.click(container.querySelector('summary')!);
+    fireEvent.click(screen.getByRole('button', {
+      name: /Repair Focus session ending 9:10 AM/i,
+    }));
+    fireEvent.change(screen.getByLabelText('Estimated end time'), {
+      target: { value: '2026-07-26T09:35' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'save repair' }));
+
+    expect(onRepair).toHaveBeenCalledWith(expect.objectContaining({
+      record: expect.objectContaining({ endedAt: localAt(2026, 7, 26, 9, 18) }),
+      adjustments: ['next-session'],
+    }));
+    expect(screen.getByRole('status').textContent).toBe(
+      'Repair saved as an estimate. Its end time stops at the next session.',
+    );
+    expect(screen.queryByRole('dialog')).toBeNull();
   });
 
   it('pages dense history with a named native button and a polite count update', () => {

@@ -46,6 +46,7 @@ const session: SessionRecord = {
   outcome: 'completed',
   startHour: 8,
   driftEventIds: [],
+  parkedThoughtCount: 2,
   targetText: '=SUM(A1:A2)',
 };
 
@@ -225,6 +226,10 @@ describe('Bloom backup envelope', () => {
       current.bloom.goals[0];
     const { done: _incomingDone, completedAt: _incomingCompleted, ...incomingMetadata } =
       incoming.bloom.goals[0];
+    void _currentDone;
+    void _currentCompleted;
+    void _incomingDone;
+    void _incomingCompleted;
     expect(incomingMetadata).toEqual(currentMetadata);
 
     const merged = prepareImport(incoming, current).merged.bloom;
@@ -417,6 +422,17 @@ describe('Bloom backup envelope', () => {
       expect.objectContaining({ code: 'invalid' }),
     );
 
+    const invalidParkedCount = JSON.stringify({
+      ...base,
+      bloom: {
+        ...base.bloom,
+        sessionRecords: [{ ...session, parkedThoughtCount: -1 }],
+      },
+    });
+    expect(() => parseBackup(invalidParkedCount)).toThrowError(
+      expect.objectContaining({ code: 'invalid' }),
+    );
+
     const invalidCompanion = JSON.stringify({
       ...base,
       companion: {
@@ -599,5 +615,7 @@ describe('Bloom backup envelope', () => {
     expect(csv).toContain('"2026-07-20T08:00:00.000Z"');
     expect(csv).toContain('"\'=SUM(A1:A2)"');
     expect(csv).toContain('"drift_moments"');
+    expect(csv).toContain('"parked_thoughts"');
+    expect(csv.trimEnd().endsWith(',"0","2"')).toBe(true);
   });
 });

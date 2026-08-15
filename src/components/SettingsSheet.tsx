@@ -31,6 +31,10 @@ import {
   isNativeIOSSettingsPlatform,
   listenForNativeIOSSettingsAction,
   listenForNativeIOSSettingsDismissal,
+  openNativeIOSAppSettings,
+  pickNativeIOSBackupFile,
+  presentNativeIOSDestructiveConfirmation,
+  presentNativeIOSExportFile,
   presentNativeIOSSettings,
   type NativeSettingsAction,
   type NativeSettingsRow,
@@ -48,6 +52,7 @@ import {
   sessionRecordsCsv,
   type PreparedImport,
 } from '../store/exportImport';
+import { isAppearanceMode, type AppearanceMode } from '../store/appearance';
 
 interface SettingsSheetProps {
   settings: Settings;
@@ -106,12 +111,22 @@ const GOAL_CREDIT_CHOICES: { value: Settings['goalCredit']; label: string }[] = 
   { value: 'auto', label: 'add automatically' },
 ];
 
+const APPEARANCE_CHOICES: {
+  value: AppearanceMode;
+  label: string;
+  description: string;
+}[] = [
+  { value: 'day', label: 'Day sky', description: 'keep the light sky' },
+  { value: 'night', label: 'Night sky', description: 'keep stars & meteors' },
+  { value: 'system', label: 'Follow system', description: 'match this device' },
+];
+
 /**
- * PLAN 13.4b — the two sections the native form does not render yet. Each is a
+ * PLAN 13.4b / 8.26 — sections the native form opens as scoped web details. Each is a
  * disclosure row that opens this same web sheet scoped to that one section, so
- * nothing is unreachable while 13.4c and 13.4d migrate them.
+ * nothing is unreachable while keeping the native top level concise.
  */
-type SettingsDetail = 'data';
+type SettingsDetail = 'cadence' | 'data';
 
 /** Native option ids must start with a letter; these values do not. */
 const HOUR_OPTION_PREFIX = 'h';
@@ -228,6 +243,8 @@ export function SettingsSheet({
   const [clearedNote, setClearedNote] = useState(false);
   const [showClearScope, setShowClearScope] = useState(false);
   const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
+  const [dataTransferNotice, setDataTransferNotice] = useState<string | null>(null);
+  const [cadenceOpen, setCadenceOpen] = useState(false);
   const [importState, setImportState] = useState<
     | { kind: 'idle' }
     | { kind: 'reading'; percent: number; fileName: string }
@@ -251,7 +268,9 @@ export function SettingsSheet({
   );
   const cadenceDecision = useMemo(
     () => {
-      // Staleness and recommendation share this exact computation instant.
+      // `now` is the store-owned refresh signal; staleness and recommendation
+      // share the actual instant when this memo recomputes.
+      void now;
       const computedAt = Date.now();
       return {
         cadence: personalCadenceForSurface(
@@ -352,6 +371,19 @@ export function SettingsSheet({
   }
 
   function downloadText(contents: string, fileName: string, mime: string) {
+    if (nativeIOS) {
+      setDataTransferNotice(null);
+      void presentNativeIOSExportFile({
+        contents,
+        fileName,
+        mimeType: mime.startsWith('text/csv') ? 'text/csv' : 'application/json',
+      }).catch(() => {
+        setDataTransferNotice(
+          'That file could not be prepared. Your data is still safe in Bloom.',
+        );
+      });
+      return;
+    }
     const url = URL.createObjectURL(new Blob([contents], { type: mime }));
     const link = document.createElement('a');
     link.href = url;
@@ -416,10 +448,52 @@ export function SettingsSheet({
     }
   }
 
+  async function chooseNativeImport() {
+    if (running || hasOpenSession) return;
+    setDataTransferNotice(null);
+    setImportState({ kind: 'reading', percent: 0, fileName: 'your backup' });
+    try {
+      const selected = await pickNativeIOSBackupFile();
+      if (selected.canceled) {
+        setImportState({ kind: 'idle' });
+        return;
+      }
+      setImportState({ kind: 'reading', percent: 100, fileName: selected.fileName });
+      const incoming = parseBackup(selected.contents);
+      const prepared = prepareImport(incoming, currentBackup());
+      setImportState({ kind: 'ready', prepared, fileName: selected.fileName });
+    } catch (error) {
+      setImportState({
+        kind: 'error',
+        message:
+          error instanceof BackupError
+            ? error.message
+            : 'That file could not be read. Your current data is unchanged.',
+        recoveryRequired: false,
+        recoveryBackup: null,
+      });
+    }
+  }
+
   function cancelImport() {
     importController.current?.abort();
     importController.current = null;
     setImportState({ kind: 'idle' });
+  }
+
+  async function confirmNativeClearFocusData() {
+    if (running || hasOpenSession) return;
+    try {
+      const { confirmed } = await presentNativeIOSDestructiveConfirmation({
+        title: 'Clear reflection history?',
+        message: `${records.length} session record${records.length === 1 ? '' : 's'} and ${eventCount} Companion moment${eventCount === 1 ? '' : 's'} will be removed from this device. Your bloom total, streak, friend XP, task cherries, and goal progress stay.`,
+        confirmTitle: 'clear reflection history',
+        cancelTitle: 'keep it',
+      });
+      if (confirmed) clearFocusData();
+    } catch {
+      setDataTransferNotice('Nothing was cleared. You can try again whenever you like.');
+    }
   }
 
   function saveImport(prepared: PreparedImport, fileName: string) {
@@ -528,6 +602,17 @@ export function SettingsSheet({
               : 'Focus and Tiny can show their mode and time remaining on the Lock Screen and, on supported iPhones, the Dynamic Island. Task text never appears, and no Bloom server is involved.',
         status: liveActivityChecking || !liveActivityStatus.enabled,
       });
+      if (
+        !liveActivityChecking &&
+        liveActivityStatus.supported &&
+        !liveActivityStatus.enabled
+      ) {
+        rows.push({
+          kind: 'button',
+          id: 'action.openIOSSettings.liveActivity',
+          title: 'open iOS Settings for Live Activities',
+        });
+      }
     }
     if (notifyDenied) {
       rows.push({
@@ -552,12 +637,19 @@ export function SettingsSheet({
       );
     }
     if (settings.sound && completionAlertStatus.permission === 'denied') {
-      rows.push({
-        kind: 'note',
-        id: 'note.completionAlertDenied',
-        body: 'Timer alerts are off in iOS Settings. Bloom can still chime while it’s open.',
-        status: true,
-      });
+      rows.push(
+        {
+          kind: 'note',
+          id: 'note.completionAlertDenied',
+          body: 'Timer alerts are off in iOS Settings. Bloom can still chime while it’s open.',
+          status: true,
+        },
+        {
+          kind: 'button',
+          id: 'action.openIOSSettings.notificationsDenied',
+          title: 'open iOS Settings for timer alerts',
+        },
+      );
     }
     if (settings.sound && completionAlertStatus.permission === 'unavailable') {
       rows.push({
@@ -574,93 +666,26 @@ export function SettingsSheet({
         !completionAlertStatus.soundsEnabled ||
         !completionAlertStatus.lockScreenEnabled)
     ) {
-      rows.push({
-        kind: 'note',
-        id: 'note.completionAlertPartial',
-        body: 'One or more iOS notification options are off. Bloom can still chime while it’s open; you can adjust banners, sound, and Lock Screen alerts in iOS Settings.',
-        status: true,
-      });
+      rows.push(
+        {
+          kind: 'note',
+          id: 'note.completionAlertPartial',
+          body: 'One or more iOS notification options are off. Bloom can still chime while it’s open; you can adjust banners, sound, and Lock Screen alerts in iOS Settings.',
+          status: true,
+        },
+        {
+          kind: 'button',
+          id: 'action.openIOSSettings.notificationsPartial',
+          title: 'open iOS Settings for timer alerts',
+        },
+      );
     }
     return rows;
   }
 
-  /**
-   * PLAN 13.4c — the cadence surface, natively. `insights/cadence.ts` still
-   * owns the recommendation, its reasoning line, and its staleness rule; this
-   * only decides which rows say it. The preset ids and history pairs are
-   * prefixed because a native option id has to start with a letter.
-   */
+  /** PLAN 8.26 — direct lengths lead; optional learned detail is one disclosure. */
   function durationRows(): NativeSettingsRow[] {
-    const preset = learnedCadence.preset;
-    const alreadySet =
-      currentCadence.focusMin === preset.focusMin &&
-      currentCadence.breakMin === preset.breakMin;
-    const rows: NativeSettingsRow[] = [
-      {
-        kind: 'note',
-        id: 'note.cadenceLearned',
-        title: learnedCadence.text,
-        body: learnedCadence.because,
-      },
-      {
-        kind: 'values',
-        id: 'cadence.ladder',
-        title: 'Your cadence ladder',
-        items: (['shorter', 'current', 'longer'] as const).map((slot) => {
-          const rung = learnedCadence.rungs[slot];
-          return {
-            id: `rung-${slot}`,
-            label: `${rung.focusMin}/${rung.breakMin}`,
-            caption: slot,
-            spoken: `${slot}: ${rung.focusMin} minutes focus, ${rung.breakMin} minutes break`,
-          };
-        }),
-      },
-      {
-        kind: 'button',
-        id: 'action.applyCadence',
-        // Disabled carries "this is what you are on"; the ♡ is not load-bearing.
-        title: alreadySet
-          ? `${preset.focusMin}/${preset.breakMin} is set ♡`
-          : `try ${preset.focusMin}/${preset.breakMin} ♡`,
-        enabled: !alreadySet,
-      },
-    ];
-
-    if (personalCadence.history.length > 0) {
-      rows.push({
-        kind: 'picker',
-        id: 'cadence.history',
-        title: 'Previous rungs',
-        subtitle: 'one tap back',
-        options: [...personalCadence.history].reverse().map((pair) => ({
-          id: `${CADENCE_PAIR_PREFIX}${pair.focusMin}-${pair.breakMin}`,
-          title: `${pair.focusMin}/${pair.breakMin}`,
-        })),
-        // An action menu, not a current value: nothing starts selected.
-        selected: '',
-      });
-    }
-
-    const activePreset = CADENCE_PRESETS.find(
-      (option) =>
-        settings.durations.focus === option.focusMin * 60 &&
-        settings.durations.short === option.breakMin * 60,
-    );
-    rows.push({
-      kind: 'segmented',
-      id: 'cadence.preset',
-      title: 'Or choose a starting pair yourself',
-      subtitle: 'work / break',
-      options: CADENCE_PRESETS.map((option) => ({
-        id: `${CADENCE_PRESET_PREFIX}${option.id}`,
-        title: option.label,
-      })),
-      // Empty when the user's own lengths match no preset, exactly as the web
-      // grid shows none of them pressed.
-      selected: activePreset ? `${CADENCE_PRESET_PREFIX}${activePreset.id}` : '',
-    });
-
+    const rows: NativeSettingsRow[] = [];
     DURATION_ROWS.forEach((row) => {
       const mins = Math.round(settings.durations[row.key] / 60);
       rows.push({
@@ -671,6 +696,12 @@ export function SettingsSheet({
         canDecrease: mins > row.min,
         canIncrease: mins < row.max,
       });
+    });
+    rows.push({
+      kind: 'disclosure',
+      id: 'detail.cadence',
+      title: 'Cadence suggestions',
+      subtitle: 'optional ideas from your local focus history',
     });
     return rows;
   }
@@ -798,6 +829,191 @@ export function SettingsSheet({
     return rows;
   }
 
+  /** PLAN 13.4d — native presentation, React-owned bytes and state machine. */
+  function dataRows(): NativeSettingsRow[] {
+    const rows: NativeSettingsRow[] = [
+      {
+        kind: 'note',
+        id: 'note.dataTransfer',
+        title: 'Backup & transfer',
+        body: 'Share a complete local backup, or a spreadsheet of session records. Nothing leaves this device until you choose where to send or save it.',
+      },
+      {
+        kind: 'button',
+        id: 'action.exportJSON',
+        title: 'export JSON backup',
+      },
+      {
+        kind: 'button',
+        id: 'action.exportCSV',
+        title: 'export sessions CSV',
+      },
+      {
+        kind: 'button',
+        id: 'action.importJSON',
+        title: 'choose a JSON backup to import',
+        subtitle:
+          running || hasOpenSession
+            ? 'finish or reset the open timer before importing'
+            : undefined,
+        enabled:
+          !running &&
+          !hasOpenSession &&
+          importState.kind !== 'reading' &&
+          importState.kind !== 'saving',
+      },
+    ];
+
+    if (dataTransferNotice) {
+      rows.push({
+        kind: 'note',
+        id: 'note.dataTransferStatus',
+        body: dataTransferNotice,
+        status: true,
+      });
+    }
+
+    if (importState.kind === 'reading') {
+      rows.push({
+        kind: 'note',
+        id: 'note.importReading',
+        title: 'Reading backup',
+        body: `${importState.fileName} · ${importState.percent}%`,
+        status: true,
+      });
+    } else if (importState.kind === 'ready') {
+      rows.push(
+        {
+          kind: 'note',
+          id: 'note.importReady',
+          title: 'Ready to review',
+          body: `This backup has ${importState.prepared.preview.sessions} sessions, ${importState.prepared.preview.tasks} tasks, ${importState.prepared.preview.goals} goals, and ${importState.prepared.preview.companionMoments} Companion moments. Bloom will merge stable records, keep current device preferences, and save a safety backup first.`,
+          status: true,
+        },
+        {
+          kind: 'button',
+          id: 'action.commitImport',
+          title: 'merge this backup',
+        },
+        {
+          kind: 'button',
+          id: 'action.cancelImport',
+          title: 'keep current data',
+        },
+      );
+    } else if (importState.kind === 'saving') {
+      rows.push({
+        kind: 'note',
+        id: 'note.importSaving',
+        body: 'Saving the safety backup and imported records…',
+        status: true,
+      });
+    } else if (importState.kind === 'success') {
+      rows.push({
+        kind: 'note',
+        id: 'note.importSuccess',
+        title: 'Backup merged ♡',
+        body: 'Your sessions, tasks, goals, and Companion moments are ready.',
+        status: true,
+      });
+      if (importState.safetyBackup) {
+        rows.push({
+          kind: 'button',
+          id: 'action.exportSafetyBackup',
+          title: 'export safety backup',
+        });
+      }
+    } else if (importState.kind === 'error') {
+      rows.push(
+        {
+          kind: 'note',
+          id: 'note.importError',
+          title: importState.recoveryRequired ? 'Recovery backup ready' : 'Nothing changed',
+          body: importState.message,
+          status: true,
+        },
+        importState.recoveryBackup
+          ? {
+              kind: 'button',
+              id: 'action.exportRecoveryBackup',
+              title: 'export recovery backup',
+            }
+          : {
+              kind: 'button',
+              id: 'action.exportCurrentData',
+              title: 'export current data',
+            },
+        {
+          kind: 'button',
+          id: 'action.cancelImport',
+          title: 'choose another file',
+        },
+      );
+    }
+
+    if (onShowWeekly) {
+      rows.push({
+        kind: 'button',
+        id: 'action.weeklyReview',
+        title: 'see this week',
+        subtitle: running
+          ? 'available when the current timer stops'
+          : 'weekly review · opens here anytime',
+        enabled: !running,
+      });
+    }
+
+    rows.push({
+      kind: 'note',
+      id: 'note.focusHistory',
+      title: 'Focus history',
+      body: clearedNote
+        ? 'Reflection history cleared ♡'
+        : `${records.length} session${records.length === 1 ? '' : 's'} · ${eventCount} Companion moment${eventCount === 1 ? '' : 's'} · on this device`,
+      status: clearedNote,
+    });
+
+    if (!clearedNote && !showClearScope) {
+      rows.push({
+        kind: 'button',
+        id: 'action.reviewClearScope',
+        title: 'review clear scope',
+        subtitle:
+          running || hasOpenSession
+            ? 'finish or reset the current timer before clearing its history'
+            : undefined,
+        enabled: !running && !hasOpenSession,
+      });
+    } else if (!clearedNote) {
+      rows.push(
+        {
+          kind: 'note',
+          id: 'note.clearRemoves',
+          title: 'Removes',
+          body: `Completed, interrupted, and stopped session records; Companion check-ins and ${words.awayMomentsScope}; and the learned cadence suggestion built from them.`,
+        },
+        {
+          kind: 'note',
+          id: 'note.clearKeeps',
+          title: 'Keeps',
+          body: 'Your bloom total, streak, friend XP, task completions and cherries, goal progress, current cadence settings, saved plans, parking lot, and Field Guide reads.',
+        },
+        {
+          kind: 'button',
+          id: 'action.clearFocusHistory',
+          title: 'clear reflection history',
+          role: 'destructive',
+        },
+        {
+          kind: 'button',
+          id: 'action.keepFocusHistory',
+          title: 'keep it',
+        },
+      );
+    }
+    return rows;
+  }
+
   const nativeSections: NativeSettingsSection[] = [
     {
       id: 'you',
@@ -827,7 +1043,7 @@ export function SettingsSheet({
     {
       id: 'durations',
       title: 'Timer lengths',
-      footer: 'learned from your local focus history · refreshed no more than weekly',
+      footer: 'choose your timer lengths directly · cadence suggestions are optional',
       rows: durationRows(),
     },
     { id: 'sessions', title: 'Sessions', rows: sessionsRows() },
@@ -838,32 +1054,29 @@ export function SettingsSheet({
       title: 'Appearance',
       rows: [
         {
-          kind: 'switch',
-          id: 'settings.night',
-          title: 'Night sky',
-          subtitle: 'cozy dark mode with stars & meteors',
-          value: settings.night,
+          kind: 'segmented',
+          id: 'settings.appearance',
+          title: 'Sky',
+          subtitle: 'choose a sky or match this device',
+          options: APPEARANCE_CHOICES.map((choice) => ({
+            id: choice.value,
+            title: choice.value === 'system' ? 'System' : choice.label.replace(' sky', ''),
+          })),
+          selected: settings.appearance,
         },
       ],
     },
     {
       id: 'data',
       title: 'Your data',
-      rows: [
-        {
-          kind: 'disclosure',
-          id: 'detail.data',
-          title: 'Backup, import, and history',
-          subtitle: 'export or import a local backup, or review your focus history',
-        },
-      ],
+      rows: dataRows(),
     },
   ];
 
   const snapshot = {
     title: 'Settings',
     doneTitle: 'done',
-    appearance: settings.night ? ('dark' as const) : ('light' as const),
+    appearance: settings.appearance,
     sections: nativeSections,
   };
   const snapshotRef = useRef(snapshot);
@@ -906,6 +1119,11 @@ export function SettingsSheet({
         return;
       case 'action.allowNotifications':
         void onRequestCompletionAlertPermission();
+        return;
+      case 'action.openIOSSettings.liveActivity':
+      case 'action.openIOSSettings.notificationsDenied':
+      case 'action.openIOSSettings.notificationsPartial':
+        void openNativeIOSAppSettings();
         return;
       case 'settings.dayStartHour': {
         if (text === undefined || !text.startsWith(HOUR_OPTION_PREFIX)) return;
@@ -986,11 +1204,59 @@ export function SettingsSheet({
       case 'settings.companion.intention':
         if (flag !== undefined) onPatch({ companion: { ...companion, intention: flag } });
         return;
-      case 'settings.night':
-        if (flag !== undefined) onPatch({ night: flag });
+      case 'settings.appearance':
+        if (isAppearanceMode(text)) onPatch({ appearance: text });
         return;
-      case 'detail.data':
-        setDetail('data');
+      case 'action.exportJSON':
+      case 'action.exportCurrentData':
+        exportJson();
+        return;
+      case 'action.exportCSV':
+        exportCsv();
+        return;
+      case 'action.importJSON':
+        void chooseNativeImport();
+        return;
+      case 'action.commitImport':
+        if (importState.kind === 'ready') {
+          saveImport(importState.prepared, importState.fileName);
+        }
+        return;
+      case 'action.cancelImport':
+        cancelImport();
+        return;
+      case 'action.exportSafetyBackup':
+        if (importState.kind === 'success' && importState.safetyBackup) {
+          downloadText(
+            importState.safetyBackup,
+            'bloom-before-import.json',
+            'application/json',
+          );
+        }
+        return;
+      case 'action.exportRecoveryBackup':
+        if (importState.kind === 'error' && importState.recoveryBackup) {
+          downloadText(
+            importState.recoveryBackup,
+            'bloom-import-recovery.json',
+            'application/json',
+          );
+        }
+        return;
+      case 'action.weeklyReview':
+        if (!running) onShowWeekly?.();
+        return;
+      case 'action.reviewClearScope':
+        if (!running && !hasOpenSession) setShowClearScope(true);
+        return;
+      case 'action.keepFocusHistory':
+        setShowClearScope(false);
+        return;
+      case 'action.clearFocusHistory':
+        void confirmNativeClearFocusData();
+        return;
+      case 'detail.cadence':
+        setDetail('cadence');
         return;
       default:
         // An unknown identifier is a stale sheet or a malformed event; a
@@ -1045,9 +1311,93 @@ export function SettingsSheet({
     };
   }, [detail, nativeIOS, snapshotKey]);
 
-  const detailTitle = detail === 'data' ? 'Your data' : 'Settings';
+  const detailTitle = detail === 'data'
+    ? 'Your data'
+    : detail === 'cadence'
+      ? 'Cadence suggestions'
+      : 'Settings';
   const closeSheet = detail === null ? onClose : () => setDetail(null);
-  const showSection = (id: string) => detail === null || detail === id;
+  const showSection = (id: string) =>
+    detail === null || detail === id || (detail === 'cadence' && id === 'durations');
+
+  const cadenceControls = (
+    <div className="set-block cadence-presets">
+      <span className="set-label">
+        Your cadence ladder
+        <span className="set-sub">
+          learned from your local focus history · refreshed no more than weekly
+        </span>
+      </span>
+      <div className="cadence-learned-card">
+        <strong>{learnedCadence.text}</strong>
+        <span>{learnedCadence.because}</span>
+        <div className="cadence-ladder" aria-label="Personal cadence ladder">
+          {(['shorter', 'current', 'longer'] as const).map((slot) => {
+            const rung = learnedCadence.rungs[slot];
+            return (
+              <span
+                key={slot}
+                aria-label={`${slot}: ${rung.focusMin} minutes focus, ${rung.breakMin} minutes break`}
+              >
+                {rung.focusMin}/{rung.breakMin}
+              </span>
+            );
+          })}
+        </div>
+        <button
+          type="button"
+          className="cadence-apply"
+          onClick={() => applyCadence(learnedCadence.preset)}
+          disabled={
+            currentCadence.focusMin === learnedCadence.preset.focusMin &&
+            currentCadence.breakMin === learnedCadence.preset.breakMin
+          }
+        >
+          {currentCadence.focusMin === learnedCadence.preset.focusMin &&
+          currentCadence.breakMin === learnedCadence.preset.breakMin
+            ? `${learnedCadence.preset.focusMin}/${learnedCadence.preset.breakMin} is set ♡`
+            : `try ${learnedCadence.preset.focusMin}/${learnedCadence.preset.breakMin} ♡`}
+        </button>
+      </div>
+      {personalCadence.history.length > 0 && (
+        <div className="cadence-history">
+          <span className="set-sub">previous rungs · one tap back</span>
+          <div className="cadence-history-list">
+            {[...personalCadence.history].reverse().map((pair) => (
+              <button
+                type="button"
+                key={`${pair.focusMin}-${pair.breakMin}`}
+                onClick={() => onApplyCadence(pair)}
+                aria-label={`Return to ${pair.focusMin} minutes focus and ${pair.breakMin} minutes break`}
+              >
+                {pair.focusMin}/{pair.breakMin}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+      <span className="set-sub cadence-manual-label">or choose a starting pair yourself</span>
+      <div className="cadence-preset-grid" aria-label="Timer cadence presets">
+        {CADENCE_PRESETS.map((preset) => {
+          const active =
+            settings.durations.focus === preset.focusMin * 60 &&
+            settings.durations.short === preset.breakMin * 60;
+          return (
+            <button
+              key={preset.id}
+              className={`cadence-preset${active ? ' on' : ''}`}
+              onClick={() => applyCadence(preset)}
+              aria-pressed={active}
+              aria-label={`${preset.focusMin} minutes focus, ${preset.breakMin} minutes break${active ? ', currently set' : ''}`}
+            >
+              <span>{preset.label}</span>
+              <small>work / break</small>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
 
   // The native sheet is the whole Settings UI while it is up; rendering the web
   // one behind it would duplicate every control and every VoiceOver target.
@@ -1099,85 +1449,12 @@ export function SettingsSheet({
         </div>
         </SettingSection>
 
-        <SettingSection title="Timer lengths" defaultOpen hidden={!showSection('durations')}>
-        <div className="set-block cadence-presets">
-          <span className="set-label">
-            Your cadence ladder
-            <span className="set-sub">
-              learned from your local focus history · refreshed no more than weekly
-            </span>
-          </span>
-          <div className="cadence-learned-card">
-            <strong>{learnedCadence.text}</strong>
-            <span>{learnedCadence.because}</span>
-            <div className="cadence-ladder" aria-label="Personal cadence ladder">
-              {(['shorter', 'current', 'longer'] as const).map((slot) => {
-                const rung = learnedCadence.rungs[slot];
-                return (
-                  <span
-                    key={slot}
-                    aria-label={`${slot}: ${rung.focusMin} minutes focus, ${rung.breakMin} minutes break`}
-                  >
-                    {rung.focusMin}/{rung.breakMin}
-                  </span>
-                );
-              })}
-            </div>
-            <button
-              type="button"
-              className="cadence-apply"
-              onClick={() => applyCadence(learnedCadence.preset)}
-              disabled={
-                currentCadence.focusMin === learnedCadence.preset.focusMin &&
-                currentCadence.breakMin === learnedCadence.preset.breakMin
-              }
-            >
-              {currentCadence.focusMin === learnedCadence.preset.focusMin &&
-              currentCadence.breakMin === learnedCadence.preset.breakMin
-                ? `${learnedCadence.preset.focusMin}/${learnedCadence.preset.breakMin} is set ♡`
-                : `try ${learnedCadence.preset.focusMin}/${learnedCadence.preset.breakMin} ♡`}
-            </button>
-          </div>
-          {personalCadence.history.length > 0 && (
-            <div className="cadence-history">
-              <span className="set-sub">previous rungs · one tap back</span>
-              <div className="cadence-history-list">
-                {[...personalCadence.history].reverse().map((pair) => (
-                  <button
-                    type="button"
-                    key={`${pair.focusMin}-${pair.breakMin}`}
-                    onClick={() => onApplyCadence(pair)}
-                    aria-label={`Return to ${pair.focusMin} minutes focus and ${pair.breakMin} minutes break`}
-                  >
-                    {pair.focusMin}/{pair.breakMin}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-          <span className="set-sub cadence-manual-label">or choose a starting pair yourself</span>
-          <div className="cadence-preset-grid" aria-label="Timer cadence presets">
-            {CADENCE_PRESETS.map((preset) => {
-              const active =
-                settings.durations.focus === preset.focusMin * 60 &&
-                settings.durations.short === preset.breakMin * 60;
-              return (
-                <button
-                  key={preset.id}
-                  className={`cadence-preset${active ? ' on' : ''}`}
-                  onClick={() => applyCadence(preset)}
-                  aria-pressed={active}
-                  aria-label={`${preset.focusMin} minutes focus, ${preset.breakMin} minutes break${active ? ', currently set' : ''}`}
-                >
-                  <span>{preset.label}</span>
-                  <small>work / break</small>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        {DURATION_ROWS.map((row) => {
+        <SettingSection
+          title={detail === 'cadence' ? 'Cadence suggestions' : 'Timer lengths'}
+          defaultOpen
+          hidden={!showSection('durations')}
+        >
+        {detail !== 'cadence' && DURATION_ROWS.map((row) => {
           const mins = Math.round(settings.durations[row.key] / 60);
           return (
             <div className="set-row" key={row.key}>
@@ -1204,6 +1481,28 @@ export function SettingsSheet({
             </div>
           );
         })}
+
+        {detail === 'cadence' ? cadenceControls : (
+          <>
+            <button
+              type="button"
+              className="cadence-disclosure"
+              aria-expanded={cadenceOpen}
+              aria-controls="cadence-settings-detail"
+              onClick={() => setCadenceOpen((open) => !open)}
+            >
+              <span>
+                <strong>Cadence suggestions</strong>
+                <small>optional ideas from your local focus history</small>
+              </span>
+            </button>
+            {cadenceOpen && (
+              <div id="cadence-settings-detail" className="cadence-detail-panel">
+                {cadenceControls}
+              </div>
+            )}
+          </>
+        )}
 
         </SettingSection>
 
@@ -1298,6 +1597,17 @@ export function SettingsSheet({
             ) : (
               <span>Live Activities follow your iOS Settings and work without internet access.</span>
             )}
+            {!liveActivityChecking &&
+              liveActivityStatus.supported &&
+              !liveActivityStatus.enabled && (
+                <button
+                  className="mini-btn"
+                  type="button"
+                  onClick={() => void openNativeIOSAppSettings()}
+                >
+                  open iOS Settings for Live Activities
+                </button>
+              )}
           </div>
         )}
 
@@ -1324,8 +1634,17 @@ export function SettingsSheet({
           </div>
         )}
         {settings.sound && completionAlertStatus.permission === 'denied' && (
-          <div className="set-note" role="status">
-            Timer alerts are off in iOS Settings. Bloom can still chime while it’s open.
+          <div className="set-note">
+            <span role="status">
+              Timer alerts are off in iOS Settings. Bloom can still chime while it’s open.
+            </span>
+            <button
+              className="mini-btn"
+              type="button"
+              onClick={() => void openNativeIOSAppSettings()}
+            >
+              open iOS Settings for timer alerts
+            </button>
           </div>
         )}
         {settings.sound && completionAlertStatus.permission === 'unavailable' && (
@@ -1339,9 +1658,18 @@ export function SettingsSheet({
           (!completionAlertStatus.alertsEnabled ||
             !completionAlertStatus.soundsEnabled ||
             !completionAlertStatus.lockScreenEnabled) && (
-            <div className="set-note" role="status">
-              One or more iOS notification options are off. Bloom can still chime while it’s
-              open; you can adjust banners, sound, and Lock Screen alerts in iOS Settings.
+            <div className="set-note">
+              <span role="status">
+                One or more iOS notification options are off. Bloom can still chime while it’s
+                open; you can adjust banners, sound, and Lock Screen alerts in iOS Settings.
+              </span>
+              <button
+                className="mini-btn"
+                type="button"
+                onClick={() => void openNativeIOSAppSettings()}
+              >
+                open iOS Settings for timer alerts
+              </button>
             </div>
           )}
         </SettingSection>
@@ -1618,17 +1946,25 @@ export function SettingsSheet({
         </SettingSection>
 
         <SettingSection title="Appearance" hidden={!showSection('appearance')}>
-        <div className="set-row">
+        <div className="set-block appearance-setting">
           <span className="set-label">
-            Night sky
-            <span className="set-sub">cozy dark mode with stars &amp; meteors</span>
+            Sky
+            <span className="set-sub">choose a sky or match this device</span>
           </span>
-          <SystemSwitch
-            nativeId="settings.night"
-            checked={settings.night}
-            label="Night sky theme"
-            onChange={(night) => onPatch({ night })}
-          />
+          <div className="appearance-options" aria-label="Sky appearance">
+            {APPEARANCE_CHOICES.map((choice) => (
+              <button
+                key={choice.value}
+                type="button"
+                className={`appearance-choice${settings.appearance === choice.value ? ' on' : ''}`}
+                aria-pressed={settings.appearance === choice.value}
+                onClick={() => onPatch({ appearance: choice.value })}
+              >
+                <span>{choice.label}</span>
+                <small>{choice.description}</small>
+              </button>
+            ))}
+          </div>
         </div>
         </SettingSection>
 

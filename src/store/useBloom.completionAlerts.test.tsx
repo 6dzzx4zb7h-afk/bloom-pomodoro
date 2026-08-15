@@ -145,6 +145,36 @@ describe('useBloom native completion-alert reconciliation', () => {
     );
   });
 
+  it('refreshes system-owned notification status when Bloom returns visible', async () => {
+    render(<Harness />);
+    await waitFor(() => expect(readIOSCompletionAlertStatus).toHaveBeenCalled());
+    readIOSCompletionAlertStatus.mockClear();
+
+    Object.defineProperty(document, 'visibilityState', {
+      configurable: true,
+      value: 'hidden',
+    });
+    document.dispatchEvent(new Event('visibilitychange'));
+    expect(readIOSCompletionAlertStatus).not.toHaveBeenCalled();
+
+    readIOSCompletionAlertStatus.mockResolvedValue({
+      permission: 'denied',
+      alertsEnabled: false,
+      soundsEnabled: false,
+      lockScreenEnabled: false,
+    });
+    Object.defineProperty(document, 'visibilityState', {
+      configurable: true,
+      value: 'visible',
+    });
+    await act(async () => {
+      document.dispatchEvent(new Event('visibilitychange'));
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(bloom.completionAlerts.status.permission).toBe('denied'));
+    expect(readIOSCompletionAlertStatus).toHaveBeenCalled();
+  });
+
   it('starts the countdown before showing a skippable first-use primer', async () => {
     readIOSCompletionAlertStatus.mockResolvedValue({
       permission: 'prompt',

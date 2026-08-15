@@ -80,9 +80,12 @@ export function WeeklyReview({
 }) {
   const events = useMemo(() => loadEvents(), []);
   const review = useMemo(
-    // The rolling review window needs the fresh computation instant; `now`
-    // is the store-owned day signal that invalidates it at rollover.
-    () => computeWeeklyReview(records, events, Date.now(), undefined, dayStartHour),
+    () => {
+      // `now` is the store-owned refresh signal; the rolling window captures
+      // the actual instant when this memo recomputes.
+      void now;
+      return computeWeeklyReview(records, events, Date.now(), undefined, dayStartHour);
+    },
     [records, events, now, dayStartHour],
   );
   const guideSuggestion = useMemo(
@@ -116,7 +119,9 @@ export function WeeklyReview({
   }, [dayPlan, dayStartHour, goalLedger, records, studyDay]);
   const cadenceDecision = useMemo(
     () => {
-      // Staleness and recommendation share this exact computation instant.
+      // `now` is the store-owned refresh signal; staleness and recommendation
+      // share the actual instant when this memo recomputes.
+      void now;
       const computedAt = Date.now();
       return {
         cadence: personalCadenceForSurface(

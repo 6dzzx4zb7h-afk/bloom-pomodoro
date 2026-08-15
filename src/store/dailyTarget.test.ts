@@ -14,6 +14,7 @@ import {
   isGoalDailyTarget,
   liftLegacyDailyTarget,
   letRolloverRest,
+  parseDailyTargetAmount,
   rolloverOffers,
   sanitizeDayPlan,
   sanitizeDailyTargets,
@@ -96,6 +97,14 @@ function credit(
 }
 
 describe('the reconciled 9.6 + 10.3 day-plan shape', () => {
+  it('keeps invalid target entry in the form instead of silently coercing it', () => {
+    expect(parseDailyTargetAmount('')).toBeNull();
+    expect(parseDailyTargetAmount('1.5')).toBeNull();
+    expect(parseDailyTargetAmount('0')).toBeNull();
+    expect(parseDailyTargetAmount('4', 3)).toBeNull();
+    expect(parseDailyTargetAmount('3', 3)).toBe(3);
+  });
+
   it('keeps one task target alongside three goal-linked targets on the same day', () => {
     const now = at(2026, 7, 26);
     let state = addTaskDailyTarget(EMPTY_DAY_PLAN, {

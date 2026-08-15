@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
 import { GuideScreen } from '../components/GuideScreen';
 import type { GuideArticleId } from '../content/guide';
 import { PixelPal } from '../components/PixelPal';
@@ -39,7 +39,7 @@ export function CollectionScreen({
     if (guideArticleId) setSection('guide');
   }, [guideArticleId]);
 
-  const configureNativeSectionControl = (frame = nativeSectionFrameRef.current) => {
+  const configureNativeSectionControl = useCallback((frame = nativeSectionFrameRef.current) => {
     if (!frame) return Promise.resolve({ active: false });
     return configureNativeIOSSegment({
       kind: 'collectionSections',
@@ -52,7 +52,7 @@ export function CollectionScreen({
       visible: true,
       frame,
     });
-  };
+  }, [section]);
 
   nativeSectionSelectionRef.current = (value) => {
     if (isNativeCollectionSection(value)) setSection(value);
@@ -85,7 +85,7 @@ export function CollectionScreen({
     if (!isNativeIOSTabsPlatform() || !nativeSectionSlotRef.current) return;
 
     let disposed = false;
-    return observeNativeControlFrame(nativeSectionSlotRef.current, (frame) => {
+    const stopObserving = observeNativeControlFrame(nativeSectionSlotRef.current, (frame) => {
       nativeSectionFrameRef.current = frame;
       void configureNativeSectionControl(frame)
         .then(({ active }) => {
@@ -95,7 +95,11 @@ export function CollectionScreen({
           if (!disposed) setNativeSectionReady(false);
         });
     });
-  }, [section]);
+    return () => {
+      disposed = true;
+      stopObserving();
+    };
+  }, [configureNativeSectionControl]);
 
   const totalLevels = FRIENDS.reduce((sum, f) => sum + levelProgress(palXp[f.name] ?? 0).level, 0);
 
@@ -155,6 +159,7 @@ export function CollectionScreen({
                   key={f.name}
                   onClick={() => actions.patchSettings({ pal: f.name })}
                   aria-pressed={onDuty}
+                  aria-label={`${f.name}, ${onDuty ? 'on duty, ' : ''}level ${prog.level}. ${f.blurb}`}
                 >
                   {onDuty && <span className="duty-badge">on duty</span>}
                   <span className="lvl-badge">Lv {prog.level}</span>

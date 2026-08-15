@@ -23,6 +23,10 @@
   --soft: #725a7d;
   --soft2: #765e82;
   --soft3: #755f80;
+  --error-ink: #7a3554;
+  /* 4.60:1 against white: ordinary field/control boundaries clear the
+     3:1 non-text contrast floor without turning Bloom's cards into boxes. */
+  --control-border: #866c91;
   /* pinks */
   --pink: #ff9cc2;
   --pink-2: #ffb0d4;
@@ -58,17 +62,19 @@
   --night-long-sky-bottom: #1c1441;
 
   /* ---- theme-swapped semantics (day values; .phone.night remaps) ----
-     Faint copy on the open sky ("ready when you are", the "days" unit) rides
-     on the timer's dark plum at partial opacity so it stays legible over the
-     light gradients without going corporate-gray. */
-  --day-text-faint: rgba(110, 85, 119, 0.75);
+     Supporting copy remains quieter by hue and weight, never by transparency:
+     alpha-composited plum fell to 3.58:1 on Bloom's lightest stable surface. */
+  --day-text-faint: #725a7d;
   --text-faint: var(--day-text-faint);
-  --tab-inactive: rgba(110, 85, 119, 0.72);
+  --tab-inactive: #725a7d;
   --tabs-bg: rgba(255, 255, 255, 0.66);
   --tabs-border: rgba(199, 159, 230, 0.5);
   /* play button — the one saturated thing on screen */
   --play-grad-a: #ff85c2;
   --play-grad-b: #a678e8;
+  /* Dark enough for normal text at both ends of the saturated play gradient
+     (7.06:1 on pink, 4.87:1 on purple). */
+  --action-ink: #32183b;
   --play-glow: 0 14px 26px -10px rgba(166, 120, 232, 0.95),
     0 0 24px rgba(255, 133, 194, 0.55), 0 0 48px rgba(199, 159, 230, 0.4);
   /* bottom nav tints */
@@ -532,6 +538,10 @@ button.foundation-dot {
   opacity: 0;
   pointer-events: none;
 }
+.native-timer-slot-ready {
+  opacity: 0;
+  pointer-events: none;
+}
 
 .tabs {
   position: relative;
@@ -951,6 +961,47 @@ button.foundation-dot {
 .settings-section-body > .set-block + .set-block {
   border-top: 1px solid rgba(199, 159, 230, 0.16);
 }
+.cadence-disclosure {
+  width: 100%;
+  margin-top: 8px;
+  border: 0;
+  border-top: 1px solid rgba(199, 159, 230, 0.16);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 44px;
+  padding: 10px 0;
+  background: transparent;
+  color: var(--plum);
+  cursor: pointer;
+  text-align: left;
+  font: 700 12px var(--font-display);
+}
+.cadence-disclosure::after {
+  content: '›';
+  flex: none;
+  color: var(--soft2);
+  font-size: 20px;
+  line-height: 1;
+  transition: transform 0.15s ease;
+}
+.cadence-disclosure[aria-expanded='true']::after {
+  transform: rotate(90deg);
+}
+.cadence-disclosure span,
+.cadence-disclosure strong,
+.cadence-disclosure small {
+  display: block;
+}
+.cadence-disclosure small {
+  margin-top: 2px;
+  color: var(--soft3);
+  font: 600 11px/1.35 var(--font-body);
+}
+.cadence-detail-panel {
+  border-top: 1px solid rgba(199, 159, 230, 0.16);
+}
 
 .dialog-backdrop {
   position: absolute;
@@ -1034,6 +1085,34 @@ button.foundation-dot {
 }
 .session-repair-error {
   margin: 0;
+}
+.history-repair-status,
+.debrief-repair-status {
+  border: 1px solid rgba(136, 101, 158, 0.22);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.72);
+  color: var(--soft);
+  font: 650 12px/1.45 var(--font-body);
+}
+.history-repair-status {
+  margin: 0 16px 10px;
+  padding: 9px 11px;
+}
+.debrief-repair-status {
+  margin-top: 8px;
+  padding: 8px 10px;
+}
+.night .history-repair-status,
+.night .debrief-repair-status {
+  border-color: rgba(236, 228, 247, 0.32);
+  background: rgba(24, 18, 48, 0.74);
+}
+.night .session-repair-form input:not([type='checkbox']),
+.night .session-repair-form select {
+  border: 1px solid #514477;
+  background: #2e2557;
+  color: #ece4f7;
+  color-scheme: dark;
 }
 .dialog-danger {
   background: #fff0f5;
@@ -1200,6 +1279,39 @@ button.foundation-dot {
   color: var(--plum);
 }
 .chronotype-choice:active {
+  transform: scale(0.97);
+}
+.appearance-options {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 7px;
+  margin-top: 9px;
+}
+.appearance-choice {
+  min-height: 58px;
+  border: 2px solid #eaddf5;
+  border-radius: 13px;
+  background: #fff;
+  color: var(--soft3);
+  padding: 8px 5px;
+  cursor: pointer;
+  font: 700 11px var(--font-display);
+  transition: border-color 0.15s, background 0.15s, color 0.15s, transform 0.12s ease;
+}
+.appearance-choice span,
+.appearance-choice small {
+  display: block;
+}
+.appearance-choice small {
+  margin-top: 3px;
+  font: 500 9px/1.25 var(--font-body);
+}
+.appearance-choice.on {
+  border-color: var(--pink-2);
+  background: linear-gradient(150deg, #fff2f8, #f6effc);
+  color: var(--plum);
+}
+.appearance-choice:active {
   transform: scale(0.97);
 }
 .day-boundary-setting {
@@ -1570,8 +1682,27 @@ button.foundation-dot {
 .task-list::-webkit-scrollbar {
   display: none;
 }
+/* Goals has fixed summary and add-goal rows around its list. On a short iOS
+   viewport those siblings can consume the available flex height and collapse
+   the inner list to zero, leaving target controls beneath the tab bar. Keep
+   one scroll owner for this screen so every field remains reachable. */
+#goals-screen {
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  scroll-padding-bottom: 45vh;
+  padding-bottom: max(16px, env(safe-area-inset-bottom));
+}
+#goals-screen .task-list {
+  flex: none;
+  overflow: visible;
+}
+#goals-screen .add-row {
+  flex: none;
+  margin-bottom: 0;
+}
 .task-row {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 12px;
   background: #fff;
@@ -1633,6 +1764,53 @@ button.foundation-dot {
   font: 600 10px/1.3 var(--font-display);
   text-align: right;
 }
+.task-day-plan-tools {
+  display: flex;
+  flex: 1 0 100%;
+  align-items: center;
+  gap: 8px;
+  padding-left: 38px;
+}
+.task-day-plan-open,
+.task-day-plan-form button {
+  min-height: 44px;
+  border: 0;
+  border-radius: 10px;
+  padding: 8px 10px;
+  background: #f3e9fa;
+  color: var(--purple);
+  font: 700 11px var(--font-body);
+}
+.task-day-plan-progress {
+  color: var(--soft2);
+  font: 700 11px/1.4 var(--font-body);
+}
+.task-day-plan-form {
+  display: grid;
+  width: 100%;
+  grid-template-columns: minmax(112px, 1fr) auto auto;
+  align-items: end;
+  gap: 8px;
+}
+.task-day-plan-form label {
+  display: grid;
+  gap: 3px;
+  color: var(--soft2);
+  font: 700 10.5px var(--font-body);
+}
+.task-day-plan-form input {
+  min-height: 44px;
+  box-sizing: border-box;
+  border: 1px solid #e2d6ed;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.88);
+  color: var(--plum);
+  font: 700 12px var(--font-body);
+  padding: 7px 9px;
+}
+.task-day-plan-form .field-error {
+  grid-column: 1 / -1;
+}
 .focus-flag {
   display: inline-block;
   margin-left: 7px;
@@ -1650,6 +1828,7 @@ button.foundation-dot {
   border: 2px solid rgba(217, 199, 230, 0.72);
   border-radius: 20px;
   box-shadow: 0 10px 24px -18px rgba(183, 159, 227, 0.9);
+  color: var(--plum);
   text-align: center;
   padding: 24px 18px;
 }
@@ -1663,17 +1842,6 @@ button.foundation-dot {
   font: 600 13px var(--font-body);
   color: var(--soft3);
   line-height: 1.45;
-}
-.task-empty-action {
-  min-height: 44px;
-  width: 100%;
-  border: none;
-  border-radius: 13px;
-  padding: 10px 16px;
-  background: linear-gradient(150deg, #ffb0d4, #c79fe6);
-  color: #fff;
-  font: 700 13px var(--font-display);
-  cursor: pointer;
 }
 .checkbox {
   width: 26px;
@@ -1823,7 +1991,7 @@ button.foundation-dot {
 .form-error,
 .field-error {
   min-height: 14px;
-  color: #7a3554;
+  color: var(--error-ink);
   font: 700 10px var(--font-body);
   line-height: 1.3;
 }
@@ -2026,19 +2194,19 @@ button.foundation-dot {
 }
 .guide-stage.stage-start {
   background: #fff0d7;
-  color: #9a6a28;
+  color: #7f5220;
 }
 .guide-stage.stage-stay {
   background: #e3f5ee;
-  color: #487c6b;
+  color: #356959;
 }
 .guide-stage.stage-recover {
   background: #f5e9fb;
-  color: #7d5c98;
+  color: #69427f;
 }
 .guide-stage.stage-science {
   background: #e7f1fb;
-  color: #557798;
+  color: #3f6588;
 }
 .guide-read {
   background: #f4eef9;
@@ -2204,9 +2372,15 @@ button.foundation-dot {
   right: 8px;
   padding: 2px 7px;
   border-radius: 8px;
-  background: linear-gradient(150deg, #ffb0d4, #c79fe6);
+  /* Keep an opaque fallback behind the gradient. Besides surviving reduced
+     color/gradient rendering, this gives contrast audits the real surface
+     instead of making them fall through to the night card underneath. */
+  background-color: #ffb0d4;
+  background-image: linear-gradient(150deg, #ffb0d4, #c79fe6);
   color: #fff;
-  font: 700 9px var(--font-display);
+  /* This names the selected friend, so it is state text rather than tiny
+     decorative metadata and follows PLAN 8.9's practical type floor. */
+  font: 700 13px var(--font-display);
   text-transform: uppercase;
   letter-spacing: 0.5px;
   z-index: 2;
@@ -2375,6 +2549,7 @@ button.foundation-dot {
 .history-days,
 .history-day-totals,
 .history-reflection-chips,
+.history-phase-chips,
 .history-session-list,
 .history-task-list {
   list-style: none;
@@ -2496,6 +2671,25 @@ button.foundation-dot {
   margin-top: 4px;
   font: 600 11.5px/1.4 var(--font-body);
 }
+.history-drift-row {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 5px 8px;
+}
+.history-phase-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+.history-phase-chips li {
+  padding: 3px 7px;
+  border-radius: 999px;
+  background: rgba(231, 218, 249, 0.8);
+  color: var(--plum);
+  font: 700 9.5px/1.3 var(--font-display);
+}
 .history-task-list li {
   padding: 10px 12px;
   font: 600 12px/1.4 var(--font-body);
@@ -2546,7 +2740,8 @@ button.foundation-dot {
 }
 .night .history-session-card,
 .night .history-task-list li,
-.night .history-reflection-chips li {
+.night .history-reflection-chips li,
+.night .history-phase-chips li {
   background: rgba(22, 16, 49, 0.55);
 }
 
@@ -2856,6 +3051,12 @@ button.foundation-dot {
    plus small mirror-not-grade data rows. No red/failure styling ever. */
 .debrief-card {
   z-index: 54; /* under a live companion prompt, above everything else */
+  /* A detailed debrief can be taller than the space above the transport row
+     on a 320 x 568 phone. Keep the whole surface on-screen and let its own
+     contents scroll instead of centring the first rows above the viewport. */
+  max-height: calc(100% - 104px - env(safe-area-inset-bottom));
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
 }
 .debrief-rows {
   display: flex;
@@ -3339,9 +3540,9 @@ button.foundation-dot {
   font-weight: 600;
 }
 
-/* PLAN 13.17: one row standing in for the rest of the optional preparation.
-   Matches the affordance it opens, so expanding reads as the same surface
-   continuing rather than a different control appearing. */
+/* PLAN 8.18: one row stands in for every optional pre-start question. It
+   matches the affordance it opens, so expanding reads as the same surface
+   continuing rather than a prompt being added in front of Start. */
 .prestart-prep-toggle {
   display: block;
   width: min(300px, 100%);
@@ -3514,10 +3715,6 @@ button.foundation-dot {
 .ritual-skip:hover {
   color: var(--plum);
 }
-.ritual-suggestion {
-  z-index: 56;
-}
-
 .ifthen-ask {
   margin: 12px auto 0;
   display: block;
@@ -3924,6 +4121,13 @@ button.foundation-dot {
 .day-plan-card {
   align-items: stretch;
 }
+.day-plan-status {
+  width: calc(100% - 36px);
+  max-width: var(--content-col);
+  margin: 8px auto 0;
+  color: var(--soft2);
+  font: 700 12px/1.45 var(--font-body);
+}
 .day-plan-list {
   display: grid;
   gap: 10px;
@@ -3934,6 +4138,9 @@ button.foundation-dot {
   grid-template-columns: minmax(0, 1.5fr) minmax(70px, 1fr) 56px auto auto;
   align-items: center;
   gap: 8px;
+}
+.day-plan-row-error {
+  grid-column: 1 / -1;
 }
 .day-plan-copy {
   display: grid;
@@ -3951,7 +4158,7 @@ button.foundation-dot {
 .day-plan-edit input,
 .day-plan-form input {
   width: 100%;
-  min-height: 34px;
+  min-height: 44px;
   box-sizing: border-box;
   border: 1px solid #e2d6ed;
   border-radius: 9px;
@@ -3966,6 +4173,13 @@ button.foundation-dot {
   align-items: end;
   gap: 8px;
   margin-top: 10px;
+}
+.day-plan-form .goal-go,
+.day-plan-row .goal-go {
+  min-height: 44px;
+}
+.day-plan-form-error {
+  grid-column: 1 / -1;
 }
 .day-plan-form label {
   display: grid;
@@ -3998,6 +4212,10 @@ button.foundation-dot {
   background: rgba(255, 255, 255, 0.64);
   box-shadow: 0 7px 16px -13px rgba(80, 46, 88, 0.8);
 }
+.prestart-stack .day-target-strip {
+  width: 100%;
+  margin: 8px 0 0;
+}
 .day-target-label,
 .day-target-arm,
 .day-target-next {
@@ -4019,7 +4237,7 @@ button.foundation-dot {
 }
 .day-target-arm {
   flex: none;
-  min-height: 32px;
+  min-height: 44px;
   padding: 4px 8px;
   border-radius: 9px;
   background: #f3e9fa;
@@ -4030,8 +4248,8 @@ button.foundation-dot {
   color: #326745;
 }
 .day-target-next {
-  min-width: 32px;
-  min-height: 32px;
+  min-width: 44px;
+  min-height: 44px;
   padding: 0;
   font-size: 22px;
 }
@@ -4076,6 +4294,25 @@ button.foundation-dot {
   font: 600 11px var(--font-body);
 }
 @media (max-width: 560px) {
+  .task-goal-tools {
+    order: 5;
+    flex: 1 0 calc(100% - 38px);
+    margin-left: 38px;
+    align-items: stretch;
+  }
+  .task-goal-tools .goal-link {
+    max-width: none;
+  }
+  .task-day-plan-tools {
+    order: 6;
+  }
+  .task-day-plan-form {
+    grid-template-columns: 1fr 1fr;
+  }
+  .task-day-plan-form label,
+  .task-day-plan-form .field-error {
+    grid-column: 1 / -1;
+  }
   .day-plan-row {
     grid-template-columns: minmax(0, 1fr) 56px auto auto;
   }
@@ -4096,12 +4333,12 @@ button.foundation-dot {
   gap: 8px;
 }
 .goal-title {
+  flex: 1;
+  min-width: 0;
   margin: 0;
   font: 600 15px var(--font-body);
   color: var(--plum);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  overflow-wrap: anywhere;
 }
 .goal-when {
   font: 600 11px var(--font-body);
@@ -4208,7 +4445,10 @@ button.foundation-dot {
   border: none;
   border-radius: 10px;
   padding: 7px 13px;
-  background: linear-gradient(150deg, #ffb0d4, #c79fe6);
+  /* The fallback is deliberately opaque: computed-color audits and browsers
+     that suppress gradients still see the measured pink action surface. */
+  background-color: #ffb0d4;
+  background-image: linear-gradient(150deg, #ffb0d4, #c79fe6);
   color: #fff;
   font: 700 12px var(--font-display);
   cursor: pointer;
@@ -4218,7 +4458,14 @@ button.foundation-dot {
   transform: scale(0.95);
 }
 .goal-go:disabled {
-  opacity: 0.45;
+  /* Muting the whole control blended both its label and fill into the parent,
+     making the empty Add state unreadable at night. Keep disabled text at AA
+     contrast and distinguish the state through its quiet, non-gradient fill. */
+  background-color: #eee7f2;
+  background-image: none;
+  color: #725a7d;
+  box-shadow: inset 0 0 0 1px #866c91;
+  opacity: 1;
   cursor: default;
 }
 .goal-cancel {
@@ -4248,7 +4495,13 @@ body.night {
   --plum: #ece4f7;
   --soft: #a99bc8;
   --soft2: #a394c4;
-  --soft3: #9686b8;
+  /* The former #9686b8 fell to 4.21-4.40:1 on the sheet and control
+     surfaces. Reusing soft2 preserves the lavender hierarchy by weight while
+     keeping normal-size supporting text above 4.5:1. */
+  --soft3: #a394c4;
+  --error-ink: #ffc0d9;
+  /* 5.00:1 against the lightest common night control surface (#2e2557). */
+  --control-border: #a394c4;
   --surface: #2e2557;
   --line: rgba(140, 120, 200, 0.45);
   --shadow-soft: 0 10px 20px -14px rgba(8, 5, 20, 0.9);
@@ -4388,6 +4641,7 @@ body.night {
   background: linear-gradient(150deg, #ffb0d4, #c79fe6);
 }
 .night .chronotype-choice,
+.night .appearance-choice,
 .night .cadence-preset,
 .night .cadence-history-list button,
 .night .day-boundary-presets button,
@@ -4397,6 +4651,7 @@ body.night {
   color: var(--plum);
 }
 .night .chronotype-choice.on,
+.night .appearance-choice.on,
 .night .cadence-preset.on,
 .night .day-boundary-presets button.on {
   border-color: var(--pink-2);
@@ -4435,6 +4690,25 @@ body.night {
 }
 .night .prog-card {
   background: linear-gradient(150deg, rgba(255, 156, 194, 0.14), rgba(183, 159, 227, 0.14));
+}
+.night .day-plan-edit input,
+.night .day-plan-form input,
+.night .task-day-plan-form input {
+  border-color: #766a9e;
+  background: #211a43;
+  color: #fff8fc;
+  color-scheme: dark;
+}
+.night .goal-go:disabled {
+  background-color: #2e2557;
+  background-image: none;
+  color: #a394c4;
+  box-shadow: inset 0 0 0 1px #a394c4;
+}
+.night .task-day-plan-open,
+.night .task-day-plan-form button {
+  background: #3b3068;
+  color: #f1e7ff;
 }
 .night .prog-track {
   background: rgba(16, 11, 34, 0.5);
@@ -4787,9 +5061,11 @@ body.night {
   min-width: 44px;
 }
 
-/* Moving sky is decoration, never the only backing for essential timer copy. */
+/* Moving sky is decoration, never the only backing for essential copy. */
 .greeting-row,
-.readout {
+.readout,
+.head,
+.history-head {
   background: rgba(255, 255, 255, 0.84);
   border: 1px solid rgba(84, 59, 96, 0.18);
   backdrop-filter: blur(10px);
@@ -4816,16 +5092,36 @@ body.night {
   padding: 5px 14px 7px;
   border-radius: 16px;
 }
+.head,
+.history-head {
+  border-radius: 16px;
+}
+.history-head {
+  padding: 10px 12px 12px;
+}
 .prestart-stack {
   background: rgba(255, 255, 255, 0.86);
+}
+.add-row {
+  padding: 10px 12px;
+  border: 1px solid rgba(84, 59, 96, 0.18);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.86);
+  backdrop-filter: blur(10px);
 }
 .status-label,
 .streak-unit,
 .tiny-picker-label,
+.tiny-choice,
 .prestart-target,
 .prestart-ritual,
+.prestart-ritual span,
 .ifthen-ask,
 .ifthen-sub,
+.ifthen-opt,
+.ifthen-current,
+.ifthen-plan,
+.ifthen-note,
 .parking-open,
 .set-sub,
 .set-note,
@@ -4839,12 +5135,224 @@ body.night {
   line-height: 1.4;
 }
 .night .greeting-row,
-.night .readout {
+.night .readout,
+.night .head,
+.night .history-head {
   background: rgba(24, 18, 48, 0.9);
   border-color: rgba(236, 228, 247, 0.38);
 }
 .night .prestart-stack {
   background: rgba(24, 18, 48, 0.88);
+}
+.night .add-row {
+  border-color: rgba(236, 228, 247, 0.38);
+  background: rgba(24, 18, 48, 0.88);
+}
+
+/* Pastel fills remain decorative; their text, checks, and transport symbols
+   use one measured ink instead of low-contrast white. This applies in both
+   themes because these particular gradients stay light in night mode too. */
+.dialog-primary,
+.sheet-done,
+.onboard-go,
+.duty-badge,
+.pop-btn.primary,
+.patterns-chip.on,
+.goal-go {
+  color: var(--action-ink);
+}
+.play-tri {
+  border-left-color: var(--action-ink);
+}
+.pause-bars span,
+.switch.on .knob {
+  background: var(--action-ink);
+}
+.checkbox.done,
+.ritual-item.done .ritual-check,
+.woop-step.on .woop-step-dot {
+  color: var(--action-ink);
+}
+
+/* Day-only pale controls previously used decorative pink/purple as text.
+   Night has its own light-on-dark tokens below the original component rules. */
+.phone:not(.night) .ctrl-finish,
+.phone:not(.night) .now-badge,
+.phone:not(.night) .step-btn,
+.phone:not(.night) .add-plus,
+.phone:not(.night) .goal-btn,
+.phone:not(.night) .mini-btn,
+.phone:not(.night) .task-day-plan-open,
+.phone:not(.night) .task-day-plan-form button,
+.phone:not(.night) .day-target-arm,
+.phone:not(.night) .rollover-actions button,
+.phone:not(.night) .goal-chip,
+.phone:not(.night) .lvl-badge,
+.phone:not(.night) .coll-heart,
+.phone:not(.night) .focus-flag,
+.phone:not(.night) .task-goal-credit button,
+.phone:not(.night) .undo-toast button {
+  color: var(--plum);
+}
+.phone:not(.night) .set-note {
+  color: var(--soft);
+}
+.task-text.done,
+.task-del,
+.task-del:hover,
+.coll-meta.locked,
+.coll-tile.q {
+  color: var(--soft);
+}
+.night .task-text.done,
+.night .task-del {
+  color: var(--soft);
+}
+
+/* PLAN 8.9 practical type floor: instructions, supporting explanations, and
+   controls use about 13 CSS px. Smaller type is reserved for dates, counts,
+   stage tags, and other nonessential metadata. */
+.head-sub,
+.prog-sub,
+.add-form-title,
+.compact-field-label,
+.compact-form-field > span,
+.form-field > span:first-child,
+.form-error,
+.field-error,
+.task-add-note,
+.goal-btn,
+.history-head > p:last-child,
+.history-empty p,
+.history-retention-note,
+.history-session-card p,
+.history-repair-btn,
+.debrief-repair-btn,
+.session-repair-scope,
+.history-repair-status,
+.debrief-repair-status,
+.dialog-actions button,
+.chronotype-choice,
+.appearance-choice,
+.day-boundary-presets button,
+.cadence-preset,
+.cadence-preset small,
+.cadence-learned-card,
+.cadence-ladder > span,
+.cadence-history-list button,
+.pop-soft,
+.pop-btn,
+.pop-opt,
+.pop-dismiss,
+.pop-tip,
+.debrief-row,
+.debrief-target-btn,
+.weekly-q,
+.cadence-because,
+.woop-note,
+.woop-question,
+.woop-echo,
+.tiny-rung-question,
+.pop-jot-input,
+.resume-context-row,
+.resume-context-row strong,
+.resume-next-label,
+.resume-next-input,
+.resume-question,
+.ritual-sub,
+.ritual-note,
+.ritual-item,
+.ritual-skip,
+.prestart-prep-toggle,
+.prestart-prep-toggle > span:last-child,
+.intention-input,
+.intention-line,
+.patterns-chip,
+.ritual-edit-note,
+.ritual-edit-input,
+.mini-btn,
+.focus-clear-scope,
+.recipe-text,
+.recipe-because,
+.recipe-why,
+.cadence-apply,
+.goal-date,
+.goal-parts,
+.goal-link,
+.goal-go,
+.goal-hint,
+.goal-count,
+.guide-back,
+.guide-suggestion-reason,
+.history-day-details h3,
+.history-card-title strong,
+.history-task-list li,
+.history-more-btn,
+.day-target-label,
+.day-target-arm,
+.day-plan-status,
+.day-plan-copy,
+.day-plan-edit input,
+.day-plan-form input,
+.day-plan-form label,
+.day-plan-effort,
+.rollover-actions button,
+.rollover-cap,
+.task-day-plan-open,
+.task-day-plan-form button,
+.task-day-plan-form label,
+.task-goal-credit,
+.task-goal-credit button,
+.task-credit-note,
+.task-day-plan-progress,
+.coll-foot-sub,
+.foundations-head p,
+.foundation-chip,
+.foundation-detail-toggle small,
+.foundation-chip small,
+.foundation-detail p,
+.foundation-late-note,
+.foundation-restart p,
+.foundation-restart button,
+.foundation-anchor,
+.foundation-anchor-flow > button,
+.foundation-cap-note,
+.parking-input,
+.parking-save,
+.parking-saved,
+.parking-item-text {
+  font-size: 13px;
+}
+
+/* Fields and custom controls that already draw a boundary use one measured
+   token. Borderless actions keep their filled/text affordance; toggles add a
+   contrasting track outline, and selected choices gain a shape cue so state
+   never depends on pastel color alone. */
+.phone input:not([type='hidden']):not([type='range']),
+.phone select,
+.phone textarea,
+.phone .checkbox,
+.phone button.foundation-dot {
+  border-color: var(--control-border);
+}
+.phone .switch::before {
+  box-shadow: inset 0 0 0 1.5px var(--control-border);
+}
+.phone .tiny-choice.on,
+.phone .chronotype-choice.on,
+.phone .appearance-choice.on,
+.phone .cadence-preset.on,
+.phone .day-boundary-presets button.on,
+.phone .patterns-chip.on,
+.phone .guide-filter[aria-pressed='true'] {
+  outline: 2px solid var(--control-border);
+  outline-offset: -2px;
+}
+.phone .tab-btn[aria-pressed='true'] {
+  font-weight: 700;
+  text-decoration: underline;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 4px;
 }
 
 /* Notches and home indicators never overlap scrollable screen content. */
@@ -4920,6 +5428,13 @@ body.night {
     width: 100%;
     min-width: 0;
   }
+  /* At 320 CSS px (including the 200%-zoom layout equivalent), the Guide
+     already owns vertical scrolling. Wrap its stage filters so people never
+     need a second, horizontal scroll axis to reach Recovering or Science. */
+  .guide-filters {
+    flex-wrap: wrap;
+    overflow-x: visible;
+  }
   .dialog-backdrop { padding-inline: 8px; }
   .dialog { padding-inline: 12px; }
 }
@@ -4952,9 +5467,23 @@ body.night {
   .tabs { height: 52px; margin-top: 5px; }
   .tiny-picker { margin-top: 3px; }
   .ring-wrap { --ring-scale: 0.695; margin-top: 5px; }
+  /* On an idle short phone, decoration yields enough room for Start to be a
+     visible first-screen action. The complete optional setup still expands
+     and scrolls after the person asks for it. */
+  .prestart-scroll .ring-wrap { --ring-scale: 0.47; margin-top: 3px; }
   .readout { margin-top: 3px; padding-block: 3px 5px; }
   .readout-time { font-size: 42px; }
   .controls { gap: 16px; margin-top: 6px; }
+  .prestart-scroll .prestart-stack {
+    margin-top: 3px;
+    padding: 6px 8px;
+  }
+  .prestart-scroll .prestart-stack .now-chip {
+    min-height: 44px;
+    padding: 4px 8px;
+  }
+  .prestart-scroll .prestart-prep-toggle { margin-top: 3px; }
+  .prestart-scroll .controls { margin-top: 4px; }
   .ctrl-round { width: 44px; height: 44px; }
   .ctrl-play { width: 60px; height: 60px; }
   .now-chip { margin: auto 12px 8px; padding-block: 7px; }
@@ -5020,6 +5549,7 @@ body.night {
     --soft: #392b40;
     --soft2: #392b40;
     --soft3: #392b40;
+    --error-ink: #261b2b;
     --text-faint: #261b2b;
     --tab-inactive: #261b2b;
   }
@@ -5028,17 +5558,38 @@ body.night {
     --soft: #fff;
     --soft2: #fff;
     --soft3: #fff;
+    --error-ink: #fff;
     --text-faint: #fff;
     --tab-inactive: #fff;
   }
   .greeting-row,
   .readout,
+  .head,
+  .history-head,
   .tabs,
   .now-chip,
   .prestart-stack,
+  .add-row,
   .patterns-card,
   .goal-card,
   .task-row,
+  .task-empty,
+  .coll-card,
+  .coll-footer,
+  .collection-switch,
+  .guide-intro,
+  .guide-filter,
+  .guide-card,
+  .guide-back,
+  .guide-article,
+  .guide-suggestion,
+  .history-day,
+  .history-empty,
+  .history-session-card,
+  .history-task-list li,
+  .history-reflection-chips li,
+  .history-phase-chips li,
+  .foundations-card,
   .sheet,
   .settings-section,
   .dialog,
@@ -5051,12 +5602,32 @@ body.night {
   }
   .night .greeting-row,
   .night .readout,
+  .night .head,
+  .night .history-head,
   .night .tabs,
   .night .now-chip,
   .night .prestart-stack,
+  .night .add-row,
   .night .patterns-card,
   .night .goal-card,
   .night .task-row,
+  .night .task-empty,
+  .night .coll-card,
+  .night .coll-footer,
+  .night .collection-switch,
+  .night .guide-intro,
+  .night .guide-filter,
+  .night .guide-card,
+  .night .guide-back,
+  .night .guide-article,
+  .night .guide-suggestion,
+  .night .history-day,
+  .night .history-empty,
+  .night .history-session-card,
+  .night .history-task-list li,
+  .night .history-reflection-chips li,
+  .night .history-phase-chips li,
+  .night .foundations-card,
   .night .sheet,
   .night .settings-section,
   .night .dialog,
@@ -5085,12 +5656,32 @@ body.night {
   .dialog,
   .greeting-row,
   .readout,
+  .head,
+  .history-head,
   .tabs,
   .now-chip,
   .prestart-stack,
+  .add-row,
   .patterns-card,
   .goal-card,
   .task-row,
+  .task-empty,
+  .coll-card,
+  .coll-footer,
+  .collection-switch,
+  .guide-intro,
+  .guide-filter,
+  .guide-card,
+  .guide-back,
+  .guide-article,
+  .guide-suggestion,
+  .history-day,
+  .history-empty,
+  .history-session-card,
+  .history-task-list li,
+  .history-reflection-chips li,
+  .history-phase-chips li,
+  .foundations-card,
   .companion-pop,
   .ritual-card {
     color: CanvasText;
@@ -5098,6 +5689,39 @@ body.night {
     border-color: CanvasText;
     box-shadow: none;
     backdrop-filter: none;
+  }
+  .head,
+  .history-head,
+  .tabs,
+  .now-chip,
+  .prestart-stack,
+  .add-row,
+  .patterns-card,
+  .goal-card,
+  .task-row,
+  .task-empty,
+  .coll-card,
+  .coll-footer,
+  .collection-switch,
+  .guide-intro,
+  .guide-filter,
+  .guide-card,
+  .guide-back,
+  .guide-article,
+  .guide-suggestion,
+  .history-day,
+  .history-empty,
+  .history-session-card,
+  .history-task-list li,
+  .history-reflection-chips li,
+  .history-phase-chips li,
+  .foundations-card,
+  .sheet,
+  .settings-section,
+  .dialog,
+  .companion-pop,
+  .ritual-card {
+    border: 1px solid CanvasText;
   }
   .day-sky,
   .night-sky,
@@ -5127,6 +5751,18 @@ body.night {
     background: Highlight;
     box-shadow: inset 0 0 0 2px HighlightText;
   }
+  .play-tri {
+    border-left-color: ButtonText;
+  }
+  .pause-bars span,
+  .switch .knob {
+    background: ButtonText;
+  }
+  .checkbox.done,
+  .ritual-item.done .ritual-check,
+  .woop-step.on .woop-step-dot {
+    color: ButtonText;
+  }
   .goal-fill,
   .prog-fill,
   .streak-dot,
@@ -5134,6 +5770,10 @@ body.night {
   .sdot.on {
     forced-color-adjust: none;
     background: Highlight;
+  }
+  .form-error,
+  .field-error {
+    color: CanvasText;
   }
 }
 
@@ -5256,11 +5896,11 @@ body.night {
   }
 }
 
-/* PLAN 13.17: collapsed is the default and fits without scrolling. Opening the
-   optional preparation is the user asking for more than the screen holds, so
-   that state tightens its spacing first and then scrolls, rather than pushing
-   the transport under the tab bar. Declared last so it also wins inside the
-   per-height bands above. */
+/* PLAN 8.18: collapsed is the default and keeps Start on the first screen.
+   Opening the optional preparation is the user asking for more than the screen
+   holds, so that state tightens its spacing first and then scrolls, rather than
+   pushing the transport under the tab bar. Declared last so it also wins inside
+   the per-height bands above. */
 .focus-bg.prep-open,
 .focus-bg.prestart-scroll.prep-open,
 .focus-bg.prestart-scroll.prep-open:not(:focus-within) {

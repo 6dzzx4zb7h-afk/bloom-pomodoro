@@ -8,6 +8,10 @@ import { loadEvents } from './companion';
 import { proposeSessionRepair } from './sessionRepair';
 import type { SessionRecord } from './sessions';
 import {
+  getStorageHealthSnapshot,
+  resetStorageHealthForTests,
+} from './storageHealth';
+import {
   DEFAULT_STATE,
   persistedShapeFromState,
   reducer,
@@ -17,13 +21,19 @@ import {
 
 class MemoryStorage implements Storage {
   private values = new Map<string, string>();
+  failSetFor: string | null = null;
   get length() { return this.values.size; }
   clear() { this.values.clear(); }
   getItem(key: string) { return this.values.get(key) ?? null; }
   key(index: number) { return [...this.values.keys()][index] ?? null; }
   removeItem(key: string) { this.values.delete(key); }
-  setItem(key: string, value: string) { this.values.set(key, value); }
+  setItem(key: string, value: string) {
+    if (this.failSetFor === key) throw new Error(`blocked write for ${key}`);
+    this.values.set(key, value);
+  }
 }
+
+let storage: MemoryStorage;
 
 function record(patch: Partial<SessionRecord> = {}): SessionRecord {
   const startedAt = new Date('2026-07-26T09:00:00').getTime();
@@ -75,7 +85,9 @@ function stateWithRecord(session: SessionRecord): BloomState {
 
 describe('persisted session repair integration', () => {
   beforeEach(() => {
-    vi.stubGlobal('localStorage', new MemoryStorage());
+    storage = new MemoryStorage();
+    vi.stubGlobal('localStorage', storage);
+    resetStorageHealthForTests();
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-07-26T10:00:00'));
   });
@@ -84,6 +96,7 @@ describe('persisted session repair integration', () => {
     cleanup();
     vi.useRealTimers();
     vi.unstubAllGlobals();
+    resetStorageHealthForTests();
   });
 
   it('updates analytics fields without replaying XP, streak, sessions, or goal credit', () => {
@@ -134,7 +147,7 @@ describe('persisted session repair integration', () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
 
-    let repaired: SessionRecord | undefined;
+    let repaired: SessionRecord | null | undefined;
     act(() => {
       repaired = hook.result.current.actions.repairSession(result.proposal);
     });
@@ -157,5 +170,44 @@ describe('persisted session repair integration', () => {
     expect(hook.result.current.state.palXp).toEqual({ Mochi: 3 });
     expect(hook.result.current.state.goalLedger).toEqual(initial.goalLedger);
     expect(hook.result.current.state.goals).toEqual(initial.goals);
+  });
+
+  it('rolls back the repair event and keeps the prior record when main storage rejects save', () => {
+    const source = record();
+    const initial = stateWithRecord(source);
+    localStorage.setItem('bloom-state', JSON.stringify(persistedShapeFromState(initial)));
+    const hook = renderHook(() => useBloom());
+    const priorMain = localStorage.getItem('bloom-state');
+    const result = proposeSessionRepair({
+      record: source,
+      records: [source],
+      wallClockEndAt: source.endedAt,
+      endedAt: source.endedAt,
+      outcome: 'abandoned',
+      retroactiveDrift: {
+        onsetAt: source.startedAt + 4 * 60_000,
+        durationMin: 3,
+      },
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    storage.failSetFor = 'bloom-state';
+
+    let repaired: SessionRecord | null | undefined;
+    act(() => {
+      repaired = hook.result.current.actions.repairSession(result.proposal);
+    });
+
+    expect(repaired).toBeNull();
+    expect(hook.result.current.state.sessionRecords[0]).toEqual(source);
+    expect(localStorage.getItem('bloom-state')).toBe(priorMain);
+    expect(loadEvents()).toEqual([]);
+    expect(getStorageHealthSnapshot().failures).toEqual([
+      expect.objectContaining({
+        area: 'bloom-state',
+        kind: 'write',
+        raw: priorMain,
+      }),
+    ]);
   });
 });

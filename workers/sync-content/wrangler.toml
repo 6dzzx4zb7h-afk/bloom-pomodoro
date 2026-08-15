@@ -1,0 +1,11 @@
+name = "bloom-sync-content"
+main = "index.ts"
+compatibility_date = "2025-06-01"
+
+[[durable_objects.bindings]]
+name = "SYNC_CONTENT"
+class_name = "BloomSyncContent"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["BloomSyncContent"]

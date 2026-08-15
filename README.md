@@ -15,7 +15,9 @@ accessibility, privacy, security, reliability, performance, and engineering qual
 **Roadmap:** optional account-based cross-device sync is the first planned network feature. Bloom
 will remain local-only by default; no account is required, the complete core stays offline-capable,
 and local-only sends no user data. Any later network feature needs its own plan step, explicit opt-in,
-endpoint/data inventory, local-only regression, and pause/export/deletion semantics.
+endpoint/data inventory, local-only regression, and pause/export/deletion semantics. The provider,
+end-to-end encryption, recovery, endpoint, retention, conflict, and threat-model decisions are fixed
+in the [binding sync contract](docs/sync.md) before implementation begins.
 
 Built with **Vite + React + TypeScript** — the current pixel-pal engine is Canvas 2D, and every
 animal is procedurally drawn from sprite data. Runtime assets such as fonts, images, and audio may
@@ -24,8 +26,12 @@ be bundled locally; remote runtime assets are prohibited.
 ## Run
 
 ```bash
-npm install
+corepack enable
+corepack install  # activates package.json's exact npm pin
+npm ci
 npm run dev      # http://localhost:5173
+npm run lint     # TypeScript + React Hooks correctness checks
+npm test         # unit, reducer, hook, and component coverage
 npm run build    # type-check + production build
 npm run preview  # serve the production build locally
 ```

@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { FocusScreen } from '../screens/FocusScreen';
 import { GoalsScreen } from '../screens/GoalsScreen';
 import { TasksScreen } from '../screens/TasksScreen';
+import { StorageRecoveryNotice } from '../components/StorageRecoveryNotice';
 import {
   DEFAULT_CADENCE,
   EMPTY_PERSONAL_CADENCE,
@@ -14,6 +15,7 @@ import {
 } from '../insights/cadence';
 import { audioEngine } from '../engine/audio';
 import { DEFAULT_COMPANION, loadEvents } from './companion';
+import { createFoundationInstance } from './foundations';
 import { DEFAULT_RITUAL } from './ritual';
 import { finalizeSession, newOpenSession, type OpenSession } from './sessions';
 import {
@@ -23,6 +25,7 @@ import {
   type Settings,
 } from './useBloom';
 import { useCompanion, type Companion } from './useCompanion';
+import { resetStorageHealthForTests } from './storageHealth';
 
 vi.mock('../components/PixelPal', () => ({
   PixelPal: () => <div data-testid="pixel-pal" />,
@@ -38,6 +41,7 @@ const companion = {
 
 class MemoryStorage implements Storage {
   private values = new Map<string, string>();
+  failWrites = false;
 
   get length() {
     return this.values.size;
@@ -60,9 +64,12 @@ class MemoryStorage implements Storage {
   }
 
   setItem(key: string, value: string) {
+    if (this.failWrites) throw new DOMException('Storage unavailable', 'QuotaExceededError');
     this.values.set(key, value);
   }
 }
+
+afterEach(() => resetStorageHealthForTests());
 
 type ProbeState = Pick<
   BloomState,
@@ -106,7 +113,7 @@ function seedState(
   );
 }
 
-function FocusHarness() {
+function FocusHarness({ onOpenGoals }: { onOpenGoals?: () => void } = {}) {
   const bloom = useBloom();
   const probe: ProbeState = {
     mode: bloom.state.mode,
@@ -123,7 +130,12 @@ function FocusHarness() {
   };
   return (
     <>
-      <FocusScreen bloom={bloom} companion={companion} onOpenGuideArticle={vi.fn()} />
+      <FocusScreen
+        bloom={bloom}
+        companion={companion}
+        onOpenGoals={onOpenGoals}
+        onOpenGuideArticle={vi.fn()}
+      />
       <output data-testid="bloom-state">{JSON.stringify(probe)}</output>
     </>
   );
@@ -138,6 +150,10 @@ function TasksHarness() {
         {JSON.stringify({ tasks: bloom.state.tasks, activeTaskId: bloom.state.activeTaskId })}
       </output>
       <output data-testid="task-goals-state">{JSON.stringify(bloom.state.goals)}</output>
+      <output data-testid="task-day-plan-state">{JSON.stringify(bloom.state.dayPlan)}</output>
+      <output data-testid="foundations-state">
+        {JSON.stringify({ today: bloom.state.today, foundations: bloom.state.foundations })}
+      </output>
     </>
   );
 }
@@ -157,6 +173,11 @@ function GoalsHarness() {
           lastRolloverOfferDay: bloom.state.lastRolloverOfferDay,
         })}
       </output>
+      <StorageRecoveryNotice
+        recoveredBloom={bloom.storageRecovery.recoveredBloom}
+        onRetry={bloom.storageRecovery.retry}
+        onRecover={bloom.storageRecovery.recover}
+      />
     </>
   );
 }
@@ -220,6 +241,115 @@ describe('timer lifecycle controls at the hook/component boundary', () => {
     expect(stateProbe().openFocus).toMatchObject({ taskId: 1, goalId: 9 });
   });
 
+  it('opens Goals from the idle target strip and reflects credited work through debrief and Today', () => {
+    const openGoals = vi.fn();
+    seedState({
+      version: 28,
+      settings: { planner: true, goalCredit: 'ask' },
+      tasks: [{ id: 1, t: 'Read notes', done: false, pomos: 0, goal: 2 }],
+      activeTaskId: 1,
+      goals: [{
+        id: 9,
+        title: 'Biology review',
+        due: '2026-07-30',
+        target: 8,
+        done: 2,
+        unit: 'lectures',
+        createdAt: Date.now() - 86_400_000,
+      }],
+      goalLedger: [{
+        id: 'biology-carryover',
+        goalId: 9,
+        delta: 2,
+        source: 'carryover',
+        dayKey: '2026-07-15',
+        at: Date.now() - 86_400_000,
+      }],
+      dayPlan: {
+        targets: [{
+          id: 'biology-today',
+          dayKey: '2026-07-16',
+          goalId: 9,
+          plannedAmount: 3,
+          snapshot: { title: 'Biology review', unit: 'lectures' },
+          createdAt: Date.now(),
+        }],
+        archive: [],
+      },
+    });
+
+    const focus = render(<FocusHarness onOpenGoals={openGoals} />);
+    const targetStrip = screen.getByRole('group', { name: "Today's target" });
+    const targetLabel = within(targetStrip).getByRole('button', {
+      name: '🌱 Biology review · 2 of 8 lectures · today 0/3',
+    });
+    fireEvent.click(targetLabel);
+    expect(openGoals).toHaveBeenCalledOnce();
+
+    fireEvent.click(within(targetStrip).getByRole('button', { name: 'count next session' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Start' }));
+    expect(screen.queryByRole('group', { name: "Today's target" })).toBeNull();
+
+    act(() => {
+      vi.setSystemTime(new Date(Date.now() + 25 * 60_000));
+      vi.advanceTimersByTime(250);
+    });
+    act(() => vi.advanceTimersByTime(3_600));
+
+    expect(screen.getByText('🌱 Biology review · today 0/3 lectures')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'credit 1 lectures' }));
+    expect(screen.getByText('🌱 Biology review · today 1/3 lectures')).toBeTruthy();
+    expect(stateProbe().goalLedger).toContainEqual(
+      expect.objectContaining({ goalId: 9, delta: 1, source: 'session' }),
+    );
+
+    focus.unmount();
+    render(<GoalsHarness />);
+    expect(screen.getByRole('progressbar', { name: 'Biology review: 1 of 3 lectures' }))
+      .toBeTruthy();
+  });
+
+  it('leaves Focus unchanged without a target and hides the strip for a paused session', () => {
+    seedState({ version: 28, settings: { planner: true } });
+    const empty = render(<FocusHarness />);
+    expect(screen.queryByRole('group', { name: "Today's target" })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Start' })).toBeTruthy();
+    empty.unmount();
+
+    seedState({
+      version: 28,
+      settings: { planner: true },
+      goals: [{
+        id: 9,
+        title: 'Biology review',
+        due: '2026-07-30',
+        target: 8,
+        done: 0,
+        unit: 'lectures',
+        createdAt: Date.now() - 86_400_000,
+      }],
+      dayPlan: {
+        targets: [{
+          id: 'biology-paused',
+          dayKey: '2026-07-16',
+          goalId: 9,
+          plannedAmount: 2,
+          snapshot: { title: 'Biology review', unit: 'lectures' },
+          createdAt: Date.now(),
+        }],
+        archive: [],
+      },
+    });
+    render(<FocusHarness />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Start' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Pause' }));
+
+    expect(screen.queryByRole('group', { name: "Today's target" })).toBeNull();
+    expect(stateProbe().openFocus).not.toBeNull();
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeTruthy();
+  });
+
   it('orders the fresh-session path as task, target, optional prep, then Start', () => {
     seedState({
       tasks: [{ id: 1, t: 'Draft the opening', done: false, pomos: 0, goal: 2 }],
@@ -230,12 +360,14 @@ describe('timer lifecycle controls at the hook/component boundary', () => {
     render(<FocusHarness />);
 
     const before = screen.getByRole('region', { name: 'Before this session' });
-    // PLAN 13.17: the task and the target stay on the screen; the rest of the
-    // preparation is one tap away so the transport is never pushed off a phone.
-    const fold = within(before).getByRole('button', { name: /a little more prep/i });
+    // PLAN 8.18: all optional questions share one disclosure, leaving Start as
+    // a complete path even for someone who does not want to set anything up.
+    const fold = within(before).getByRole('button', { name: /set up this session/i });
     expect(fold.getAttribute('aria-expanded')).toBe('false');
+    expect(within(before).queryByRole('textbox', { name: 'Session target' })).toBeNull();
     expect(within(before).queryByRole('button', { name: /opening move/i })).toBeNull();
     fireEvent.click(fold);
+    expect(fold.getAttribute('aria-expanded')).toBe('true');
 
     const task = within(before).getByText('Draft the opening');
     const target = within(before).getByRole('textbox', { name: 'Session target' });
@@ -254,6 +386,26 @@ describe('timer lifecycle controls at the hook/component boundary', () => {
     const ritual = screen.getByRole('region', { name: 'Environment reset' });
     expect(within(ritual).getByRole('button', { name: 'skip for now' })).toBeTruthy();
     fireEvent.click(within(ritual).getByRole('button', { name: 'skip for now' }));
+    expect(screen.getByRole('button', { name: 'Pause' })).toBeTruthy();
+  });
+
+  it('keeps the first Start path quiet even when the legacy ritual suggestion was unseen', () => {
+    seedState({
+      ritual: { ...DEFAULT_RITUAL, enabled: false, suggestionSeen: false },
+    });
+
+    render(<FocusHarness />);
+
+    expect(screen.queryByText(/want to try a tiny reset/i)).toBeNull();
+    expect(screen.queryByRole('button', { name: 'try it next time' })).toBeNull();
+    expect(screen.queryByRole('textbox', { name: 'Session target' })).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: /set up this session/i }));
+    expect(screen.getByRole('textbox', { name: 'Session target' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /hide optional session setup/i }));
+    expect(screen.queryByRole('textbox', { name: 'Session target' })).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Start' }));
     expect(screen.getByRole('button', { name: 'Pause' })).toBeTruthy();
   });
 
@@ -283,6 +435,7 @@ describe('timer lifecycle controls at the hook/component boundary', () => {
     seedState();
     render(<FocusHarness />);
 
+    fireEvent.click(screen.getByRole('button', { name: /set up this session/i }));
     fireEvent.change(screen.getByRole('textbox', { name: 'Session target' }), {
       target: { value: 'Draft the first paragraph' },
     });
@@ -1188,6 +1341,166 @@ describe('safe destructive controls', () => {
     ).toBeTruthy();
   });
 
+  it('plans today in two clicks with the remaining per-day amount prefilled', () => {
+    const goal = {
+      id: 4,
+      title: 'Biology review',
+      due: '2026-07-16',
+      target: 5,
+      done: 2,
+      unit: 'lectures',
+      createdAt: Date.now() - 10 * 86_400_000,
+    };
+    seedState({
+      version: 28,
+      settings: { planner: true },
+      goals: [goal],
+      goalLedger: [{
+        id: 'biology-before-today',
+        goalId: goal.id,
+        delta: 2,
+        source: 'carryover',
+        dayKey: '2026-07-15',
+        at: Date.now() - 86_400_000,
+      }],
+    });
+    render(<GoalsHarness />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'plan today' }));
+    expect((screen.getByRole('spinbutton', {
+      name: 'Planned lectures for Biology review',
+    }) as HTMLInputElement).value).toBe('3');
+    expect((screen.getByLabelText('Day for Biology review') as HTMLInputElement).value)
+      .toBe('2026-07-16');
+
+    fireEvent.click(screen.getByRole('button', { name: 'confirm' }));
+    expect(screen.getByRole('progressbar', { name: 'Biology review: 0 of 3 lectures' }))
+      .toBeTruthy();
+  });
+
+  it('keeps a future target off Today and Focus until its chosen day', () => {
+    const goal = {
+      id: 4,
+      title: 'Biology review',
+      due: '2026-07-20',
+      target: 5,
+      done: 0,
+      unit: 'lectures',
+      createdAt: Date.now() - 86_400_000,
+    };
+    seedState({ version: 28, settings: { planner: true }, goals: [goal] });
+    const goals = render(<GoalsHarness />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'plan today' }));
+    fireEvent.change(screen.getByLabelText('Day for Biology review'), {
+      target: { value: '2026-07-17' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'confirm' }));
+    expect(screen.getByText('Biology review is planned for 2026-07-17: 1 lectures.'))
+      .toBeTruthy();
+    expect(screen.queryByRole('heading', { name: 'Today' })).toBeNull();
+    goals.unmount();
+
+    const beforeDay = render(<FocusHarness />);
+    expect(screen.queryByRole('group', { name: "Today's target" })).toBeNull();
+    beforeDay.unmount();
+
+    vi.setSystemTime(new Date('2026-07-17T09:00:00'));
+    render(<FocusHarness />);
+    expect(screen.getByRole('group', { name: "Today's target" })).toBeTruthy();
+    expect(screen.getByRole('button', {
+      name: '🌱 Biology review · 0 of 5 lectures · today 0/1',
+    })).toBeTruthy();
+  });
+
+  it('validates, cancels, saves, reloads, edits, and removes a chosen goal target', () => {
+    const goal = {
+      id: 4,
+      title: 'Biology review',
+      due: '2026-08-01',
+      target: 12,
+      done: 3,
+      unit: 'lectures',
+      createdAt: Date.now() - 10 * 86_400_000,
+    };
+    seedState({ version: 28, settings: { planner: true }, goals: [goal] });
+    const first = render(<GoalsHarness />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'plan today' }));
+    fireEvent.change(
+      screen.getByRole('spinbutton', { name: 'Planned lectures for Biology review' }),
+      { target: { value: '' } },
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'confirm' }));
+    expect(screen.getByText('Choose a whole number from 1 to 12.')).toBeTruthy();
+    expect(JSON.parse(screen.getByTestId('day-plan-state').textContent ?? '{}').dayPlan.targets)
+      .toEqual([]);
+    fireEvent.click(screen.getByRole('button', { name: 'cancel' }));
+
+    fireEvent.click(screen.getByRole('button', { name: 'plan today' }));
+    fireEvent.change(
+      screen.getByRole('spinbutton', { name: 'Planned lectures for Biology review' }),
+      { target: { value: '3' } },
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'confirm' }));
+    expect(screen.getByText('Today’s target for Biology review is 3 lectures.')).toBeTruthy();
+
+    first.unmount();
+    render(<GoalsHarness />);
+    expect(screen.getByRole('progressbar', { name: 'Biology review: 0 of 3 lectures' }))
+      .toBeTruthy();
+    const edit = screen.getByRole('spinbutton', {
+      name: 'Planned lectures for Biology review',
+    });
+    fireEvent.change(edit, { target: { value: '0' } });
+    fireEvent.click(screen.getByRole('button', { name: 'save' }));
+    expect(screen.getByText('Choose a whole number from 1 to 99.')).toBeTruthy();
+    fireEvent.change(edit, { target: { value: '2' } });
+    fireEvent.click(screen.getByRole('button', { name: 'save' }));
+    expect(screen.getByRole('progressbar', { name: 'Biology review: 0 of 2 lectures' }))
+      .toBeTruthy();
+
+    fireEvent.click(
+      screen.getByRole('button', { name: "Remove today's target for Biology review" }),
+    );
+    expect(screen.queryByRole('progressbar', { name: /Biology review:/ })).toBeNull();
+    expect(screen.getByText(
+      'Today’s target for Biology review was removed. Your recorded work stays put.',
+    )).toBeTruthy();
+  });
+
+  it('keeps an unsaved target in memory and exposes the app recovery actions', () => {
+    const goal = {
+      id: 4,
+      title: 'Biology review',
+      due: '2026-08-01',
+      target: 12,
+      done: 0,
+      unit: 'lectures',
+      createdAt: Date.now() - 86_400_000,
+    };
+    seedState({ version: 28, settings: { planner: true }, goals: [goal] });
+    render(<GoalsHarness />);
+    const storage = localStorage as MemoryStorage;
+    const savedBefore = storage.getItem('bloom-state');
+    storage.failWrites = true;
+
+    fireEvent.click(screen.getByRole('button', { name: 'plan today' }));
+    fireEvent.click(screen.getByRole('button', { name: 'confirm' }));
+
+    expect(screen.getByText(
+      'Bloom could not save the latest change. Your last saved copy is still in place.',
+    )).toBeTruthy();
+    expect(storage.getItem('bloom-state')).toBe(savedBefore);
+    expect(screen.getByRole('progressbar', { name: /Biology review:/ })).toBeTruthy();
+    storage.failWrites = false;
+    fireEvent.click(screen.getByRole('button', { name: 'try storage again' }));
+    expect(screen.queryByText(
+      'Bloom could not save the latest change. Your last saved copy is still in place.',
+    )).toBeNull();
+    expect(storage.getItem('bloom-state')).toContain('Biology review');
+  });
+
   it('shows rollover triage once, carries the remainder, and does not re-offer after reload', () => {
     const goal = {
       id: 4,
@@ -1269,15 +1582,18 @@ describe('honest task empty state', () => {
     vi.unstubAllGlobals();
   });
 
-  it('starts empty and offers one clear path into the real add form', () => {
+  it('starts empty and offers one clear path through the real add form', () => {
     render(<TasksHarness />);
 
     expect(screen.queryByRole('checkbox')).toBeNull();
     expect(screen.getByRole('heading', { level: 2, name: 'your list starts here' })).toBeTruthy();
+    const empty = screen.getByRole('region', { name: 'your list starts here' });
+    expect(within(empty).queryByRole('button')).toBeNull();
+    expect(within(empty).getByText('name one small thing in the form below.')).toBeTruthy();
+    expect(JSON.parse(localStorage.getItem('bloom-state') ?? '{}').tasks).toEqual([]);
 
     const taskName = screen.getByRole('textbox', { name: 'Task name' });
-    fireEvent.click(screen.getByRole('button', { name: 'add your first task' }));
-    expect(document.activeElement).toBe(taskName);
+    expect(screen.getAllByRole('button', { name: 'Add task' })).toHaveLength(1);
 
     fireEvent.change(taskName, { target: { value: 'Read one page' } });
     fireEvent.click(screen.getByRole('button', { name: 'Add task' }));
@@ -1287,6 +1603,253 @@ describe('honest task empty state', () => {
       tasks: [{ t: 'Read one page' }],
       activeTaskId: 1,
     });
+  });
+
+  it('creates one optional task target only from valid, confirmed input and reloads it', () => {
+    seedState({
+      version: 28,
+      settings: { planner: true },
+      tasks: [{ id: 7, t: 'Read one page', done: false, pomos: 0, goal: 3 }],
+      activeTaskId: 7,
+    });
+    const first = render(<TasksHarness />);
+    fireEvent.click(screen.getByRole('button', { name: 'plan Read one page today' }));
+    const amount = screen.getByRole('spinbutton', {
+      name: 'Sessions today for Read one page',
+    });
+    fireEvent.change(amount, { target: { value: '1.5' } });
+    fireEvent.click(screen.getByRole('button', { name: 'confirm' }));
+    expect(screen.getByText('Choose a whole number from 1 to 99.')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'cancel' }));
+    expect(JSON.parse(screen.getByTestId('task-day-plan-state').textContent ?? '{}').targets)
+      .toEqual([]);
+
+    fireEvent.click(screen.getByRole('button', { name: 'plan Read one page today' }));
+    fireEvent.change(
+      screen.getByRole('spinbutton', { name: 'Sessions today for Read one page' }),
+      { target: { value: '2' } },
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'confirm' }));
+    expect(screen.getByText('today 0/2 sessions')).toBeTruthy();
+
+    first.unmount();
+    render(<TasksHarness />);
+    expect(screen.getByText('today 0/2 sessions')).toBeTruthy();
+  });
+
+  it('selects a task target, credits its linked session, and echoes it in debrief', () => {
+    seedState({
+      version: 28,
+      settings: { planner: true },
+      tasks: [
+        { id: 1, t: 'Other task', done: false, pomos: 0, goal: 1 },
+        { id: 7, t: 'Read one page', done: false, pomos: 0, goal: 2 },
+      ],
+      activeTaskId: 1,
+      dayPlan: {
+        targets: [{
+          id: 'task-target',
+          taskId: 7,
+          dayKey: '2026-07-16',
+          plannedAmount: 2,
+          snapshot: { title: 'Read one page', unit: 'sessions' },
+          createdAt: Date.now(),
+        }],
+        archive: [],
+      },
+    });
+    render(<FocusHarness />);
+    fireEvent.click(screen.getByRole('button', { name: 'work on this task' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Start' }));
+    expect(stateProbe().openFocus?.taskId).toBe(7);
+
+    act(() => {
+      vi.setSystemTime(new Date(Date.now() + 25 * 60_000));
+      vi.advanceTimersByTime(250);
+    });
+    act(() => vi.advanceTimersByTime(3_600));
+
+    expect(screen.getByText('🌱 Read one page · today 1/2 sessions')).toBeTruthy();
+  });
+
+  it('reflects an unfinished prior task target without grading it', () => {
+    const endedAt = new Date('2026-07-15T12:00:00').getTime();
+    seedState({
+      version: 28,
+      settings: { planner: true },
+      tasks: [{ id: 7, t: 'Read one page', done: false, pomos: 1, goal: 3 }],
+      sessionRecords: [{
+        ...finalizeSession(
+          newOpenSession('focus', 25, 7, undefined, endedAt - 25 * 60_000),
+          'completed',
+          25,
+          endedAt,
+        ),
+      }],
+      dayPlan: {
+        targets: [{
+          id: 'yesterday-task-target',
+          taskId: 7,
+          dayKey: '2026-07-15',
+          plannedAmount: 3,
+          snapshot: { title: 'Read one page', unit: 'sessions' },
+          createdAt: endedAt - 60_000,
+        }],
+        archive: [],
+      },
+    });
+
+    render(<TasksHarness />);
+    expect(screen.getByText(
+      'Yesterday: 1 of 3 sessions for Read one page — that’s real progress.',
+    )).toBeTruthy();
+    expect(document.body.textContent).not.toMatch(/missed|failed|behind/i);
+  });
+});
+
+describe('daily foundations at the UI and persistence boundary', () => {
+  beforeEach(() => {
+    vi.stubGlobal('localStorage', new MemoryStorage());
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-16T09:00:00'));
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.clearAllTimers();
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+    delete (document as unknown as Record<string, unknown>).visibilityState;
+  });
+
+  it('adds no Tasks surface when the opt-in setting is off', () => {
+    render(<TasksHarness />);
+
+    expect(screen.queryByRole('heading', { name: 'Daily foundations' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'tend' })).toBeNull();
+    expect(screen.getByRole('heading', { name: 'your list starts here' })).toBeTruthy();
+  });
+
+  it('persists a one-tap 23:50 check, rolls it on visibility, and keeps it when disabled', () => {
+    vi.setSystemTime(new Date('2026-07-16T23:50:00'));
+    const instance = createFoundationInstance({
+      type: 'phone-away',
+      order: 0,
+      at: new Date('2026-07-10T12:00:00').getTime(),
+      dayStartHour: 3,
+    })!;
+    seedState({
+      version: 33,
+      settings: { foundations: true, dayStartHour: 3 },
+      foundations: { instances: [instance], entries: [], archive: [] },
+    });
+
+    const first = render(<TasksHarness />);
+    fireEvent.click(screen.getByRole('button', { name: 'Mark Phone away done' }));
+    expect(screen.getByRole('button', { name: 'Set aside Phone away for today' }))
+      .toBeTruthy();
+
+    const afterCheck = JSON.parse(
+      screen.getByTestId('foundations-state').textContent ?? '{}',
+    ) as {
+      today: string;
+      foundations: { entries: Array<{ id: string; dayKey: string }> };
+    };
+    expect(afterCheck.today).toBe('2026-07-16');
+    expect(afterCheck.foundations.entries).toEqual([
+      expect.objectContaining({
+        id: 'fnd-phone-away:2026-07-16',
+        dayKey: '2026-07-16',
+      }),
+    ]);
+    expect(localStorage.getItem('bloom-state')).toContain('fnd-phone-away:2026-07-16');
+
+    first.unmount();
+    const reloaded = render(<TasksHarness />);
+    expect(screen.getByRole('button', { name: 'Set aside Phone away for today' }))
+      .toBeTruthy();
+
+    vi.setSystemTime(new Date('2026-07-17T03:05:00'));
+    Object.defineProperty(document, 'visibilityState', {
+      configurable: true,
+      value: 'visible',
+    });
+    act(() => document.dispatchEvent(new Event('visibilitychange')));
+    expect(screen.getByRole('button', { name: 'Mark Phone away done' })).toBeTruthy();
+    expect(
+      JSON.parse(screen.getByTestId('foundations-state').textContent ?? '{}').today,
+    ).toBe('2026-07-17');
+
+    fireEvent.click(screen.getByRole('button', { name: 'tend' }));
+    fireEvent.click(screen.getByRole('switch', { name: 'Turn off Phone away' }));
+    expect(screen.queryByRole('button', { name: 'Mark Phone away done' })).toBeNull();
+    const disabled = JSON.parse(
+      screen.getByTestId('foundations-state').textContent ?? '{}',
+    ) as {
+      foundations: {
+        instances: Array<{ id: string; enabled: boolean }>;
+        entries: Array<{ id: string }>;
+      };
+    };
+    expect(disabled.foundations.instances).toContainEqual(
+      expect.objectContaining({ id: instance.id, enabled: false }),
+    );
+    expect(disabled.foundations.entries).toContainEqual(
+      expect.objectContaining({ id: 'fnd-phone-away:2026-07-16' }),
+    );
+
+    reloaded.unmount();
+    render(<TasksHarness />);
+    const afterDisableReload = JSON.parse(
+      screen.getByTestId('foundations-state').textContent ?? '{}',
+    ) as { foundations: { entries: Array<{ id: string }> } };
+    expect(afterDisableReload.foundations.entries).toContainEqual(
+      expect.objectContaining({ id: 'fnd-phone-away:2026-07-16' }),
+    );
+    expect(screen.queryByRole('button', { name: 'Mark Phone away done' })).toBeNull();
+  });
+
+  it('renders the same derived foundation state on Tasks and the break surface', () => {
+    const instance = createFoundationInstance({
+      type: 'phone-away',
+      order: 0,
+      at: new Date('2026-07-10T12:00:00').getTime(),
+    })!;
+    const record = finalizeSession(
+      newOpenSession('focus', 25, undefined, undefined, Date.now() - 25 * 60_000),
+      'completed',
+      25,
+      Date.now(),
+    );
+    seedState({
+      version: 33,
+      mode: 'short',
+      settings: { foundations: true },
+      sessionRecords: [record],
+      foundations: {
+        instances: [instance],
+        entries: [{
+          id: 'fnd-phone-away:2026-07-16',
+          instanceId: instance.id,
+          dayKey: '2026-07-16',
+          recordedAt: Date.now(),
+        }],
+        archive: [],
+      },
+    });
+
+    const tasks = render(<TasksHarness />);
+    expect(screen.getByRole('heading', { name: '2 of 2 tended today 🌱' })).toBeTruthy();
+    expect(screen.getByText('counted from your finished sessions')).toBeTruthy();
+    tasks.unmount();
+
+    render(<FocusHarness />);
+    fireEvent.click(screen.getByRole('button', { name: 'Short' }));
+    expect(screen.getByRole('heading', { name: '2 of 2 tended today 🌱' })).toBeTruthy();
+    const focused = screen.getByText('Focused work').closest('.foundation-chip');
+    expect(focused?.tagName).toBe('DIV');
+    expect(within(focused as HTMLElement).queryByRole('button')).toBeNull();
   });
 });
 

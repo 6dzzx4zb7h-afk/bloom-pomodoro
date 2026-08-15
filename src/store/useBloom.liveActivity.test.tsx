@@ -3,6 +3,7 @@
 import { act, cleanup, render, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
+  IOSLiveActivityCommand,
   IOSLiveActivityMutationResult,
   IOSLiveActivitySnapshot,
 } from '../native/iosLiveActivity';
@@ -18,11 +19,17 @@ const readIOSLiveActivityStatus = vi.fn(async () => ({
   enabled: true,
   active: false,
 }));
+const readPendingIOSLiveActivityCommands = vi.fn<
+  () => Promise<IOSLiveActivityCommand[]>
+>(async () => []);
+const acknowledgeIOSLiveActivityCommands = vi.fn(async () => undefined);
 
 vi.mock('../native/iosLiveActivity', () => ({
   isIOSLiveActivityPlatform,
   readIOSLiveActivityStatus,
   reconcileIOSLiveActivity,
+  readPendingIOSLiveActivityCommands,
+  acknowledgeIOSLiveActivityCommands,
 }));
 
 vi.mock('../engine/audio', () => ({
@@ -56,6 +63,8 @@ describe('useBloom Live Activity reconciliation', () => {
       enabled: true,
       active: false,
     });
+    readPendingIOSLiveActivityCommands.mockReset().mockResolvedValue([]);
+    acknowledgeIOSLiveActivityCommands.mockReset().mockResolvedValue(undefined);
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-08-03T12:00:00Z'));
   });
@@ -81,6 +90,7 @@ describe('useBloom Live Activity reconciliation', () => {
       state: 'running',
       startedAtMs,
       deadlineMs: firstDeadline,
+      completionAlertsEnabled: true,
     });
 
     act(() => {
@@ -95,6 +105,7 @@ describe('useBloom Live Activity reconciliation', () => {
       state: 'paused',
       startedAtMs,
       remainingSeconds: 1499,
+      completionAlertsEnabled: true,
     });
 
     act(() => bloom.actions.toggle());
@@ -105,6 +116,7 @@ describe('useBloom Live Activity reconciliation', () => {
       state: 'running',
       startedAtMs,
       deadlineMs: bloom.state.endsAt,
+      completionAlertsEnabled: true,
     });
 
     act(() => bloom.actions.reset());
@@ -197,6 +209,31 @@ describe('useBloom Live Activity reconciliation', () => {
     );
   });
 
+  it('refreshes system-owned Live Activity availability only on visible return', async () => {
+    render(<Harness />);
+    await act(async () => {
+      await Promise.resolve();
+    });
+    readIOSLiveActivityStatus.mockClear();
+
+    Object.defineProperty(document, 'visibilityState', {
+      configurable: true,
+      value: 'hidden',
+    });
+    document.dispatchEvent(new Event('visibilitychange'));
+    expect(readIOSLiveActivityStatus).not.toHaveBeenCalled();
+
+    Object.defineProperty(document, 'visibilityState', {
+      configurable: true,
+      value: 'visible',
+    });
+    await act(async () => {
+      document.dispatchEvent(new Event('visibilitychange'));
+      await Promise.resolve();
+    });
+    expect(readIOSLiveActivityStatus).toHaveBeenCalledOnce();
+  });
+
   it('performs one idempotent stale cleanup with idle focus-data clear', () => {
     render(<Harness />);
     reconcileIOSLiveActivity.mockClear();
@@ -207,7 +244,7 @@ describe('useBloom Live Activity reconciliation', () => {
     expect(reconcileIOSLiveActivity).toHaveBeenCalledWith(null);
   });
 
-  it('ends stale native state after relaunch sweeps an open countdown', () => {
+  it('ends stale native state after relaunch sweeps an open countdown', async () => {
     const first = renderHook(() => useBloom());
     act(() => first.result.current.actions.toggle());
     expect(first.result.current.state.openFocus).not.toBeNull();
@@ -216,12 +253,51 @@ describe('useBloom Live Activity reconciliation', () => {
     reconcileIOSLiveActivity.mockClear();
     const reloaded = renderHook(() => useBloom());
 
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
     expect(reloaded.result.current.state.openFocus).toBeNull();
     expect(reloaded.result.current.state.sessionRecords).toEqual([
       expect.objectContaining({ outcome: 'interrupted' }),
     ]);
     expect(reconcileIOSLiveActivity).toHaveBeenCalledTimes(1);
     expect(reconcileIOSLiveActivity).toHaveBeenCalledWith(null);
+    reloaded.unmount();
+  });
+
+  it('applies and persists a queued native pause before acknowledging it after relaunch', async () => {
+    const first = renderHook(() => useBloom());
+    act(() => first.result.current.actions.toggle());
+    const open = first.result.current.state.openFocus!;
+    first.unmount();
+
+    readPendingIOSLiveActivityCommands.mockResolvedValue([
+      {
+        id: 'aa11-bb22',
+        sessionId: open.id,
+        action: 'pause',
+        atMs: open.startedAt + 10_000,
+        remainingSeconds: 1_490,
+      },
+    ]);
+    const reloaded = renderHook(() => useBloom());
+
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(reloaded.result.current.state.running).toBe(false);
+    expect(reloaded.result.current.state.openFocus).toMatchObject({
+      id: open.id,
+      running: false,
+      remainingSec: 1_490,
+    });
+    expect(reloaded.result.current.state.sessionRecords).toEqual([]);
+    expect(
+      JSON.parse(localStorage.getItem('bloom-state') ?? '{}').openFocus,
+    ).toMatchObject({ id: open.id, running: false, remainingSec: 1_490 });
+    expect(acknowledgeIOSLiveActivityCommands).toHaveBeenCalledWith(['aa11-bb22']);
     reloaded.unmount();
   });
 });

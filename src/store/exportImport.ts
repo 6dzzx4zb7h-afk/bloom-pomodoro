@@ -9,6 +9,7 @@ import {
   COMPANION_LOG_VERSION,
   COMPANION_STORAGE_KEY,
   DRIFT_KINDS,
+  withCompanionEventId,
   type CompanionEvent,
 } from './companion';
 import {
@@ -29,6 +30,7 @@ import {
   sanitizeHistoryArchive,
   type HistoryArchive,
 } from './historyArchive';
+import { isAppearanceMode } from './appearance';
 
 export const BACKUP_FORMAT = 'bloom-backup';
 export const BACKUP_FORMAT_VERSION = 1;
@@ -166,7 +168,7 @@ function sanitizeCompanionEvents(raw: unknown): CompanionEvent[] {
   if (!raw.every(isCompanionEvent)) {
     throw new BackupError('The Companion log contains an invalid moment.', 'invalid');
   }
-  return raw.map((event) => ({ ...event }));
+  return raw.map((event) => withCompanionEventId(event));
 }
 
 export function createBackupEnvelope(
@@ -181,7 +183,7 @@ export function createBackupEnvelope(
     bloom,
     companion: {
       version: COMPANION_LOG_VERSION,
-      events: companionEvents.map((event) => ({ ...event })),
+      events: companionEvents.map(withCompanionEventId),
     },
   };
 }
@@ -352,7 +354,7 @@ function isValidSettings(value: unknown): boolean {
     finite(value.durations.long, 1) &&
     typeof value.sound === 'boolean' &&
     typeof value.autoStart === 'boolean' &&
-    typeof value.night === 'boolean' &&
+    isAppearanceMode(value.appearance) &&
     typeof value.pal === 'string' &&
     value.pal.length > 0 &&
     typeof value.flow === 'boolean' &&
@@ -559,6 +561,8 @@ function mergeGoals(
     }
     const { done: _priorDone, completedAt: priorCompletedAt, ...priorMetadata } = prior;
     const { done: _goalDone, completedAt: goalCompletedAt, ...goalMetadata } = goal;
+    void _priorDone;
+    void _goalDone;
     const compactMetadata = (metadata: Record<string, unknown>) =>
       Object.fromEntries(
         Object.entries(metadata).filter(([, value]) => value !== undefined),
@@ -926,6 +930,7 @@ export function sessionRecordsCsv(records: SessionRecord[]): string {
     'target',
     'target_outcome',
     'drift_moments',
+    'parked_thoughts',
   ];
   const rows = records.map((record) => [
     record.id,
@@ -941,6 +946,7 @@ export function sessionRecordsCsv(records: SessionRecord[]): string {
     record.targetText,
     record.targetOutcome,
     record.driftEventIds.length,
+    record.parkedThoughtCount ?? 0,
   ]);
   return `\uFEFF${[columns, ...rows].map((row) => row.map(csvCell).join(',')).join('\r\n')}\r\n`;
 }

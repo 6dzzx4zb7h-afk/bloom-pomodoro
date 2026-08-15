@@ -1,18 +1,22 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { DebriefCard } from '../components/DebriefCard';
 import { CompanionPrompt } from '../components/CompanionPrompt';
 import { Dialog } from '../components/Dialog';
 import { IfThenPlanner } from '../components/IfThenPlanner';
 import { ParkingLot } from '../components/ParkingLot';
 import { PixelPal } from '../components/PixelPal';
-import { RitualCard, RitualSuggestion } from '../components/RitualCard';
+import { RitualCard } from '../components/RitualCard';
 import { ResumeCue } from '../components/ResumeCue';
 import { SettingsSheet } from '../components/SettingsSheet';
 import { WeeklyReview } from '../components/WeeklyReview';
 import { WoopCard } from '../components/WoopCard';
 import { shouldOfferWoop } from '../insights/triggers';
 import { WEEKLY_WINDOW_DAYS, weekKeyForStudyDay } from '../insights/weekly';
-import type { SessionRecord, TargetOutcome } from '../store/sessions';
+import {
+  sessionCountsTowardDay,
+  type SessionRecord,
+  type TargetOutcome,
+} from '../store/sessions';
 import {
   SESSION_TARGET_MAX,
   TINY_EXTENSION_MIN,
@@ -36,7 +40,9 @@ import { daysBetween } from '../store/streak';
 import { FoundationsCard } from '../components/FoundationsCard';
 import {
   isGoalDailyTarget,
+  isTaskDailyTarget,
   targetActual,
+  type TaskDailyTarget,
 } from '../store/dailyTarget';
 import { dayKeyFor } from '../store/dayKey';
 import { goalPaceForStudyDay, goalUnit } from '../store/goals';
@@ -59,6 +65,13 @@ import {
   observeNativeControlFrame,
   type NativeControlFrame,
 } from '../native/iosTabs';
+import {
+  configureNativeIOSTimerSurface,
+  hideNativeIOSTimerSurface,
+  isNativeIOSTimerSurfacePlatform,
+  listenForNativeIOSTimerAction,
+  type NativeIOSTimerAction,
+} from '../native/iosTimerSurface';
 
 const RING_R = 92;
 const RING_C = 2 * Math.PI * RING_R;
@@ -100,16 +113,21 @@ export function FocusScreen({
   const [tinyMinutes, setTinyMinutes] = useState<TinyStartMinutes>(TINY_START_OPTIONS[0]);
   const [ritualOpen, setRitualOpen] = useState(false);
   const [prepOpen, setPrepOpen] = useState(false);
-  const [ritualSuggestionOpen, setRitualSuggestionOpen] = useState(false);
   const [woopOpen, setWoopOpen] = useState(false);
   const [targetDraft, setTargetDraft] = useState('');
   const [nativeModeReady, setNativeModeReady] = useState(false);
   const [nativeSettingsReady, setNativeSettingsReady] = useState(false);
   const [nativeSettingsFrame, setNativeSettingsFrame] = useState<NativeControlFrame | null>(null);
+  const [nativeTimerReady, setNativeTimerReady] = useState(false);
+  const [nativeTimerReadoutFrame, setNativeTimerReadoutFrame] =
+    useState<NativeControlFrame | null>(null);
+  const [nativeTimerControlsFrame, setNativeTimerControlsFrame] =
+    useState<NativeControlFrame | null>(null);
   // PLAN 13.10: the room UIKit reported it needs for the rail. The slot grows
   // to match so the system is never handed a frame that clips its own labels.
   const [nativeModeHeight, setNativeModeHeight] = useState(0);
   const [nativeWebOverlayOpen, setNativeWebOverlayOpen] = useState(false);
+  const [nativeTextEntryFocused, setNativeTextEntryFocused] = useState(false);
   const [parkingDeferred, setParkingDeferred] = useState(false);
   const [dayTargetIndex, setDayTargetIndex] = useState(0);
   const completionAlertLaterRef = useRef<HTMLButtonElement>(null);
@@ -125,6 +143,11 @@ export function FocusScreen({
   const nativeModeSelectionRef = useRef<(value: string) => void>(() => undefined);
   const nativeSettingsSlotRef = useRef<HTMLButtonElement>(null);
   const nativeSettingsActionRef = useRef<() => void>(() => undefined);
+  const nativeTimerReadoutSlotRef = useRef<HTMLDivElement>(null);
+  const nativeTimerControlsSlotRef = useRef<HTMLDivElement>(null);
+  const nativeTimerActionRef = useRef<(action: NativeIOSTimerAction) => void>(
+    () => undefined,
+  );
 
   // Post-session debrief (PLAN 2.1): watch the session log for a record
   // finalized while this screen is up. Seeding the ref with the log's current
@@ -264,46 +287,6 @@ export function FocusScreen({
     actions.markWoopOffered(Date.now());
   }, [actions, woopEligible, woopOpen]);
 
-  const ritualSuggestionEligible =
-    state.mode === 'focus' &&
-    freshWorkStart &&
-    !state.ritual.enabled &&
-    !state.ritual.suggestionSeen &&
-    !ritualOpen &&
-    !showSettings &&
-    !debrief &&
-    !weekly &&
-    !woopTriggered &&
-    !woopOpen &&
-    !hasResumeCue &&
-    !hasBlockingReturnedParking;
-
-  // Offer this exactly once. The persisted flag is set when it is presented,
-  // while local UI state keeps the little pet prompt visible for this visit.
-  useEffect(() => {
-    if (ritualSuggestionEligible && !ritualSuggestionOpen) {
-      setRitualSuggestionOpen(true);
-      actions.patchRitual({ suggestionSeen: true });
-    }
-  }, [actions, ritualSuggestionEligible, ritualSuggestionOpen]);
-
-  useEffect(() => {
-    if (showSettings || ritualOpen || state.mode !== 'focus' || state.running || state.justDone || debrief || weekly) {
-      setRitualSuggestionOpen(false);
-    }
-  }, [showSettings, ritualOpen, state.mode, state.running, state.justDone, debrief, weekly]);
-
-  const showRitualSuggestion =
-    ritualSuggestionOpen &&
-    state.mode === 'focus' &&
-    freshWorkStart &&
-    !ritualOpen &&
-    !showSettings &&
-    !debrief &&
-    !weekly &&
-    !hasResumeCue &&
-    !woopOpen;
-
   function beginSession() {
     const ifThenPlanId = showPlanner && planId ? planId : undefined;
     if (state.ritual.enabled && freshWorkStart) {
@@ -387,9 +370,12 @@ export function FocusScreen({
   // with the reducer at half-block boundaries (PLAN 7.4f).
   const laps = isFlow ? flowCreditsForElapsed(state.remaining, focusLen) : 0;
 
-  const modes: TimerMode[] = state.settings.flow
-    ? ['focus', 'flow', 'tiny', 'short', 'long']
-    : ['focus', 'tiny', 'short', 'long'];
+  const modes = useMemo<TimerMode[]>(
+    () => state.settings.flow
+      ? ['focus', 'flow', 'tiny', 'short', 'long']
+      : ['focus', 'tiny', 'short', 'long'],
+    [state.settings.flow],
+  );
   const idx = Math.max(0, modes.indexOf(state.mode));
   const pillW = `calc((100% - 8px) / ${modes.length})`;
 
@@ -399,43 +385,73 @@ export function FocusScreen({
   const filled =
     cyc === 0 && state.sessions > 0 && (state.justDone || state.mode !== 'focus') ? 4 : cyc;
 
-  const todayGoalTargets = useMemo(
+  const taskTargetActual = useCallback(
+    (target: TaskDailyTarget) =>
+      state.sessionRecords.filter(
+        (record) =>
+          record.taskId === target.taskId &&
+          sessionCountsTowardDay(record) &&
+          dayKeyFor(record.endedAt, state.settings.dayStartHour) === target.dayKey,
+      ).length,
+    [state.sessionRecords, state.settings.dayStartHour],
+  );
+  const todayTargets = useMemo(
     () =>
       (state.dayPlan?.targets ?? [])
         .filter(
           (target) =>
             target.dayKey === state.today &&
-            isGoalDailyTarget(target) &&
-            state.goals.some((goal) => goal.id === target.goalId),
+            (isGoalDailyTarget(target)
+              ? state.goals.some((goal) => goal.id === target.goalId)
+              : state.tasks.some((task) => task.id === target.taskId && !task.done)),
         )
         .sort((left, right) => {
-          const leftProgress = targetActual(left, state.goalLedger) / left.plannedAmount;
-          const rightProgress = targetActual(right, state.goalLedger) / right.plannedAmount;
+          const leftProgress =
+            targetActual(left, state.goalLedger, taskTargetActual) / left.plannedAmount;
+          const rightProgress =
+            targetActual(right, state.goalLedger, taskTargetActual) / right.plannedAmount;
           return leftProgress - rightProgress || left.createdAt - right.createdAt;
         }),
-    [state.dayPlan?.targets, state.goalLedger, state.goals, state.today],
+    [
+      state.dayPlan?.targets,
+      state.goalLedger,
+      state.goals,
+      state.tasks,
+      state.today,
+      taskTargetActual,
+    ],
   );
-  const armedTargetIndex = todayGoalTargets.findIndex(
-    (target) => target.goalId === state.armedGoalId,
+  const armedTargetIndex = todayTargets.findIndex(
+    (target) => isGoalDailyTarget(target) && target.goalId === state.armedGoalId,
   );
   const shownTargetIndex =
     armedTargetIndex >= 0
       ? armedTargetIndex
-      : Math.min(dayTargetIndex, Math.max(0, todayGoalTargets.length - 1));
-  const shownTarget = todayGoalTargets[shownTargetIndex];
+      : Math.min(dayTargetIndex, Math.max(0, todayTargets.length - 1));
+  const shownTarget = todayTargets[shownTargetIndex];
   const shownTargetActual = shownTarget
-    ? targetActual(shownTarget, state.goalLedger)
+    ? targetActual(shownTarget, state.goalLedger, taskTargetActual)
     : 0;
-  const shownTargetArmed = shownTarget?.goalId === state.armedGoalId;
-  const debriefTarget =
-    debrief?.goalId == null
-      ? undefined
-      : (state.dayPlan?.targets ?? []).find(
+  const shownTargetGoal = shownTarget && isGoalDailyTarget(shownTarget)
+    ? state.goals.find((goal) => goal.id === shownTarget.goalId)
+    : undefined;
+  const shownTargetSelected = Boolean(
+    shownTarget &&
+      (isGoalDailyTarget(shownTarget)
+        ? shownTarget.goalId === state.armedGoalId
+        : shownTarget.taskId === state.activeTaskId),
+  );
+  const debriefTargets = debrief
+    ? (state.dayPlan?.targets ?? [])
+        .filter(
           (target) =>
-            isGoalDailyTarget(target) &&
-            target.goalId === debrief.goalId &&
-            target.dayKey === dayKeyFor(debrief.endedAt, state.settings.dayStartHour),
-        );
+            target.dayKey ===
+              dayKeyFor(debrief.endedAt, state.settings.dayStartHour) &&
+            ((isGoalDailyTarget(target) && target.goalId === debrief.goalId) ||
+              (isTaskDailyTarget(target) && target.taskId === debrief.taskId)),
+        )
+        .slice(0, 3)
+    : [];
   const debriefGoal =
     debrief?.goalId == null
       ? undefined
@@ -480,7 +496,6 @@ export function FocusScreen({
     weekly: Boolean(weekly && !state.running && !state.justDone),
     ritual: Boolean(ritualOpen && freshWorkStart),
     woop: Boolean(woopOpen && !state.running && !state.justDone),
-    ritualSuggestion: showRitualSuggestion,
     companionPrompt: coordinatedCompanionPrompt,
   });
 
@@ -502,7 +517,34 @@ export function FocusScreen({
     return () => observer.disconnect();
   }, []);
 
-  const configureNativeModeControl = (frame = nativeModeFrameRef.current) => {
+  useEffect(() => {
+    if (!isNativeIOSTimerSurfacePlatform()) return;
+    let animationFrame: number | null = null;
+    const update = () => {
+      animationFrame = null;
+      const active = document.activeElement;
+      setNativeTextEntryFocused(
+        active instanceof HTMLInputElement ||
+        active instanceof HTMLTextAreaElement ||
+        active instanceof HTMLSelectElement ||
+        (active instanceof HTMLElement && active.isContentEditable),
+      );
+    };
+    const schedule = () => {
+      if (animationFrame !== null) cancelAnimationFrame(animationFrame);
+      animationFrame = requestAnimationFrame(update);
+    };
+    document.addEventListener('focusin', schedule);
+    document.addEventListener('focusout', schedule);
+    update();
+    return () => {
+      if (animationFrame !== null) cancelAnimationFrame(animationFrame);
+      document.removeEventListener('focusin', schedule);
+      document.removeEventListener('focusout', schedule);
+    };
+  }, []);
+
+  const configureNativeModeControl = useCallback((frame = nativeModeFrameRef.current) => {
     if (!frame) return Promise.resolve({ active: false, height: 0 });
     return configureNativeIOSSegment({
       kind: 'focusModes',
@@ -512,12 +554,22 @@ export function FocusScreen({
       })),
       selected: state.mode,
       enabled: !surface.blocksTimerControls,
-      visible: surface.owner === 'none' && !nativeWebOverlayOpen,
+      visible:
+        surface.owner === 'none' &&
+        !nativeWebOverlayOpen &&
+        !nativeTextEntryFocused,
       frame,
     });
-  };
+  }, [
+    modes,
+    nativeTextEntryFocused,
+    nativeWebOverlayOpen,
+    state.mode,
+    surface.blocksTimerControls,
+    surface.owner,
+  ]);
 
-  const configureNativeSettingsControl = (frame = nativeSettingsFrame) => {
+  const configureNativeSettingsControl = useCallback((frame = nativeSettingsFrame) => {
     const element = nativeSettingsSlotRef.current;
     if (!frame || !element) return Promise.resolve({ active: false });
     return configureNativeIOSAuxiliaryControl({
@@ -528,17 +580,119 @@ export function FocusScreen({
       visible:
         surface.owner === 'none' &&
         !nativeWebOverlayOpen &&
+        !nativeTextEntryFocused &&
         isNativeControlSlotVisible(element, frame),
       frame,
     });
-  };
+  }, [
+    nativeSettingsFrame,
+    nativeTextEntryFocused,
+    nativeWebOverlayOpen,
+    surface.blocksTimerControls,
+    surface.owner,
+  ]);
+
+  const nativePausedSession = !state.running && (
+    isFlow
+      ? Boolean(state.openFlow)
+      : state.mode === 'focus' || state.mode === 'tiny'
+        ? Boolean(state.openFocus)
+        : state.mode === 'short' || state.mode === 'long'
+          ? state.remaining < state.settings.durations[state.mode]
+          : false
+  );
+  const nativePrimaryLabel = state.running
+    ? 'Pause'
+    : nativePausedSession
+      ? 'Continue'
+      : 'Start';
+  // A running clock is rendered from its stable wall-clock source. Passing a
+  // constant here keeps the store's 250 ms display tick off the native bridge
+  // while preserving the exact paused value on transitions.
+  const nativeRemainingSnapshot = state.running ? 0 : state.remaining;
+  const nativeSecondaryEnabled = !isFlow || state.running || nativeRemainingSnapshot >= 1;
+  const nativeTimerVisible =
+    surface.owner === 'none' &&
+    !nativeWebOverlayOpen &&
+    !nativeTextEntryFocused;
+  const nativeTimerSlotsVisible = Boolean(
+    nativeTimerVisible &&
+    nativeTimerReadoutFrame &&
+    nativeTimerControlsFrame &&
+    nativeTimerReadoutSlotRef.current &&
+    nativeTimerControlsSlotRef.current &&
+    isNativeControlSlotVisible(
+      nativeTimerReadoutSlotRef.current,
+      nativeTimerReadoutFrame,
+    ) &&
+    isNativeControlSlotVisible(
+      nativeTimerControlsSlotRef.current,
+      nativeTimerControlsFrame,
+    ),
+  );
+  const nativeTimerOwnsSlots = nativeTimerReady && nativeTimerSlotsVisible;
+
+  const configureNativeTimer = useCallback(() => {
+    const readoutElement = nativeTimerReadoutSlotRef.current;
+    const controlsElement = nativeTimerControlsSlotRef.current;
+    if (
+      !nativeTimerReadoutFrame ||
+      !nativeTimerControlsFrame ||
+      !readoutElement ||
+      !controlsElement
+    ) {
+      return Promise.resolve({ active: false });
+    }
+    return configureNativeIOSTimerSurface({
+      mode: state.mode,
+      running: state.running,
+      remainingSeconds: nativeRemainingSnapshot,
+      deadlineMs:
+        state.running && !isFlow && state.endsAt != null
+          ? state.endsAt
+          : undefined,
+      flowStartedAtMs:
+        state.running && isFlow && state.flowStart != null
+          ? state.flowStart
+          : undefined,
+      flowAccumulatedSeconds: state.flowAcc,
+      primaryLabel: nativePrimaryLabel,
+      secondaryLabel: isFlow ? 'Finish flow session' : 'Skip',
+      enabled: !surface.blocksTimerControls,
+      secondaryEnabled: nativeSecondaryEnabled,
+      visible: nativeTimerSlotsVisible,
+      readoutFrame: nativeTimerReadoutFrame,
+      controlsFrame: nativeTimerControlsFrame,
+    });
+  }, [
+    isFlow,
+    nativePrimaryLabel,
+    nativeRemainingSnapshot,
+    nativeSecondaryEnabled,
+    nativeTimerControlsFrame,
+    nativeTimerReadoutFrame,
+    nativeTimerSlotsVisible,
+    state.endsAt,
+    state.flowAcc,
+    state.flowStart,
+    state.mode,
+    state.running,
+    surface.blocksTimerControls,
+  ]);
 
   // Native views sit above WKWebView regardless of CSS z-index. Hide both the
   // mode rail and native bottom navigation while a Focus overlay owns the UI.
   useEffect(() => {
-    onNativeOverlayChange?.(surface.owner !== 'none' || nativeWebOverlayOpen);
+    onNativeOverlayChange?.(
+      surface.owner !== 'none' || nativeWebOverlayOpen || nativeTextEntryFocused,
+    );
     return () => onNativeOverlayChange?.(false);
-  }, [nativeWebOverlayOpen, onNativeOverlayChange, surface.owner]);
+  }, [
+    nativeTextEntryFocused,
+    nativeWebOverlayOpen,
+    onNativeOverlayChange,
+    surface.owner,
+  ]);
 
   nativeModeSelectionRef.current = (value) => {
     if (!isNativeTimerMode(value) || !modes.includes(value)) return;
@@ -557,6 +711,25 @@ export function FocusScreen({
       return;
     }
     setShowSettings(true);
+  };
+  nativeTimerActionRef.current = (action) => {
+    if (surface.blocksTimerControls || surface.owner !== 'none') {
+      void configureNativeTimer();
+      return;
+    }
+    if (action === 'primary') {
+      beginSession();
+      return;
+    }
+    if (action === 'reset') {
+      requestTransition('reset', actions.reset);
+      return;
+    }
+    if (isFlow) {
+      if (state.remaining >= 1 || state.running) actions.finishFlow();
+      return;
+    }
+    requestTransition('skip', actions.skip);
   };
 
   // PLAN 13.3: a second system UITabBar owns the iOS 26 Liquid Glass rail
@@ -612,6 +785,54 @@ export function FocusScreen({
   }, []);
 
   useEffect(() => {
+    if (!isNativeIOSTimerSurfacePlatform()) return;
+    let disposed = false;
+    let listener: Awaited<ReturnType<typeof listenForNativeIOSTimerAction>> | null = null;
+    void listenForNativeIOSTimerAction((action) => nativeTimerActionRef.current(action))
+      .then((handle) => {
+        if (disposed) void handle.remove();
+        else listener = handle;
+      })
+      .catch(() => {
+        if (!disposed) setNativeTimerReady(false);
+      });
+    return () => {
+      disposed = true;
+      if (listener) void listener.remove();
+      void hideNativeIOSTimerSurface();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isNativeIOSTimerSurfacePlatform()) return;
+    const readout = nativeTimerReadoutSlotRef.current;
+    const controls = nativeTimerControlsSlotRef.current;
+    if (!readout || !controls) return;
+    const stopReadout = observeNativeControlFrame(readout, setNativeTimerReadoutFrame);
+    const stopControls = observeNativeControlFrame(controls, setNativeTimerControlsFrame);
+    return () => {
+      stopReadout();
+      stopControls();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isNativeIOSTimerSurfacePlatform()) return;
+    let disposed = false;
+    void configureNativeTimer()
+      .then(({ active }) => {
+        if (!disposed) setNativeTimerReady(active);
+      })
+      .catch(() => {
+        void hideNativeIOSTimerSurface();
+        if (!disposed) setNativeTimerReady(false);
+      });
+    return () => {
+      disposed = true;
+    };
+  }, [configureNativeTimer]);
+
+  useEffect(() => {
     if (!isNativeIOSTabsPlatform() || !nativeSettingsSlotRef.current) return;
     return observeNativeControlFrame(nativeSettingsSlotRef.current, setNativeSettingsFrame);
   }, []);
@@ -631,17 +852,15 @@ export function FocusScreen({
       disposed = true;
     };
   }, [
+    configureNativeSettingsControl,
     nativeSettingsFrame,
-    nativeWebOverlayOpen,
-    surface.blocksTimerControls,
-    surface.owner,
   ]);
 
   useEffect(() => {
     if (!isNativeIOSTabsPlatform() || !nativeModeSlotRef.current) return;
 
     let disposed = false;
-    return observeNativeControlFrame(nativeModeSlotRef.current, (frame) => {
+    const stopObserving = observeNativeControlFrame(nativeModeSlotRef.current, (frame) => {
       nativeModeFrameRef.current = frame;
       void configureNativeModeControl(frame)
         .then(({ active, height }) => {
@@ -657,14 +876,11 @@ export function FocusScreen({
           if (!disposed) setNativeModeReady(false);
         });
     });
-  }, [
-    nativeWebOverlayOpen,
-    state.mode,
-    state.settings.flow,
-    surface.blocksTimerControls,
-    surface.owner,
-    tinyMinutes,
-  ]);
+    return () => {
+      disposed = true;
+      stopObserving();
+    };
+  }, [configureNativeModeControl]);
 
   const workSessionOpen =
     Boolean(isFlow ? state.openFlow : state.openFocus) &&
@@ -679,12 +895,13 @@ export function FocusScreen({
     !showTinyOffer &&
     !hasResumeCue &&
     !hasBlockingReturnedParking;
-  const guideEvents = useMemo(() => loadEvents(), [records]);
+  const guideEvents = loadEvents();
   const breakGuideSuggestion = useMemo(
     () => breakGuideEligible && lastRecord
       ? (() => {
-          // Window/cap checks need the fresh computation instant; `now` is
-          // the store-owned day signal that invalidates this memo at rollover.
+          // `now` is the store-owned refresh signal; window and cap checks
+          // capture the actual instant when this memo recomputes.
+          void now;
           const computedAt = Date.now();
           return guideSuggestionFor({
             kind: 'break',
@@ -720,10 +937,25 @@ export function FocusScreen({
       <span className="now-badge">{state.mode === 'short' || state.mode === 'long' ? '☕' : '✓'}</span>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div className="now-label">
-          {state.mode === 'short' || state.mode === 'long' ? 'Up next' : 'Now focusing on'}
+          {state.mode === 'short' || state.mode === 'long'
+            ? 'Up next'
+            : activeSessionTask || activeTask
+              ? 'Now focusing on'
+              : state.running
+                ? 'Focus session'
+                : 'Ready to start'}
         </div>
         <div className="now-task">
-          {(activeSessionTask ?? activeTask)?.t ?? 'all done — go play!'}
+          {(activeSessionTask ?? activeTask)?.t ??
+            (state.mode === 'short' || state.mode === 'long'
+              ? 'a gentle pause'
+              : state.running
+                ? 'without a task'
+              : state.tasks.some((task) => !task.done)
+                ? 'choose a task, or start as you are'
+                : state.tasks.length
+                  ? 'your list is clear — start when you’re ready'
+                  : 'a task is optional')}
         </div>
       </div>
       <div className="session-dots">
@@ -764,7 +996,7 @@ export function FocusScreen({
               <span className="streak-dot" />
               <span className="streak-unit">welcome back 🌱</span>
             </div>
-          ) : (
+          ) : state.streak > 0 || !freshWorkStart ? (
             <div
               className="streak-chip"
               title="Days with a finished session. One rest day a week is free — a single quiet day keeps it growing."
@@ -779,7 +1011,7 @@ export function FocusScreen({
                 <span className="streak-unit">ready to grow 🌱</span>
               )}
             </div>
-          )}
+          ) : null}
           <button
             ref={nativeSettingsSlotRef}
             className={`gear-btn${nativeSettingsReady ? ' native-control-slot-ready' : ''}`}
@@ -836,44 +1068,6 @@ export function FocusScreen({
         </div>
       </div>
 
-      {state.settings.planner &&
-        state.mode === 'focus' &&
-        !state.running &&
-        !state.justDone &&
-        shownTarget && (
-          <div className="day-target-strip" aria-label="Today's goal target">
-            <button
-              type="button"
-              className="day-target-label"
-              onClick={onOpenGoals}
-              disabled={!onOpenGoals}
-            >
-              🌱 {shownTarget.snapshot.title} · {shownTargetActual} of {shownTarget.plannedAmount}{' '}
-              {shownTarget.snapshot.unit} · today {shownTargetActual}/{shownTarget.plannedAmount}
-            </button>
-            <button
-              type="button"
-              className="day-target-arm"
-              aria-pressed={shownTargetArmed}
-              onClick={() => actions.armGoal(shownTargetArmed ? null : (shownTarget.goalId ?? null))}
-            >
-              {shownTargetArmed ? 'armed ✓' : 'count next session'}
-            </button>
-            {todayGoalTargets.length > 1 && (
-              <button
-                type="button"
-                className="day-target-next"
-                aria-label="Show next daily target"
-                onClick={() =>
-                  setDayTargetIndex((shownTargetIndex + 1) % todayGoalTargets.length)
-                }
-              >
-                ›
-              </button>
-            )}
-          </div>
-        )}
-
       {isTiny && !state.running && !state.openFocus && !state.justDone && (
         <div className="tiny-picker" role="group" aria-label="Tiny start length">
           <span className="tiny-picker-label">pick one small first rung</span>
@@ -924,7 +1118,15 @@ export function FocusScreen({
       </div>
 
       <div className="readout">
-        <div className="readout-time">{isFlow ? clock(state.remaining) : mmss(state.remaining)}</div>
+        <div
+          ref={nativeTimerReadoutSlotRef}
+          className={`readout-time${nativeTimerOwnsSlots ? ' native-timer-slot-ready' : ''}`}
+          role="timer"
+          aria-label={isFlow ? 'Elapsed focus time' : 'Time remaining'}
+          aria-hidden={nativeTimerOwnsSlots || undefined}
+        >
+          {isFlow ? clock(state.remaining) : mmss(state.remaining)}
+        </div>
         {isFlow && !state.justDone && (
           <div className="intention-line">
             {laps > 0
@@ -946,38 +1148,81 @@ export function FocusScreen({
         <section className="prestart-stack" aria-label="Before this session">
           {nowChip}
 
-          {companion.conf.intention && (
-            <label className="prestart-target">
-              <span>one doable thing for this session <span aria-hidden="true">·</span> optional</span>
-              <input
-                className="intention-input"
-                value={targetDraft}
-                maxLength={SESSION_TARGET_MAX}
-                onChange={(e) => {
-                  const next = e.target.value.slice(0, SESSION_TARGET_MAX);
-                  setTargetDraft(next);
+          {state.settings.planner && shownTarget && (
+            <div className="day-target-strip" role="group" aria-label="Today's target">
+              <button
+                type="button"
+                className="day-target-label"
+                onClick={onOpenGoals}
+                disabled={!onOpenGoals}
+              >
+                {shownTargetGoal ? (
+                  <>
+                    🌱 {shownTarget.snapshot.title} · {shownTargetGoal.done} of{' '}
+                    {shownTargetGoal.target} {shownTarget.snapshot.unit} · today{' '}
+                    {shownTargetActual}/{shownTarget.plannedAmount}
+                  </>
+                ) : (
+                  <>
+                    🌱 {shownTarget.snapshot.title} · today {shownTargetActual}/
+                    {shownTarget.plannedAmount} {shownTarget.snapshot.unit}
+                  </>
+                )}
+              </button>
+              <button
+                type="button"
+                className="day-target-arm"
+                aria-pressed={shownTargetSelected}
+                onClick={() => {
+                  if (isGoalDailyTarget(shownTarget)) {
+                    actions.armGoal(shownTargetSelected ? null : shownTarget.goalId);
+                  } else if (!shownTargetSelected) {
+                    actions.setActiveTask(shownTarget.taskId);
+                  }
                 }}
-                placeholder="name the first visible finish line"
-                aria-label="Session target"
-              />
-            </label>
+              >
+                {isGoalDailyTarget(shownTarget)
+                  ? shownTargetSelected
+                    ? 'armed ✓'
+                    : 'count next session'
+                  : shownTargetSelected
+                    ? 'selected ✓'
+                    : 'work on this task'}
+              </button>
+              {todayTargets.length > 1 && (
+                <button
+                  type="button"
+                  className="day-target-next"
+                  aria-label="Show next daily target"
+                  onClick={() =>
+                    setDayTargetIndex((shownTargetIndex + 1) % todayTargets.length)
+                  }
+                >
+                  ›
+                </button>
+              )}
+            </div>
           )}
 
-          {/* PLAN 13.17: the target keeps its place — naming one doable thing
-              is the part with a behaviour-change reason behind it. The rest of
-              the preparation folds into one row so the transport controls are
-              never pushed under the tab bar on a phone. Opening it is one tap,
-              and a surface that owns the screen (WOOP) opens it itself. */}
-          {prepCollapsible && !prepExpanded && (
+          {/* PLAN 8.18: every optional question lives behind one row. A person
+              can press Start without first answering a prompt; opening the row
+              restores the target, plan, and enabled reset in their intended
+              order. A surface that owns the screen (WOOP) opens it itself. */}
+          {prepCollapsible && surface.owner !== 'woop' && (
             <button
               type="button"
               className="prestart-prep-toggle"
-              aria-expanded={false}
+              aria-label={
+                prepExpanded
+                  ? 'Hide optional session setup'
+                  : 'Set up this session (optional)'
+              }
+              aria-expanded={prepExpanded}
               aria-controls="prestart-prep"
-              onClick={() => setPrepOpen(true)}
+              onClick={() => setPrepOpen((open) => !open)}
             >
-              <span aria-hidden="true">✦</span> a little more prep
-              <span>optional</span>
+              <span aria-hidden="true">✦</span> session setup
+              <span>{prepExpanded ? 'hide' : 'optional'}</span>
             </button>
           )}
 
@@ -987,6 +1232,22 @@ export function FocusScreen({
             aria-label="Optional preparation"
             hidden={prepCollapsible && !prepExpanded}
           >
+            {companion.conf.intention && (
+              <label className="prestart-target">
+                <span>one doable thing for this session <span aria-hidden="true">·</span> optional</span>
+                <input
+                  className="intention-input"
+                  value={targetDraft}
+                  maxLength={SESSION_TARGET_MAX}
+                  onChange={(e) => {
+                    const next = e.target.value.slice(0, SESSION_TARGET_MAX);
+                    setTargetDraft(next);
+                  }}
+                  placeholder="name the first visible finish line"
+                  aria-label="Session target"
+                />
+              </label>
+            )}
             {showPlanner && !woopOpen && (
               <IfThenPlanner
                 plans={state.ifThenPlans}
@@ -1026,11 +1287,16 @@ export function FocusScreen({
         </section>
       )}
 
-      <div className="controls">
+      <div
+        ref={nativeTimerControlsSlotRef}
+        className={`controls${nativeTimerOwnsSlots ? ' native-timer-slot-ready' : ''}`}
+        aria-hidden={nativeTimerOwnsSlots || undefined}
+      >
         <button
           className="ctrl-round ctrl-reset"
           onClick={() => requestTransition('reset', actions.reset)}
           aria-label="Reset"
+          tabIndex={nativeTimerOwnsSlots ? -1 : undefined}
           disabled={surface.blocksTimerControls}
         >
           &#8634;
@@ -1038,7 +1304,8 @@ export function FocusScreen({
         <button
           className="ctrl-play"
           onClick={beginSession}
-          aria-label={state.running ? 'Pause' : 'Start'}
+          aria-label={nativePrimaryLabel}
+          tabIndex={nativeTimerOwnsSlots ? -1 : undefined}
           disabled={surface.blocksTimerControls}
         >
           {state.running ? (
@@ -1057,6 +1324,7 @@ export function FocusScreen({
             disabled={surface.blocksTimerControls || (state.remaining < 1 && !state.running)}
             aria-label="Finish flow session"
             title="finish & bank this session"
+            tabIndex={nativeTimerOwnsSlots ? -1 : undefined}
           >
             &#10003;
           </button>
@@ -1065,6 +1333,7 @@ export function FocusScreen({
             className="ctrl-round ctrl-skip"
             onClick={() => requestTransition('skip', actions.skip)}
             aria-label="Skip"
+            tabIndex={nativeTimerOwnsSlots ? -1 : undefined}
             disabled={surface.blocksTimerControls}
           >
             &#187;
@@ -1197,16 +1466,13 @@ export function FocusScreen({
           goalPacePerDay={debriefGoalPace?.perDay}
           goalEffortLine={debriefGoalEffortLine}
           onResolveGoalCredit={(amount) => resolveGoalCredit(debrief.id, amount)}
-          dailyTargetEcho={
-            debriefTarget
-              ? {
-                  title: debriefTarget.snapshot.title,
-                  actual: targetActual(debriefTarget, state.goalLedger),
-                  planned: debriefTarget.plannedAmount,
-                  unit: debriefTarget.snapshot.unit,
-                }
-              : undefined
-          }
+          dailyTargetEchoes={debriefTargets.map((target) => ({
+            id: target.id,
+            title: target.snapshot.title,
+            actual: targetActual(target, state.goalLedger, taskTargetActual),
+            planned: target.plannedAmount,
+            unit: target.snapshot.unit,
+          }))}
           onTinyRestart={(nextStep) => {
             setDebrief(null);
             setTinyMinutes(TINY_START_OPTIONS[0]);
@@ -1218,7 +1484,12 @@ export function FocusScreen({
           dayStartHour={state.settings.dayStartHour}
           onGuideSuggested={actions.markGuideArticleSuggested}
           onOpenGuideArticle={onOpenGuideArticle}
-          onRepair={(proposal) => setDebrief(actions.repairSession(proposal))}
+          onRepair={(proposal) => {
+            const repaired = actions.repairSession(proposal);
+            if (!repaired) return false;
+            setDebrief(repaired);
+            return true;
+          }}
           onDismiss={() => setDebrief(null)}
         />
       )}
@@ -1246,20 +1517,6 @@ export function FocusScreen({
           onCacheCadence={actions.cachePersonalCadence}
           onApplyCadence={actions.applyCadence}
           onDismiss={() => setWeekly(false)}
-        />
-      )}
-
-      {surface.owner === 'ritualSuggestion' && (
-        <RitualSuggestion
-          sprite={palSprite}
-          onEnable={() => {
-            setRitualSuggestionOpen(false);
-            actions.patchRitual({ enabled: true, suggestionSeen: true });
-          }}
-          onDismiss={() => {
-            setRitualSuggestionOpen(false);
-            actions.patchRitual({ suggestionSeen: true });
-          }}
         />
       )}
 

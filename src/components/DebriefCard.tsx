@@ -13,6 +13,7 @@ import type { GuideArticleId } from '../content/guide';
 import { SessionRepairEditor } from './SessionRepairEditor';
 import {
   isSessionRepairEligible,
+  sessionRepairSavedMessage,
   sessionRepairWallClockEndAt,
   type SessionRepairProposal,
 } from '../store/sessionRepair';
@@ -46,7 +47,7 @@ export function DebriefCard({
   goalPacePerDay,
   goalEffortLine,
   onResolveGoalCredit,
-  dailyTargetEcho,
+  dailyTargetEchoes = [],
   onTinyRestart,
   guideRead,
   now,
@@ -69,12 +70,13 @@ export function DebriefCard({
   goalEffortLine?: string | null;
   /** A positive amount credits; null skips without writing a ledger row. */
   onResolveGoalCredit: (amount: number | null) => void;
-  dailyTargetEcho?: {
+  dailyTargetEchoes?: Array<{
+    id: string;
     title: string;
     actual: number;
     planned: number;
     unit: string;
-  };
+  }>;
   onTinyRestart: (nextStep: string) => void;
   guideRead: GuideReadState;
   /** Store-owned day signal; instant-based checks take a fresh clock below. */
@@ -82,16 +84,19 @@ export function DebriefCard({
   dayStartHour: number;
   onGuideSuggested: (id: GuideArticleId, momentKey: string) => void;
   onOpenGuideArticle: (id: GuideArticleId) => void;
-  onRepair?: (proposal: SessionRepairProposal) => void;
+  onRepair?: (proposal: SessionRepairProposal) => boolean | void;
   onDismiss: () => void;
 }) {
   const [repairOpen, setRepairOpen] = useState(false);
-  const events = useMemo(() => loadEvents(), [record]);
+  const [repairStatus, setRepairStatus] = useState<string | null>(null);
+  const events = loadEvents();
   const drifts = useMemo(() => driftsForRecord(record, events), [record, events]);
   const why = useMemo(() => whyFor(record, records, events), [record, records, events]);
   const guideSuggestion = useMemo(
     () => {
-      // Suggestion windows and caps use the instant this memo is computed.
+      // `now` is the store-owned refresh signal; window checks capture the
+      // actual instant when this memo recomputes.
+      void now;
       const computedAt = Date.now();
       return guideSuggestionFor({
         kind: 'debrief',
@@ -166,12 +171,11 @@ export function DebriefCard({
               onSkip={() => onResolveGoalCredit(null)}
             />
           )}
-          {dailyTargetEcho && (
-            <div className="debrief-row" role="status">
-              🌱 {dailyTargetEcho.title} · today {dailyTargetEcho.actual}/
-              {dailyTargetEcho.planned} {dailyTargetEcho.unit}
+          {dailyTargetEchoes.map((echo) => (
+            <div className="debrief-row" role="status" key={echo.id}>
+              🌱 {echo.title} · today {echo.actual}/{echo.planned} {echo.unit}
             </div>
-          )}
+          ))}
           {record.targetText && (
             <div className="debrief-row debrief-target">
               <div>🎯 target: {record.targetText} — done?</div>
@@ -207,13 +211,20 @@ export function DebriefCard({
           )}
         </div>
         {onRepair && isSessionRepairEligible(record, now) && (
-          <button
-            type="button"
-            className="pop-btn debrief-repair-btn"
-            onClick={() => setRepairOpen(true)}
-          >
-            repair record
-          </button>
+          <>
+            <button
+              type="button"
+              className="pop-btn debrief-repair-btn"
+              onClick={() => setRepairOpen(true)}
+            >
+              repair record
+            </button>
+            {repairStatus && (
+              <div className="debrief-repair-status" aria-live="polite">
+                {repairStatus}
+              </div>
+            )}
+          </>
         )}
         {record.outcome === 'abandoned' ? (
           <KindRestart
@@ -236,8 +247,10 @@ export function DebriefCard({
           records={records}
           wallClockEndAt={sessionRepairWallClockEndAt(record)}
           onSave={(proposal) => {
-            onRepair(proposal);
+            if (onRepair(proposal) === false) return false;
+            setRepairStatus(sessionRepairSavedMessage(proposal.adjustments));
             setRepairOpen(false);
+            return true;
           }}
           onCancel={() => setRepairOpen(false)}
         />

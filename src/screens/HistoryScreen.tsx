@@ -1,6 +1,13 @@
 import { useMemo, useState } from 'react';
 
 import { SessionRepairEditor } from '../components/SessionRepairEditor';
+import { driftsForRecord } from '../insights/why';
+import {
+  driftOnsetMin,
+  phaseOf,
+  type CompanionEvent,
+  type Phase,
+} from '../store/companion';
 import { dayKeyFor } from '../store/dayKey';
 import {
   derivedFoundationDone,
@@ -18,8 +25,10 @@ import {
 } from '../store/historyArchive';
 import { groupSessionsByStudyDay } from '../store/sessionStats';
 import type { SessionRecord } from '../store/sessions';
+import type { ParkedThought } from '../store/parking';
 import {
   isSessionRepairEligible,
+  sessionRepairSavedMessage,
   sessionRepairWallClockEndAt,
   type SessionRepairProposal,
 } from '../store/sessionRepair';
@@ -51,7 +60,9 @@ interface HistoryScreenProps {
   goalLedger?: GoalCredit[];
   goals?: Goal[];
   archive?: HistoryArchive;
-  onRepair?: (proposal: SessionRepairProposal) => void;
+  events?: CompanionEvent[];
+  parking?: ParkedThought[];
+  onRepair?: (proposal: SessionRepairProposal) => boolean | void;
   /** Kept injectable so the paging contract has a small, deterministic test. */
   pageSize?: number;
 }
@@ -237,12 +248,46 @@ function outcomeLabel(outcome: SessionRecord['outcome']): string {
   return 'Paused when Bloom closed';
 }
 
+const HISTORY_PHASES: Phase[] = ['early', 'mid', 'late'];
+
+export function historySessionDetails(
+  record: SessionRecord,
+  events: CompanionEvent[],
+  parking: ParkedThought[],
+  now: number,
+) {
+  const linkedDrifts = driftsForRecord(record, events, now);
+  const driftIds = new Set(record.driftEventIds);
+  for (const event of linkedDrifts) {
+    if (event.id) driftIds.add(event.id);
+  }
+  const phaseCounts: Record<Phase, number> = { early: 0, mid: 0, late: 0 };
+  for (const event of linkedDrifts) {
+    phaseCounts[phaseOf(driftOnsetMin(event), event.len)] += 1;
+  }
+  const retainedParkingCount = parking.filter(
+    (thought) => thought.sessionId === record.id,
+  ).length;
+
+  return {
+    driftCount: Math.max(driftIds.size, linkedDrifts.length),
+    phaseCounts,
+    parkedThoughtCount: record.parkedThoughtCount ?? retainedParkingCount,
+  };
+}
+
 function SessionCard({
   record,
+  events,
+  parking,
+  now,
   canRepair,
   onRepair,
 }: {
   record: SessionRecord;
+  events: CompanionEvent[];
+  parking: ParkedThought[];
+  now: number;
   canRepair: boolean;
   onRepair: () => void;
 }) {
@@ -250,7 +295,10 @@ function SessionCard({
     record.plannedMin == null
       ? `${minuteLabel(record.actualMin)} min`
       : `${minuteLabel(record.actualMin)} of ${minuteLabel(record.plannedMin)} min`;
-  const driftCount = new Set(record.driftEventIds).size;
+  const details = historySessionDetails(record, events, parking, now);
+  const phases = HISTORY_PHASES.filter(
+    (phase) => details.phaseCounts[phase] > 0,
+  );
 
   return (
     <li className="history-session-card">
@@ -263,8 +311,27 @@ function SessionCard({
       {record.edited && <p className="history-estimate-label">Edited estimate</p>}
       <p>{timing} · {outcomeLabel(record.outcome)}</p>
       {record.targetText?.trim() && <p>Target: {record.targetText.trim()}</p>}
-      {driftCount > 0 && (
-        <p>{driftCount} {driftCount === 1 ? 'wander' : 'wanders'} noted</p>
+      {details.driftCount > 0 && (
+        <div className="history-drift-row">
+          <p>
+            {details.driftCount} {details.driftCount === 1 ? 'wander' : 'wanders'} noted
+          </p>
+          {phases.length > 0 && (
+            <ul className="history-phase-chips" aria-label="Wander timing">
+              {phases.map((phase) => (
+                <li key={phase}>
+                  {phase} ×{details.phaseCounts[phase]}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+      {details.parkedThoughtCount > 0 && (
+        <p>
+          {details.parkedThoughtCount} parked{' '}
+          {details.parkedThoughtCount === 1 ? 'thought' : 'thoughts'}
+        </p>
       )}
       {canRepair && (
         <button
@@ -283,11 +350,15 @@ function SessionCard({
 function HistoryDayRow({
   entry,
   now,
+  events,
+  parking,
   repairEnabled,
   onRepair,
 }: {
   entry: HistoryDay;
   now: number;
+  events: CompanionEvent[];
+  parking: ParkedThought[];
   repairEnabled: boolean;
   onRepair: (record: SessionRecord) => void;
 }) {
@@ -346,6 +417,9 @@ function HistoryDayRow({
                   <SessionCard
                     key={record.id}
                     record={record}
+                    events={events}
+                    parking={parking}
+                    now={now}
                     canRepair={repairEnabled && isSessionRepairEligible(record, now)}
                     onRepair={() => onRepair(record)}
                   />
@@ -389,10 +463,13 @@ export function HistoryScreen({
   goalLedger,
   goals,
   archive = emptyHistoryArchive(),
+  events = [],
+  parking = [],
   onRepair,
   pageSize = HISTORY_PAGE_SIZE,
 }: HistoryScreenProps) {
   const [repairing, setRepairing] = useState<SessionRecord | null>(null);
+  const [repairStatus, setRepairStatus] = useState<string | null>(null);
   const days = useMemo(
     () => buildHistoryDays(records, tasks, dayStartHour, now, foundations, goalLedger, goals, archive),
     [records, tasks, dayStartHour, now, foundations, goalLedger, goals, archive],
@@ -414,6 +491,12 @@ export function HistoryScreen({
         <p>Sessions, timestamped task finishes, foundations, and goal progress by study day.</p>
       </header>
 
+      {repairStatus && (
+        <p className="history-repair-status" role="status">
+          {repairStatus}
+        </p>
+      )}
+
       {days.length === 0 ? (
         <section className="history-empty" aria-labelledby="history-empty-title">
           <h2 id="history-empty-title">A fresh page</h2>
@@ -430,6 +513,8 @@ export function HistoryScreen({
                 key={entry.day}
                 entry={entry}
                 now={now}
+                events={events}
+                parking={parking}
                 repairEnabled={Boolean(onRepair)}
                 onRepair={setRepairing}
               />
@@ -453,8 +538,10 @@ export function HistoryScreen({
           records={records}
           wallClockEndAt={sessionRepairWallClockEndAt(repairing)}
           onSave={(proposal) => {
-            onRepair(proposal);
+            if (onRepair(proposal) === false) return false;
+            setRepairStatus(sessionRepairSavedMessage(proposal.adjustments));
             setRepairing(null);
+            return true;
           }}
           onCancel={() => setRepairing(null)}
         />

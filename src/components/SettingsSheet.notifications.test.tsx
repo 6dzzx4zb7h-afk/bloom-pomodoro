@@ -12,6 +12,16 @@ import {
 } from '../store/useBloom';
 import { SettingsSheet } from './SettingsSheet';
 
+const openIOSSettings = vi.hoisted(() => vi.fn(async () => ({ opened: true })));
+
+vi.mock('../native/iosSettings', async (importOriginal) => {
+  const original = await importOriginal<typeof import('../native/iosSettings')>();
+  return {
+    ...original,
+    openNativeIOSAppSettings: openIOSSettings,
+  };
+});
+
 const unsupported: IOSCompletionAlertStatus = {
   permission: 'unsupported',
   alertsEnabled: false,
@@ -19,7 +29,10 @@ const unsupported: IOSCompletionAlertStatus = {
   lockScreenEnabled: false,
 };
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  openIOSSettings.mockClear();
+});
 
 function renderSettings({
   status = unsupported,
@@ -38,7 +51,7 @@ function renderSettings({
   };
   const requested = vi.fn(async () => status);
   const onPatch = vi.fn();
-  render(
+  const view = render(
     <SettingsSheet
       settings={state.settings}
       records={[]}
@@ -63,7 +76,7 @@ function renderSettings({
     />,
   );
   fireEvent.click(screen.getByText('Sessions', { selector: 'summary' }));
-  return { requested, onPatch };
+  return { ...view, requested, onPatch };
 }
 
 describe('Settings completion-alert permission state', () => {
@@ -98,6 +111,10 @@ describe('Settings completion-alert permission state', () => {
       screen.getByText(/Timer alerts are off in iOS Settings/).getAttribute('role'),
     ).toBe('status');
     expect(screen.getByText(/Bloom can still chime while it’s open/)).toBeTruthy();
+    fireEvent.click(
+      screen.getByRole('button', { name: 'open iOS Settings for timer alerts' }),
+    );
+    expect(openIOSSettings).toHaveBeenCalledOnce();
   });
 
   it('reports disabled sound or Lock Screen delivery after authorization', () => {
@@ -111,6 +128,9 @@ describe('Settings completion-alert permission state', () => {
     });
 
     expect(screen.getByText(/One or more iOS notification options are off/)).toBeTruthy();
+    expect(
+      screen.getByRole('button', { name: 'open iOS Settings for timer alerts' }),
+    ).toBeTruthy();
   });
 
   it('previews Ring when done without bypassing the native permission explanation', () => {
@@ -142,6 +162,7 @@ describe('Settings completion-alert permission state', () => {
         .getByText(/Background timer alerts aren’t available right now/)
         .getAttribute('role'),
     ).toBe('status');
+    expect(screen.queryByRole('button', { name: /open iOS Settings/i })).toBeNull();
   });
 
   it('discloses the privacy-minimal Live Activity and its system-owned off state', () => {
@@ -158,5 +179,45 @@ describe('Settings completion-alert permission state', () => {
     expect(screen.getByText(/Live Activities are off in iOS Settings/).getAttribute('role'))
       .toBe('status');
     expect(screen.getByText(/Your timer still works normally/)).toBeTruthy();
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: 'open iOS Settings for Live Activities',
+      }),
+    );
+    expect(openIOSSettings).toHaveBeenCalledOnce();
+  });
+
+  it('does not offer system Settings for prompt, allowed, or unsupported states', () => {
+    const { rerender } = renderSettings({
+      status: {
+        permission: 'prompt',
+        alertsEnabled: false,
+        soundsEnabled: false,
+        lockScreenEnabled: false,
+      },
+      liveActivityStatus: {
+        supported: false,
+        enabled: false,
+        active: false,
+      },
+    });
+
+    expect(screen.queryByRole('button', { name: /open iOS Settings/i })).toBeNull();
+    rerender(<></>);
+
+    renderSettings({
+      status: {
+        permission: 'granted',
+        alertsEnabled: true,
+        soundsEnabled: true,
+        lockScreenEnabled: true,
+      },
+      liveActivityStatus: {
+        supported: true,
+        enabled: true,
+        active: false,
+      },
+    });
+    expect(screen.queryByRole('button', { name: /open iOS Settings/i })).toBeNull();
   });
 });

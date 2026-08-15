@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { PixelPal } from '../components/PixelPal';
 import { Dialog } from '../components/Dialog';
 import { RolloverTriageCard } from '../components/RolloverTriageCard';
@@ -26,6 +26,7 @@ import {
 } from '../insights/paceActual';
 import {
   isGoalDailyTarget,
+  parseDailyTargetAmount,
   rolloverOffers,
   spreadRolloverTarget,
   targetActual,
@@ -84,7 +85,11 @@ export function GoalsScreen({ bloom }: { bloom: ReturnType<typeof useBloom> }) {
   const [planAmount, setPlanAmount] = useState('1');
   const [planDate, setPlanDate] = useState(today);
   const [targetDrafts, setTargetDrafts] = useState<Record<string, string>>({});
+  const [targetErrors, setTargetErrors] = useState<Record<string, string>>({});
+  const [planError, setPlanError] = useState('');
+  const [planStatus, setPlanStatus] = useState('');
   const [rolloverOffer, setRolloverOffer] = useState<RolloverOffer | null>(null);
+  const planFormRef = useRef<HTMLFormElement | null>(null);
 
   useEffect(() => {
     if (!deletedGoal) return;
@@ -97,6 +102,11 @@ export function GoalsScreen({ bloom }: { bloom: ReturnType<typeof useBloom> }) {
     const timeout = window.setTimeout(() => setEditedGoalUndo(null), 6000);
     return () => window.clearTimeout(timeout);
   }, [editedGoalUndo]);
+
+  useEffect(() => {
+    if (planningGoalId === null) return;
+    planFormRef.current?.scrollIntoView?.({ block: 'nearest' });
+  }, [planningGoalId]);
 
   function beginEdit(
     goal: Goal,
@@ -178,18 +188,24 @@ export function GoalsScreen({ bloom }: { bloom: ReturnType<typeof useBloom> }) {
     () => [...state.goals].sort((a, b) => a.due.localeCompare(b.due) || a.id - b.id),
     [state.goals],
   );
-  const dayPlanTargets = state.dayPlan?.targets ?? [];
+  const dayPlanTargets = useMemo(
+    () => state.dayPlan?.targets ?? [],
+    [state.dayPlan?.targets],
+  );
   const todayTargets = useMemo(
     () => dayPlanTargets.filter((item) => item.dayKey === today),
     [dayPlanTargets, today],
   );
-  const taskActual = (item: TaskDailyTarget) =>
-    state.sessionRecords.filter(
-      (record) =>
-        record.taskId === item.taskId &&
-        sessionCountsTowardDay(record) &&
-        dayKeyFor(record.endedAt, state.settings.dayStartHour) === item.dayKey,
-    ).length;
+  const taskActual = useCallback(
+    (item: TaskDailyTarget) =>
+      state.sessionRecords.filter(
+        (record) =>
+          record.taskId === item.taskId &&
+          sessionCountsTowardDay(record) &&
+          dayKeyFor(record.endedAt, state.settings.dayStartHour) === item.dayKey,
+      ).length,
+    [state.sessionRecords, state.settings.dayStartHour],
+  );
   const rolloverCandidates = useMemo(
     () =>
       rolloverOffers(
@@ -206,8 +222,7 @@ export function GoalsScreen({ bloom }: { bloom: ReturnType<typeof useBloom> }) {
       state.dayPlan?.archive,
       state.goalLedger,
       state.goals,
-      state.sessionRecords,
-      state.settings.dayStartHour,
+      taskActual,
       today,
     ],
   );
@@ -239,15 +254,71 @@ export function GoalsScreen({ bloom }: { bloom: ReturnType<typeof useBloom> }) {
     setPlanningGoalId(goal.id);
     setPlanAmount(String(Math.max(1, Math.min(pace.remaining, Math.ceil(pace.perDay) || 1))));
     setPlanDate(today);
+    setPlanError('');
   }
 
   function confirmPlan(goal: Goal) {
-    actions.addGoalDailyTarget(
-      goal.id,
-      Math.max(1, parseInt(planAmount, 10) || 1),
-      localNoon(planDate),
+    const remaining = Math.max(1, goal.target - goal.done);
+    const plannedAmount = parseDailyTargetAmount(
+      planAmount,
+      Math.min(99, remaining),
     );
+    if (plannedAmount == null) {
+      setPlanError(`Choose a whole number from 1 to ${Math.min(99, remaining)}.`);
+      return;
+    }
+    if (planDate < today || planDate > goal.due) {
+      setPlanError(`Choose a day from today through ${shortDate(goal.due)}.`);
+      return;
+    }
+    const goalTargetsOnDay = dayPlanTargets.filter(
+      (item) => isGoalDailyTarget(item) && item.dayKey === planDate,
+    );
+    if (goalTargetsOnDay.some((item) => item.goalId === goal.id)) {
+      setPlanError(`${goal.title} already has a target for that day.`);
+      return;
+    }
+    if (goalTargetsOnDay.length >= 3) {
+      setPlanError('That day already has three goal targets. Pick another day or keep these.');
+      return;
+    }
+    actions.addGoalDailyTarget(goal.id, plannedAmount, localNoon(planDate));
     setPlanningGoalId(null);
+    setPlanError('');
+    setPlanStatus(
+      planDate === today
+        ? `Today’s target for ${goal.title} is ${plannedAmount} ${goalUnit(goal)}.`
+        : `${goal.title} is planned for ${planDate}: ${plannedAmount} ${goalUnit(goal)}.`,
+    );
+  }
+
+  function saveTargetAmount(
+    item: (typeof todayTargets)[number],
+    actual: number,
+  ) {
+    const raw = targetDrafts[item.id] ?? String(item.plannedAmount);
+    const plannedAmount = parseDailyTargetAmount(raw);
+    if (plannedAmount == null) {
+      setTargetErrors((current) => ({
+        ...current,
+        [item.id]: 'Choose a whole number from 1 to 99.',
+      }));
+      return;
+    }
+    const savedAmount = Math.max(actual, plannedAmount);
+    actions.editDailyTarget(item.id, plannedAmount);
+    setTargetDrafts((current) => ({ ...current, [item.id]: String(savedAmount) }));
+    setTargetErrors((current) => ({ ...current, [item.id]: '' }));
+    setPlanStatus(
+      plannedAmount < actual
+        ? `${item.snapshot.title} stays at ${actual} ${item.snapshot.unit}, matching what is already recorded.`
+        : `${item.snapshot.title} is now ${savedAmount} ${item.snapshot.unit} for today.`,
+    );
+  }
+
+  function removeTarget(id: string, title: string) {
+    actions.dismissDailyTarget(id);
+    setPlanStatus(`Today’s target for ${title} was removed. Your recorded work stays put.`);
   }
 
   function spreadOffer() {
@@ -297,6 +368,12 @@ export function GoalsScreen({ bloom }: { bloom: ReturnType<typeof useBloom> }) {
         <h1 className="head-title" id="goals-heading">Goals &amp; deadlines</h1>
         <div className="head-sub">everything you're working toward · progress over pressure</div>
       </div>
+
+      {planStatus && (
+        <p className="day-plan-status" role="status" aria-live="polite">
+          {planStatus}
+        </p>
+      )}
 
       {goals.length > 0 && (
         <div className="prog-card">
@@ -366,6 +443,8 @@ export function GoalsScreen({ bloom }: { bloom: ReturnType<typeof useBloom> }) {
                         min={Math.max(1, actual)}
                         max={99}
                         value={targetDrafts[item.id] ?? String(item.plannedAmount)}
+                        aria-invalid={Boolean(targetErrors[item.id])}
+                        aria-describedby={`day-target-error-${item.id}`}
                         onChange={(event) =>
                           setTargetDrafts((current) => ({
                             ...current,
@@ -377,12 +456,7 @@ export function GoalsScreen({ bloom }: { bloom: ReturnType<typeof useBloom> }) {
                     <button
                       type="button"
                       className="goal-go"
-                      onClick={() =>
-                        actions.editDailyTarget(
-                          item.id,
-                          parseInt(targetDrafts[item.id] ?? String(item.plannedAmount), 10),
-                        )
-                      }
+                      onClick={() => saveTargetAmount(item, actual)}
                     >
                       save
                     </button>
@@ -390,10 +464,19 @@ export function GoalsScreen({ bloom }: { bloom: ReturnType<typeof useBloom> }) {
                       type="button"
                       className="task-del"
                       aria-label={`Remove today's target for ${item.snapshot.title}`}
-                      onClick={() => actions.dismissDailyTarget(item.id)}
+                      onClick={() => removeTarget(item.id, item.snapshot.title)}
                     >
                       &times;
                     </button>
+                    {targetErrors[item.id] && (
+                      <span
+                        className="field-error day-plan-row-error"
+                        id={`day-target-error-${item.id}`}
+                        role="alert"
+                      >
+                        {targetErrors[item.id]}
+                      </span>
+                    )}
                   </div>
                 );
               })}
@@ -597,6 +680,7 @@ export function GoalsScreen({ bloom }: { bloom: ReturnType<typeof useBloom> }) {
               )}
               {planningGoalId === goal.id ? (
                 <form
+                  ref={planFormRef}
                   className="day-plan-form"
                   onSubmit={(event) => {
                     event.preventDefault();
@@ -610,7 +694,12 @@ export function GoalsScreen({ bloom }: { bloom: ReturnType<typeof useBloom> }) {
                       min={1}
                       max={Math.min(99, Math.max(1, pace.remaining))}
                       value={planAmount}
-                      onChange={(event) => setPlanAmount(event.target.value)}
+                      aria-invalid={Boolean(planError)}
+                      aria-describedby={`day-plan-error-${goal.id}`}
+                      onChange={(event) => {
+                        setPlanAmount(event.target.value);
+                        setPlanError('');
+                      }}
                       aria-label={`Planned ${goalUnit(goal)} for ${goal.title}`}
                     />
                   </label>
@@ -621,13 +710,33 @@ export function GoalsScreen({ bloom }: { bloom: ReturnType<typeof useBloom> }) {
                       min={today}
                       max={goal.due}
                       value={planDate}
-                      onChange={(event) => setPlanDate(event.target.value)}
+                      aria-label={`Day for ${goal.title}`}
+                      onChange={(event) => {
+                        setPlanDate(event.target.value);
+                        setPlanError('');
+                      }}
                     />
                   </label>
                   <button type="submit" className="goal-go">confirm</button>
-                  <button type="button" className="goal-go goal-cancel" onClick={() => setPlanningGoalId(null)}>
+                  <button
+                    type="button"
+                    className="goal-go goal-cancel"
+                    onClick={() => {
+                      setPlanningGoalId(null);
+                      setPlanError('');
+                    }}
+                  >
                     cancel
                   </button>
+                  {planError && (
+                    <div
+                      className="field-error day-plan-form-error"
+                      id={`day-plan-error-${goal.id}`}
+                      role="alert"
+                    >
+                      {planError}
+                    </div>
+                  )}
                   {effortLine && (
                     <div className="day-plan-effort">{effortLine}</div>
                   )}

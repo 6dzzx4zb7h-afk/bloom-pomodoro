@@ -13,7 +13,22 @@ export function Onboarding({ bloom }: { bloom: ReturnType<typeof useBloom> }) {
   function submit(e: React.FormEvent) {
     e.preventDefault();
     const n = name.trim();
-    if (n) bloom.actions.patchSettings({ name: n });
+    if (!n) return;
+
+    // PLAN 8.8: a software keyboard can make the browser scroll the outer
+    // overflow-hidden phone shell while bringing this form into view. Reset
+    // that browser-owned scroll before onboarding unmounts, otherwise the
+    // next Focus screen inherits the offset with its heading clipped.
+    const form = e.currentTarget as HTMLFormElement;
+    const focused = document.activeElement;
+    if (focused instanceof HTMLElement && form.contains(focused)) focused.blur();
+    const phone = form.closest<HTMLElement>('.phone');
+    if (phone) {
+      phone.scrollTop = 0;
+      phone.scrollLeft = 0;
+    }
+
+    bloom.actions.patchSettings({ name: n });
   }
 
   return (

@@ -11,7 +11,8 @@ export type SessionRepairError =
   | 'invalid-window'
   | 'invalid-end'
   | 'existing-overlap'
-  | 'invalid-drift';
+  | 'invalid-drift'
+  | 'save-failed';
 
 export interface RetroactiveDriftEstimate {
   onsetAt: number;
@@ -29,6 +30,22 @@ export interface SessionRepairProposal {
   record: SessionRecord;
   adjustments: SessionRepairAdjustment[];
   retroactiveDrift?: RetroactiveDriftEstimate;
+}
+
+/** Calm, explicit feedback for a repair that may have been clamped. */
+export function sessionRepairSavedMessage(
+  adjustments: readonly SessionRepairAdjustment[],
+): string {
+  if (adjustments.includes('next-session')) {
+    return 'Repair saved as an estimate. Its end time stops at the next session.';
+  }
+  if (adjustments.includes('wall-clock-cap')) {
+    return 'Repair saved as an estimate. Its end time stops at the last captured return.';
+  }
+  if (adjustments.includes('session-start')) {
+    return 'Repair saved as an estimate. Its end time was kept at the session start.';
+  }
+  return 'Repair saved as an estimate.';
 }
 
 export type SessionRepairResult =
