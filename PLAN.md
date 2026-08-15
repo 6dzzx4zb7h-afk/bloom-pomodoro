@@ -1058,7 +1058,7 @@ Rules of thumb:
   screen-reader/browser/WebView/device claims remain explicitly open for 8.21d. See
   `docs/verification/plan-8.21b-accessibility-2026-08-14.md`.
 
-### - [ ] 8.21c Add a pinned visual-regression runner and CI gate
+### - [x] 8.21c Add a pinned visual-regression runner and CI gate
 
 - **Goal:** Add the smallest maintainable browser visual runner that pins engine, OS image, fonts,
   locale, timezone, color profile, scale, motion, and viewport. Wire deterministic fixtures and
@@ -1079,9 +1079,9 @@ Rules of thumb:
   and local/pristine Node 22.23.2 + npm 11.17.0 gates are implemented and green. GitHub
   authentication was restored on August 15 and draft PR #2 was published. Its first `macos-26` run
   exposed host-dependent rounded-corner raster variance; GPU and Skia runtime-path selection are now
-  disabled without masking pixels or changing product styles. This step remains open until the
-  pull-request job proves the committed baselines byte-for-byte; no CI pass is inferred from the
-  local result. See
+  disabled without masking pixels or changing product styles. Pull-request run `31897108663` then
+  passed both byte-for-byte baselines, missing/stale diagnostics, the deliberate one-pixel proof,
+  and artifact upload on `macos-26-arm64` image `20260728.0273.1`. See
   `docs/verification/plan-8.21c-visual-runner-2026-08-14.md`.
 
 ### - [ ] 8.21d Populate the full visual matrix and record manual accessibility/device evidence

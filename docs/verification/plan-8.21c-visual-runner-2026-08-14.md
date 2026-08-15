@@ -2,8 +2,8 @@
 
 Date: 2026-08-14
 
-Status: implemented and verified locally, including a pristine exact-toolchain copy. The PLAN step
-remains open until the new main-push workflow runs on GitHub and proves the same bytes in CI.
+Status: complete. The exact-toolchain local/pristine gates and draft-PR `macos-26-arm64` visual job
+all passed, including strict committed baselines, missing/stale diagnostics, and one-pixel artifacts.
 
 ## Scope and boundary
 
@@ -29,6 +29,8 @@ that the package/browser image versions stay aligned:
 - bundled Fredoka and Nunito only, with a browser assertion that both faces loaded;
 - locale `en-US`, timezone UTC, sRGB color profile, device scale 1, CSS-pixel screenshots, one
   worker, fixed viewport per manifest case, light system preference, and reduced motion; and
+- Chromium GPU rasterization and Skia runtime CPU optimizations disabled so local and hosted ARM
+  hardware use the same software raster path without masking product pixels; and
 - fixture-only canvas freezing after its completed reduced-motion frame, retaining the visible pet
   pose while preventing a screenshot from racing a canvas clear/draw boundary.
 
@@ -81,13 +83,17 @@ and 335 visual-darwin-arm64 eligible packages / 219 engine declarations. A separ
 reported zero known vulnerabilities. The exact `fsevents@2.3.2` optional Playwright watcher script
 was added to the existing strict allowlist; no blanket install-script bypass was used.
 
-## Remaining CI/publish evidence
+## CI/publish evidence
 
 The local visual gate passed repeatedly on macOS `26.6.1` arm64. GitHub CLI authentication was
 restored for account `0xzeki` on August 15 and draft PR #2 was published. Its first `macos-26`
 run installed the exact toolchain and browser, then exposed 13 raw channel-level differences around
 two rounded corners (one perceptually changed pixel) caused by host-dependent raster optimization.
 The runner now disables GPU and Skia runtime CPU-path selection while retaining production styles
-and the zero-pixel threshold; that adjustment is green locally and is being rechecked in CI. PLAN
-8.21c stays unchecked until the pull-request workflow proves both committed baselines byte-for-byte
-and uploads the one-pixel artifacts. No deployment was attempted.
+and the zero-pixel threshold. [GitHub Actions run 31897108663](https://github.com/6dzzx4zb7h-afk/bloom-pomodoro/actions/runs/31897108663)
+then passed on head `c92aa9b94b49e9a84eeba1d36e01c208969ee7c5`: image
+`macos-26-arm64` version `20260728.0273.1`, exact npm install, pinned Chromium install, two committed
+baseline comparisons, missing/stale diagnostics, and the deliberate one-CSS-pixel failure proof.
+Artifact `bloom-visual-31897108663` (ID `9250096071`, SHA-256
+`ac372da394b592a9a031ef7e222c4a9c0e5660c7a6b41b1c490b2d18352da8cc`) contains the readable
+expected/actual/diff/report/trace output and expires August 29, 2026. No deployment was attempted.
