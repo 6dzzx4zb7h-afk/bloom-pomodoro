@@ -3,7 +3,7 @@
 Bloom is a cozy pixel-pal focus timer that explains its suggestions from your own recorded sessions.
 It runs entirely on your device.
 
-**Status:** feature-complete for daily use. 674 tests green. The web app, the Android wrapper, and
+**Status:** feature-complete for daily use. 675 tests green, linted, and gated by CI on Node 22 and 24. The web app, the Android wrapper, and
 the native iOS wrapper all build and run. The iOS layer now carries native tabs and segmented rails,
 a native Settings sheet, prominent finish alarms, and a Lock Screen / Dynamic Island Live Activity.
 
@@ -60,15 +60,19 @@ will not show the tap highlight or the selection behaviors either.
   `src/responsiveAccessibility.test.ts` guards it. It was restored on August 14 and closed on
   August 17; the pinned visual baselines proving it live on the `agent/finish-bloom-usability`
   branch and reach main when PR #2 does.
-- **Finish the small-screen matrix** (`8.8`) — 44 px targets, 16 px inputs and ring geometry are
-  done and measured at 320×568. Remaining: compact-height, safe-area, 200% zoom and
-  virtual-keyboard cells. Safe areas and the keyboard matter more on real phones than they did
-  in the browser.
-- **Add a linter** (`8.16`) — the repo still has no ESLint or Prettier config and no `lint` script.
-  The rest of this step is now moot: there is no CI workflow left to gate, and with the workflow
-  gone the duplicated npm version pin collapsed to the single `packageManager` field on its own.
-  Worth pairing with a decision about whether any CI should exist at all, since nothing currently
-  runs the 674 tests except a person.
+- ~~**Finish the small-screen matrix** (`8.8`)~~ — **done in the browser** (August 18, 2026).
+  Compact height (390×500) passes: Start sits below the fold but `.prestart-scroll` reaches it.
+  Virtual keyboard (390×508) passes: the focused field stays visible and is 16px, so iOS will not
+  zoom on focus. 200% zoom (a 195px viewport) found and fixed a real defect — the four mode tabs
+  held their 44px floor against a 22px shell margin and the last one was laid out past the screen
+  edge with nothing able to scroll to it. Safe areas are covered by 17 `env(safe-area-inset-*)`
+  uses but Chrome cannot override `env()`, so that cell stays part of the device pass below.
+- ~~**Add a linter and gate CI on it** (`8.16`)~~ — **done** (August 18, 2026). `npm run lint`
+  runs ESLint; `.github/workflows/ci.yml` runs lint, tests and build on push and every PR, across
+  a Node 22/24 matrix. It paid for itself twice on the first run: the matrix caught that `npm ci`
+  could not install on Node 22 at all, and the linter caught two effects whose stale-async guard
+  was dead code. Prettier is deliberately not included — it would reformat the whole codebase in
+  one commit and catch nothing.
 - ~~**Simplify the pre-start hierarchy** (`8.18`)~~ — **superseded by `13.17`**, which folded
   everything below the session target behind a single "a little more prep" row. `FocusScreen.tsx`
   now renders active task → session target → collapsed prep → controls, so Start no longer sits
