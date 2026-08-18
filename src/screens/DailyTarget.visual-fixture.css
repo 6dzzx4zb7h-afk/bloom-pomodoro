@@ -11,6 +11,20 @@
   margin-bottom: 2em !important;
 }
 
+/* PLAN 8.9 worst-frame fixtures. White represents a day cloud crossing the
+   reading surface; the darkest shipped night token represents the opposite
+   extreme. Production content must stay readable without depending on which
+   decorative frame happens to sit behind it. */
+.sky-lightest-fixture,
+.sky-lightest-fixture .sky-layer.sky-focus {
+  background: #fff;
+}
+
+.sky-darkest-fixture,
+.sky-darkest-fixture .sky-layer.sky-focus {
+  background: #0f0b26;
+}
+
 /* Repeatable previews for the production preference media queries. These are
    fixture-only mirrors, selected with `?preference=more|forced`; the product
    itself continues to respond exclusively to the real OS/browser settings. */

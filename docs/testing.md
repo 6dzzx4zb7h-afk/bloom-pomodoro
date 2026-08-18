@@ -28,7 +28,7 @@ Coverage terms are deliberately narrow:
 - **Visual fixture** — deterministic fixture code exists. It does not mean a pinned screenshot has
   passed; PLAN 8.21c and 8.21d own the runner and reviewed baselines.
 
-<!-- surface-inventory-summary: entries=30 direct=30 indirect=0 missing=0 visual-fixture=6 visual-baseline=2 -->
+<!-- surface-inventory-summary: entries=30 direct=30 indirect=0 missing=0 visual-fixture=6 visual-baseline=3 -->
 
 ## Current surface inventory
 
@@ -57,8 +57,8 @@ Coverage terms are deliberately narrow:
 | `weekly-review` | `WeeklyReview.tsx` | direct | missing |
 | `woop` | `WoopCard.tsx` | direct | missing |
 | `collection` | `CollectionScreen.tsx` | direct | missing |
-| `focus` | `FocusScreen.tsx` | direct | partial daily-target fixture |
-| `goals` | `GoalsScreen.tsx` | direct | representative baseline; matrix open |
+| `focus` | `FocusScreen.tsx` | direct | PLAN 8.9 readability baselines; mode matrix open |
+| `goals` | `GoalsScreen.tsx` | direct | PLAN 8.9 readability baselines; full matrix open |
 | `history` | `HistoryScreen.tsx` | direct | history-ledger fixture |
 | `tasks` | `TasksScreen.tsx` | direct | representative baseline; matrix open |
 | `day-sky` | `DaySky.tsx` | direct | missing |
@@ -102,7 +102,8 @@ browser, WebView, or physical-device evidence.
 PLAN 8.21c uses `@playwright/test` `1.62.0` and its Chromium `151.0.7922.34` revision `1234` on the
 GitHub Actions `macos-26` arm64 image. Node `22.23.2` and npm `11.17.0` remain the repository-wide
 toolchain pins. The runner fixes `en-US`, UTC, sRGB, CSS-pixel screenshot scale, device scale 1,
-light system preference, reduced motion, one worker, each manifest viewport, and Chromium's
+light color scheme, reduced motion, one worker, each manifest viewport, optional manifest-selected
+increased-contrast/forced-colors emulation, and Chromium's
 software/Skia raster path (`--disable-gpu` plus `--disable-skia-runtime-opts`). The fixture query
 still owns Bloom's explicit day/night state. Fredoka and Nunito load only from `public/fonts` and the
 test fails if either bundled face is unavailable or any request leaves the local fixture origin.
@@ -117,7 +118,9 @@ the entire ignored `visual-artifacts` directory for 14 days and has no deploymen
 Run `npm run visual:test:update` only on macOS 26 arm64 with the pinned browser installed, review
 every changed PNG at native resolution, then rerun `npm run visual:verify`. The two 8.21c baselines
 are a day 390×844 active Goals state and a night 320×568 empty Tasks state. They prove the runner;
-they do not satisfy 8.21d's full surface/state/theme/viewport matrix.
+PLAN 8.9 adds five narrowly scoped Focus/Goals readability cells for sky extremes, error and
+selection states, expanded spacing, and actual Chromium contrast media emulation. Neither slice
+satisfies 8.21d's full surface/state/theme/viewport matrix.
 
 ## Deterministic fixture rules
 

@@ -136,6 +136,13 @@ function Fixture() {
   const params = useMemo(() => new URLSearchParams(window.location.search), []);
   const night = params.get('theme') === 'night';
   const expandedSpacing = params.get('spacing') === 'expanded';
+  const sky = params.get('sky');
+  const skyClass =
+    sky === 'lightest'
+      ? ' sky-lightest-fixture'
+      : sky === 'darkest'
+        ? ' sky-darkest-fixture'
+        : '';
   const preference = params.get('preference');
   const preferenceClass =
     preference === 'more'
@@ -283,7 +290,7 @@ function Fixture() {
   return (
     <div className="bezel">
       <div
-        className={`phone mode-focus${night ? ' night' : ''}${expandedSpacing ? ' text-spacing-fixture' : ''}${preferenceClass}`}
+        className={`phone mode-focus${night ? ' night' : ''}${expandedSpacing ? ' text-spacing-fixture' : ''}${preferenceClass}${skyClass}`}
       >
         <div className="sky-mood" aria-hidden="true">
           <div className="sky-layer sky-focus" />

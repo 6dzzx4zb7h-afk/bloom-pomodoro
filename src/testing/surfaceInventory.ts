@@ -425,8 +425,12 @@ export const SURFACE_INVENTORY: readonly SurfaceInventoryEntry[] = [
     visual: {
       level: 'fixture',
       files: ['fixtures/daily-target.html', 'src/screens/DailyTarget.visual-fixture.tsx'],
+      baselines: [
+        'visual-baselines/chromium-macos26-arm64/focus-day-lightest-selected-320x568.png',
+        'visual-baselines/chromium-macos26-arm64/focus-night-forced-colors-390x844.png',
+      ],
     },
-    remaining: 'The current fixture covers only the daily-target slice; add the full mode/state matrix.',
+    remaining: 'PLAN 8.9 pins day/forced-color readability cells; add the full mode/state matrix.',
   },
   {
     id: 'goals',
@@ -444,9 +448,12 @@ export const SURFACE_INVENTORY: readonly SurfaceInventoryEntry[] = [
       files: ['fixtures/daily-target.html', 'src/screens/DailyTarget.visual-fixture.tsx'],
       baselines: [
         'visual-baselines/chromium-macos26-arm64/goals-day-active-390x844.png',
+        'visual-baselines/chromium-macos26-arm64/goals-day-expanded-1280x900.png',
+        'visual-baselines/chromium-macos26-arm64/goals-day-increased-contrast-390x844.png',
+        'visual-baselines/chromium-macos26-arm64/goals-night-darkest-error-768x1024.png',
       ],
     },
-    remaining: 'The active day target has a pinned baseline; add empty, dense, form-error, deadline, theme, and viewport cells.',
+    remaining: 'PLAN 8.9 pins representative readability cells; add empty, dense, deadline, and full viewport cells.',
   },
   {
     id: 'history',

@@ -5324,6 +5324,20 @@ body.night {
   font-size: 13px;
 }
 
+/* Keep the mobile anti-zoom rule after the broad PLAN 8.9 type-floor list.
+   Day-plan inputs are part of that list, so the earlier max-width rule was
+   being won by this later 13px declaration on real narrow layouts. */
+@media (max-width: 480px) {
+  .phone input,
+  .phone textarea,
+  .phone select,
+  .dialog-layer input,
+  .dialog-layer textarea,
+  .dialog-layer select {
+    font-size: 16px;
+  }
+}
+
 /* Fields and custom controls that already draw a boundary use one measured
    token. Borderless actions keep their filled/text affordance; toggles add a
    contrasting track outline, and selected choices gain a shape cue so state
@@ -5741,12 +5755,19 @@ body.night {
     border: 1px solid ButtonText;
   }
   .phone :focus-visible {
-    outline: 3px solid Highlight;
+    /* Highlight can be a pale system accent against a light Canvas (1.23:1
+       in Chromium's macOS forced-colors palette). CanvasText follows the
+       active high-contrast palette and stays distinct from the canvas. */
+    outline: 3px solid CanvasText !important;
     outline-offset: 3px;
   }
   .phone [aria-pressed='true'],
   .phone [aria-checked='true'],
   .phone [aria-current='page'] {
+    /* Keep the paired system foreground/background together. Chromium's
+       forced-colors remapping can otherwise retain HighlightText while
+       remapping Highlight back to ButtonFace, erasing selected labels. */
+    forced-color-adjust: none;
     color: HighlightText;
     background: Highlight;
     box-shadow: inset 0 0 0 2px HighlightText;

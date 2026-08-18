@@ -177,10 +177,12 @@ describe('PLAN 8.9 preference-mode readability baseline', () => {
     expect(css).toContain('@media (prefers-contrast: more)');
     expect(css).toContain('@media (forced-colors: active)');
     expect(css).toMatch(
-      /@media \(forced-colors: active\)[\s\S]*?background:\s*Canvas;[\s\S]*?outline:\s*3px solid Highlight/,
+      /@media \(forced-colors: active\)[\s\S]*?background:\s*Canvas;[\s\S]*?outline:\s*3px solid CanvasText !important/,
     );
     expect(css).toContain(".phone [aria-pressed='true']");
-    expect(css).toContain('forced-color-adjust: none');
+    expect(css).toMatch(
+      /@media \(forced-colors: active\)[\s\S]*?\.phone \[aria-pressed='true'\],[\s\S]*?forced-color-adjust:\s*none;[\s\S]*?color:\s*HighlightText;[\s\S]*?background:\s*Highlight/,
+    );
     expect(css).toMatch(
       /@media \(forced-colors: active\)[\s\S]*?\.play-tri\s*\{[\s\S]*?border-left-color:\s*ButtonText/,
     );
@@ -202,6 +204,12 @@ describe('PLAN 8.9 preference-mode readability baseline', () => {
     expect(css).toMatch(/\.duty-badge\s*\{[\s\S]*?font:\s*700 13px/);
     expect(collectionScreen).toMatch(
       /aria-pressed=\{onDuty\}[\s\S]*?onDuty && <span className="duty-badge">on duty<\/span>/,
+    );
+  });
+
+  it('keeps the mobile anti-zoom input size after the broader type-floor cascade', () => {
+    expect(css).toMatch(
+      /\.parking-item-text\s*\{[\s\S]*?font-size:\s*13px;[\s\S]*?@media \(max-width: 480px\)\s*\{[\s\S]*?\.phone input,[\s\S]*?font-size:\s*16px/,
     );
   });
 

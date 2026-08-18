@@ -1,12 +1,13 @@
 # PLAN 8.9 readability verification — 2026-08-12
 
-Status update (August 14, 2026): the user explicitly restored PLAN 8.9 to the program. The evidence
-below remains partial until the rendered browser matrix passes.
+Status: complete on August 17, 2026. The user explicitly restored PLAN 8.9 on August 14; the
+initial code-side evidence below remained partial until the pinned rendered matrix passed in the
+closure run recorded at the end of this document.
 
-Scope: code-side contrast, type-floor, preference-mode, deterministic-fixture, local-only, build,
-and iOS packaging evidence for PLAN 8.9. The rendered browser matrix did not run because the
-available browser runtime reported zero browser instances. PLAN 8.9 is active but not completed;
-this document does not claim a visual, browser, physical-device, or distribution pass.
+Scope: code-side and rendered Chromium contrast, type-floor, preference-mode,
+deterministic-fixture, local-only, test, and build evidence for PLAN 8.9. The interactive in-app
+Browser remained unavailable; this document does not claim Safari/Firefox, screen-reader,
+physical-device, deployment, distribution, or the broader PLAN 8.21d matrix.
 
 ## Implemented contract
 
@@ -26,14 +27,18 @@ this document does not claim a visual, browser, physical-device, or distribution
   and other nonessential metadata.
 - `prefers-contrast: more` replaces translucent cards with opaque, strongly bordered surfaces and
   strengthens focus/current states. `forced-colors: active` removes the decorative sky, uses system
-  colors for surfaces and controls, keeps a 3 px Highlight focus outline, and retains pressed/current
-  distinction.
+  colors for surfaces and controls, keeps a 3 px `CanvasText` focus outline, and retains
+  pressed/current distinction.
 - The selected-friend badge and goal actions now keep an explicit opaque `#ffb0d4` fallback beneath
   their gradient, so computed-color audits cannot incorrectly fall through to a dark parent surface.
   The disabled goal action no longer fades its whole subtree: day uses `#725a7d` on `#eee7f2`
   (4.99:1), night uses `#a394c4` on `#2e2557` (5.00:1), and the selected-friend badge now uses the
   13 px practical state-text floor. The former Tasks empty-state action no longer exists after PLAN
   8.26 consolidated the empty screen onto the one visible add form.
+- A final cascade guard keeps mobile inputs at 16 px after the broad 13 px supporting-copy floor;
+  selected forced-colors controls preserve the paired `HighlightText`/`Highlight` system colors;
+  and forced-colors keyboard focus uses `CanvasText !important` so the ordinary theme accent
+  cannot erase the ring against a light system canvas.
 
 ## Deterministic fixture
 
@@ -79,7 +84,7 @@ do not enter Bloom's production bundle.
   surface was substituted, so the rendered matrix below remains open. No physical-device, iOS
   packaging, deployment, or distribution claim is made for this restoration run.
 
-## Rendered matrix still required
+## Rendered matrix requirement (closed August 17, 2026)
 
 The following matrix is the remaining gate:
 
@@ -96,3 +101,63 @@ The following matrix is the remaining gate:
 
 Browser setup reached the runtime successfully on this pass, but browser discovery returned an empty
 list. No unrelated browser automation surface was substituted, and no rendered result is claimed.
+
+## Closure run — August 17, 2026
+
+The interactive Browser skill again exposed no controllable instances. Since the earlier partial
+run, the repository gained PLAN 8.21c's pinned local renderer; it supplied a reproducible rendered
+Chromium surface without being treated as in-app-browser, Safari/Firefox, assistive-technology, or
+device evidence.
+
+### Rendered coverage and measurements
+
+- Engine/environment: Chromium `151.0.7922.34`, Playwright `1.62.0`, macOS `26.6.1` arm64, sRGB,
+  device scale 1, UTC, `en-US`, bundled Fredoka/Nunito, reduced motion, software/Skia raster path.
+- Viewports: 320×568 small phone / 200%-layout equivalent, 390×844 common phone, 768×1024 tablet,
+  and 1280×900 desktop. The runner cannot issue real browser page zoom, so the 320 CSS-pixel cell
+  remains explicitly layout-equivalent rather than mislabeled as an actual zoom interaction.
+- Worst frames: fixture-controlled white day-cloud backing and `#0f0b26`, the darkest shipped night
+  token. Essential copy stays on the production stable surfaces over both.
+- States: normal, hovered, keyboard-focused, pointer-pressed, selected, disabled, and inline error.
+  Expanded WCAG text spacing produced no overlap; the 320×568 Start control scrolls above the
+  navigation hit layer and remains operable.
+- Preference delivery: Chromium's real `prefers-contrast: more` and `forced-colors: active` media
+  queries matched through browser emulation. This is production media-query delivery, not the
+  fixture-only mirror and not an OS Settings UI claim.
+- Minimum rendered values: 4.99:1 text, 4.60:1 input/control boundary, 13 px essential supporting
+  copy, 16 px form controls at narrow widths, and 11.30:1 minimum text in the forced-colors cell.
+  There was no document/phone horizontal overflow, control collision, external request, console
+  warning, or console error.
+
+### Reviewed baseline set
+
+Five new PLAN 8.9 baselines join the two PLAN 8.21c runner proofs:
+
+| Baseline | Bytes | SHA-256 |
+| --- | ---: | --- |
+| `focus-day-lightest-selected-320x568.png` | 46,123 | `e5c3db974acd7f6cb731d2901168c998ef897f8ae8656678dd34940f726659d9` |
+| `focus-night-forced-colors-390x844.png` | 49,296 | `d8b50b48931a061ab361fd659f6789d6a803f57bdca561ad4f1120de3c247eb2` |
+| `goals-day-expanded-1280x900.png` | 149,810 | `296644ceac1afc1fbe746970ce68cad0f8190e03fd77e8db136a4d735b9e50ce` |
+| `goals-day-increased-contrast-390x844.png` | 114,373 | `6b5a7f5180afdbfeaccc19bc7fda80f0528774f80d8b76e10f5118def6b50fa1` |
+| `goals-night-darkest-error-768x1024.png` | 115,291 | `e08b1083d8f6a3d6d88c035bccecb68033895772fd7817be0cfdd867a8a4f8f1` |
+
+Every new image was reviewed at native resolution. The existing Goals 390×844 baseline changed in
+233 of 329,160 pixels, bounded to the three day-plan number glyphs (`x=192–200`, `y=276–427`),
+which is exactly the reviewed 13→16 px mobile input correction; before, after, and amplified diff
+views showed no unrelated region changing.
+
+### Final commands
+
+- `npx vitest run src/responsiveAccessibility.test.ts src/testing/surfaceInventory.test.ts`: 2
+  files / 20 tests passed.
+- `npm run visual:verify`: seven strict zero-threshold baseline comparisons and five rendered
+  readability audits passed; missing/stale diagnostics passed; the deliberate one-CSS-pixel probe
+  failed as required and emitted readable expected/actual/diff artifacts.
+- `npm run lint`: passed with zero warnings.
+- `npm test`: 88 files / 782 tests passed. An earlier parallel run starved five fork workers before
+  they loaded tests; the isolated full run passed in 9.03 seconds with no unhandled errors.
+- `npm run build`: 88 modules; CSS 94.68 kB / 19.10 kB gzip; JavaScript 499.12 kB / 148.34 kB gzip;
+  app-shell service worker `700e5d89630fe552` across 11 files.
+- `node scripts/local-only-audit.mjs`: passed across 207 source files with local assets and no new
+  auth, sync, telemetry, analytics, diagnostics, external runtime URL, or application-data request.
+- `git diff --check`: passed.

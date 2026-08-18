@@ -8,6 +8,11 @@ interface VisualCase {
   height: number;
   readySelector: string;
   baseline: string;
+  contrast?: 'more' | 'no-preference';
+  forcedColors?: 'active' | 'none';
+  focusSelector?: string;
+  hoverSelector?: string;
+  pressSelector?: string;
 }
 
 const cases = JSON.parse(
@@ -27,7 +32,12 @@ for (const visualCase of cases) {
     });
 
     await page.setViewportSize({ width: visualCase.width, height: visualCase.height });
-    await page.emulateMedia({ colorScheme: 'light', reducedMotion: 'reduce' });
+    await page.emulateMedia({
+      colorScheme: 'light',
+      reducedMotion: 'reduce',
+      contrast: visualCase.contrast ?? 'no-preference',
+      forcedColors: visualCase.forcedColors ?? 'none',
+    });
     await page.goto(visualCase.path, { waitUntil: 'networkidle' });
     await expect(page.locator(visualCase.readySelector).first()).toBeVisible();
 
@@ -67,6 +77,23 @@ for (const visualCase of cases) {
       }
     });
 
+    if (visualCase.focusSelector) {
+      await page.locator(visualCase.focusSelector).first().focus();
+    }
+    if (visualCase.hoverSelector) {
+      await page.locator(visualCase.hoverSelector).first().hover();
+    }
+
+    let pointerHeld = false;
+    if (visualCase.pressSelector) {
+      const pressed = page.locator(visualCase.pressSelector).first();
+      const box = await pressed.boundingBox();
+      expect(box, `${visualCase.pressSelector} must have rendered geometry`).not.toBeNull();
+      await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2);
+      await page.mouse.down();
+      pointerHeld = true;
+    }
+
     if (process.env.BLOOM_VISUAL_PROBE === visualCase.id) {
       await page.evaluate(() => {
         const probe = document.createElement('div');
@@ -84,6 +111,10 @@ for (const visualCase of cases) {
     }
 
     expect(externalRequests).toEqual([]);
-    await expect(page).toHaveScreenshot(visualCase.baseline, { fullPage: true });
+    try {
+      await expect(page).toHaveScreenshot(visualCase.baseline, { fullPage: true });
+    } finally {
+      if (pointerHeld) await page.mouse.up();
+    }
   });
 }

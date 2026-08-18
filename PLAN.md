@@ -669,7 +669,7 @@ Rules of thumb:
   allowed by this step. See `docs/verification/plan-8.8-responsive-2026-07-26.md` and
   `docs/verification/plan-8.8-ring-geometry-2026-07-28.md`.
 
-### - [ ] 8.9 Readability over the animated sky
+### - [x] 8.9 Readability over the animated sky
 
 - **Goal:** Low-contrast lavender text sits directly on the moving sky and becomes illegible as clouds pass; several essential labels are 10.5–12.5 px. Put instructional text on stable translucent surfaces or darken it to verified contrast; raise supporting text to a practical minimum (~13 px), reserving smaller type for nonessential metadata. Also add a `@media (prefers-contrast: more)` layer answering the OS "Increase Contrast" accessibility setting: opaque surfaces instead of translucency, stronger borders, full-contrast text — Bloom's pastel palette currently ignores the request entirely.
 - **Science:** n/a — visual accessibility and readability.
@@ -702,6 +702,22 @@ Rules of thumb:
   build, local-only audit across 203 source files, and `git diff --check` passed. The in-app Browser
   runtime again reported no browser instances, so the rendered matrix is still unclaimed and 8.9
   remains open.
+- **Closed (August 17, 2026):** The pinned Chromium 151/macOS 26 arm64 runner now covers the
+  remaining rendered matrix with five focused audits and five new reviewed Focus/Goals baselines:
+  320×568, 390×844, 768×1024, and 1280×900; day-cloud white and the darkest shipped night token;
+  normal, hover, focus, pressed, selected, disabled, and inline-error states; expanded text
+  spacing; and real `prefers-contrast: more` / `forced-colors: active` media-query delivery. The
+  run found and fixed two final cascade defects: the later 13 px type-floor rule overrode the
+  mobile 16 px anti-zoom input size, and forced-colors selection could retain `HighlightText`
+  while losing its paired `Highlight` background; forced-colors focus also now overrides the
+  ordinary accent ring with `CanvasText`. Rendered minima were 4.99:1 text, 4.60:1 boundaries,
+  13 px essential supporting copy, and 16 px narrow form controls, with no horizontal overflow,
+  control collisions, external requests, or console warnings/errors; the short-phone Start
+  control remained scroll-reachable above navigation. Seven strict baselines and five audits
+  passed, as did the one-pixel failure proof, 20 focused tests, the full 88-file/782-test suite,
+  lint, production build, local-only audit across 207 source files, and `git diff --check`. The
+  unavailable interactive in-app Browser, Safari/Firefox, screen-reader, and physical-device
+  cells are not inferred from this result; the deliberately broader matrix remains in 8.21d.
 
 ### - [x] 8.10 Self-host the fonts (offline constraint violation — fix now, don't wait for 7.2)
 

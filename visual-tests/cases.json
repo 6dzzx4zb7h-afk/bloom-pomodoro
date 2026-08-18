@@ -14,5 +14,53 @@
     "height": 568,
     "readySelector": ".task-empty",
     "baseline": "tasks-night-empty-320x568.png"
+  },
+  {
+    "id": "focus-day-lightest-selected-320x568",
+    "path": "/fixtures/daily-target.html?surface=focus&state=active&theme=day&sky=lightest",
+    "width": 320,
+    "height": 568,
+    "readySelector": ".readout-time",
+    "focusSelector": ".tab-btn[aria-pressed='true']",
+    "baseline": "focus-day-lightest-selected-320x568.png"
+  },
+  {
+    "id": "goals-night-darkest-error-768x1024",
+    "path": "/fixtures/daily-target.html?surface=goals&state=error&theme=night&sky=darkest",
+    "width": 768,
+    "height": 1024,
+    "readySelector": ".day-plan-form-error",
+    "pressSelector": ".day-plan-form .goal-go",
+    "baseline": "goals-night-darkest-error-768x1024.png"
+  },
+  {
+    "id": "goals-day-expanded-1280x900",
+    "path": "/fixtures/daily-target.html?surface=goals&state=active&theme=day&sky=lightest&spacing=expanded",
+    "width": 1280,
+    "height": 900,
+    "readySelector": ".goal-card",
+    "focusSelector": ".day-plan-edit input",
+    "hoverSelector": ".day-plan-row .goal-go",
+    "baseline": "goals-day-expanded-1280x900.png"
+  },
+  {
+    "id": "goals-day-increased-contrast-390x844",
+    "path": "/fixtures/daily-target.html?surface=goals&state=active&theme=day&sky=lightest",
+    "width": 390,
+    "height": 844,
+    "readySelector": ".goal-card",
+    "contrast": "more",
+    "focusSelector": ".day-plan-row .goal-go",
+    "baseline": "goals-day-increased-contrast-390x844.png"
+  },
+  {
+    "id": "focus-night-forced-colors-390x844",
+    "path": "/fixtures/daily-target.html?surface=focus&state=active&theme=night&sky=darkest",
+    "width": 390,
+    "height": 844,
+    "readySelector": ".readout-time",
+    "forcedColors": "active",
+    "focusSelector": ".tab-btn[aria-pressed='true']",
+    "baseline": "focus-night-forced-colors-390x844.png"
   }
 ]
