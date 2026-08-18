@@ -1,5 +1,6 @@
 node_modules/
 dist/
+visual-artifacts/
 *.local
 *.tsbuildinfo
 .DS_Store
