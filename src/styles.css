@@ -130,6 +130,21 @@ button {
   outline-offset: 3px;
 }
 
+/* Text fields are the exception, on every platform (PLAN 8.6 refinement).
+   WebKit matches :focus-visible on a text field the moment it is tapped —
+   correctly, since typing follows — so the ring above drew a heavy box around
+   the field on every phone tap. A text field already carries its own visible
+   focus indicator: the blinking caret, plus the focused border each field
+   below defines. The ring stays on buttons, switches, tabs, and anything else
+   where it is the only affordance there is. */
+:where(
+    input:not([type='checkbox']):not([type='radio']):not([type='button']):not([type='submit']):not([type='reset']),
+    textarea
+  ):focus-visible {
+  outline: none !important;
+  outline-offset: 0;
+}
+
 .sr-only {
   position: absolute;
   width: 1px;
@@ -2639,14 +2654,9 @@ button.foundation-dot {
   visibility: hidden;
 }
 
-/* iOS WebKit treats a tapped text input as :focus-visible and was drawing the
-   desktop keyboard-focus outline shown in the reported screenshot. The field
-   keeps its focused border change, but the oversized outer ring is reserved
-   for browser/keyboard navigation where it carries useful modality context. */
-.native-mode-control .intention-input:focus-visible {
-  outline: none !important;
-  outline-offset: 0;
-}
+/* The narrow override that used to live here — one field, one screen — is now
+   the general text-field rule near the top of this file, because the same
+   heavy box turned up on the parking-lot field too. */
 
 /* ---------- sky moods ----------
    One gradient layer per timer mode sits at the very back of .phone (below
@@ -3207,6 +3217,13 @@ button.foundation-dot {
   border: 1.5px solid rgba(199, 159, 230, 0.42);
   border-radius: 14px;
   background: rgba(255, 255, 255, 0.72);
+  transition: border-color 0.15s, background 0.15s;
+}
+/* The input itself is borderless inside this row, so with the outer ring gone
+   the row carries the focused state — quiet, and still visible. */
+.parking-form:focus-within {
+  border-color: var(--pink-2);
+  background: rgba(255, 255, 255, 0.88);
 }
 .parking-input {
   flex: 1;
@@ -5081,6 +5098,13 @@ body.night {
     outline: 3px solid var(--focus-ring);
     outline-offset: 3px;
   }
+  /* Someone who asked for more contrast wants the strongest indicator
+     available, so the text-field exception above is withdrawn here. */
+  .phone input:focus-visible,
+  .phone textarea:focus-visible {
+    outline: 3px solid var(--focus-ring) !important;
+    outline-offset: 3px;
+  }
   .phone [aria-pressed='true'],
   .phone [aria-checked='true'],
   .phone [aria-current='page'] {
@@ -5130,6 +5154,12 @@ body.night {
   }
   .phone :focus-visible {
     outline: 3px solid Highlight;
+    outline-offset: 3px;
+  }
+  /* Forced colors: the system indicator wins over the text-field exception. */
+  .phone input:focus-visible,
+  .phone textarea:focus-visible {
+    outline: 3px solid Highlight !important;
     outline-offset: 3px;
   }
   .phone [aria-pressed='true'],

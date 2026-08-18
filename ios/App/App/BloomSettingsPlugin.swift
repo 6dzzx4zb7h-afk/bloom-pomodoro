@@ -96,7 +96,6 @@ private final class BloomSettingsModel: ObservableObject {
 // that natively from its own bounds, so the range stands in for the two flags
 // and the value snaps back to neutral after each press.
 
-@available(iOS 16.0, *)
 private struct BloomStepper: UIViewRepresentable {
     let canDecrease: Bool
     let canIncrease: Bool
@@ -145,7 +144,6 @@ private final class BloomStepperCoordinator: NSObject {
 
 // MARK: - Form
 
-@available(iOS 16.0, *)
 private struct BloomSettingsRowView: View {
     let row: BloomSettingsRow
     let send: (String, BloomSettingsValue?, String?) -> Void
@@ -223,18 +221,18 @@ private struct BloomSettingsRowView: View {
                 .submitLabel(.done)
                 .accessibilityLabel(row.title ?? "")
                 .onAppear { draft = row.value?.stringValue ?? "" }
-                .onChange(of: row.value) { newValue in
+                .onChange(of: row.value) { _, newValue in
                     // Never fight the keyboard: adopt outside edits only while
                     // this field is not the one being typed in.
                     if !editing { draft = newValue?.stringValue ?? "" }
                 }
-                .onChange(of: draft) { newValue in
+                .onChange(of: draft) { _, newValue in
                     if let limit = row.maxLength, newValue.count > limit {
                         draft = String(newValue.prefix(limit))
                     }
                 }
                 .onSubmit { commitText() }
-                .onChange(of: editing) { focused in
+                .onChange(of: editing) { _, focused in
                     if !focused { commitText() }
                 }
             }
@@ -328,7 +326,6 @@ private struct BloomSettingsRowView: View {
     }
 }
 
-@available(iOS 16.0, *)
 private struct BloomSettingsFormView: View {
     @ObservedObject var model: BloomSettingsModel
 
@@ -375,11 +372,6 @@ final class BloomSettingsPlugin: CAPPlugin, CAPBridgedPlugin, UIAdaptivePresenta
     private weak var hostingController: UIViewController?
 
     @objc func present(_ call: CAPPluginCall) {
-        guard #available(iOS 16.0, *) else {
-            // The web sheet stays the whole Settings implementation here.
-            call.resolve(["active": false])
-            return
-        }
         let snapshot: BloomSettingsSnapshot
         do {
             snapshot = try call.decode(BloomSettingsSnapshot.self)

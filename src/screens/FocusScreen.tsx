@@ -93,6 +93,7 @@ export function FocusScreen({
     actions,
     completionAlerts,
     liveActivity,
+    alarms,
     mmss,
     clock,
   } = bloom;
@@ -1295,6 +1296,8 @@ export function FocusScreen({
           onRequestCompletionAlertPermission={completionAlerts.requestPermission}
           liveActivityStatus={liveActivity.isIOS ? liveActivity.status : undefined}
           liveActivityChecking={liveActivity.checking}
+          alarmStatus={alarms.isIOS ? alarms.status : undefined}
+          onRequestAlarmAuthorization={alarms.requestAuthorization}
           onShowWeekly={() => {
             setShowSettings(false);
             setWeekly(true);

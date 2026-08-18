@@ -20,6 +20,22 @@ import {
   type IOSLiveActivityStatus,
 } from '../native/iosLiveActivity';
 import {
+  cancelIOSAlarm,
+  consumeIOSAlarmDelivery,
+  isIOSAlarmPlatform,
+  readIOSAlarmStatus,
+  reconcileIOSAlarm,
+  requestIOSAlarmAuthorization,
+  UNSUPPORTED_ALARM_STATUS,
+  type IOSAlarmStatus,
+} from '../native/iosAlarm';
+import {
+  acknowledgeIOSCommands,
+  clearIOSCommands,
+  drainIOSCommands,
+  isIOSCommandPlatform,
+} from '../native/iosCommands';
+import {
   EMPTY_PRE_SLUMP_CAPS,
   PRE_SLUMP_DAILY_CAP,
   type PreSlumpCaps,
@@ -1609,7 +1625,10 @@ export type Action =
   | { type: 'replaceState'; state: BloomState }
   | { type: 'tick'; at?: number }
   | { type: 'rollOverDay'; at: number }
-  | { type: 'toggle'; ifThenPlanId?: string; targetText?: string }
+  // `at` (PLAN 13.18): the wall clock this toggle actually happened at. A
+  // control pressed in system UI while the WebView was suspended replays with
+  // its recorded instant, never with the instant the queue was drained.
+  | { type: 'toggle'; ifThenPlanId?: string; targetText?: string; at?: number }
   | { type: 'reset' }
   | { type: 'discardFalseStart' }
   | { type: 'pick'; mode: TimerMode; tinyMinutes?: TinyStartMinutes }
@@ -1730,6 +1749,10 @@ export function reducer(s: BloomState, a: Action): BloomState {
     case 'rollOverDay':
       return rollOverDay(s, a.at);
     case 'toggle': {
+      // PLAN 13.18: a replayed command carries the instant it was pressed, so
+      // the arithmetic below is identical whether the press happened live or on
+      // a locked screen thirty seconds before the WebView woke up.
+      const now = a.at ?? Date.now();
       if (s.mode === 'flow') {
         if (s.running) {
           const acc = flowElapsed(s);
@@ -1748,11 +1771,11 @@ export function reducer(s: BloomState, a: Action): BloomState {
             ...newOpenSession('flow', null, flowTask?.id, undefined, undefined, armedGoalId),
             targetText: a.targetText,
           };
-        return { ...s, running: true, flowStart: Date.now(), remaining: Math.floor(s.flowAcc), justDone: false, openFlow };
+        return { ...s, running: true, flowStart: now, remaining: Math.floor(s.flowAcc), justDone: false, openFlow };
       }
       if (s.running) {
         const remaining = s.endsAt
-          ? Math.max(0, Math.ceil((s.endsAt - Date.now()) / 1000))
+          ? Math.max(0, Math.ceil((s.endsAt - now) / 1000))
           : s.remaining;
         // Snapshot pause progress so the boot sweep can estimate actual time.
         const openFocus = s.openFocus
@@ -1765,7 +1788,7 @@ export function reducer(s: BloomState, a: Action): BloomState {
           ? TINY_START_OPTIONS[0] * 60
           : dur[s.mode];
       const rem = s.remaining > 0 ? s.remaining : fallbackSec;
-      const endsAt = Date.now() + rem * 1000;
+      const endsAt = now + rem * 1000;
       // Focus and tiny sessions are recorded; breaks never open a record.
       let openFocus = s.openFocus;
       let ifThenPlans = s.ifThenPlans;
@@ -3195,6 +3218,102 @@ export function useBloom() {
   const [completionAlertPrimerOpen, setCompletionAlertPrimerOpen] = useState(false);
   const completionAlertPrimerOfferedRef = useRef(false);
 
+  // PLAN 13.12: on iOS 26 and later an authorized alarm can sound a bounded
+  // finish through Silent Mode and an active Focus. Authorization is explicit
+  // and system-owned; until it exists, and on every system without AlarmKit,
+  // PLAN 13.11's ordinary notification and the foreground chime stay in charge.
+  const alarmPlatform = isIOSAlarmPlatform();
+  const [alarmStatus, setAlarmStatus] = useState<IOSAlarmStatus>(() =>
+    alarmPlatform
+      ? { supported: false, authorization: 'checking' }
+      : UNSUPPORTED_ALARM_STATUS,
+  );
+  // Keyed by the exact snapshot the answer belongs to, so `alarmOwnsCue` reads
+  // as `null` — undecided — the instant the timer changes and before the native
+  // answer arrives. That distinction is what keeps the generic Live Activity
+  // from being created and dismissed again in the same moment.
+  const alarmSnapshotKey = `${state.mode}:${state.running ? 1 : 0}:${
+    state.settings.sound ? 1 : 0
+  }:${state.endsAt ?? 'none'}:${state.openFocus?.id ?? 'none'}`;
+  const [alarmDecision, setAlarmDecision] = useState<{
+    key: string;
+    owns: boolean;
+  } | null>(null);
+  const alarmOwnsCue =
+    alarmDecision && alarmDecision.key === alarmSnapshotKey
+      ? alarmDecision.owns
+      : null;
+  // An authorized alarm is expected to take this bounded countdown. Holding the
+  // surface for it costs one native round trip; not holding it flashes a second
+  // countdown into the Dynamic Island at every start.
+  const alarmHoldsSurface =
+    alarmOwnsCue === true ||
+    (alarmOwnsCue === null &&
+      alarmPlatform &&
+      alarmStatus.authorization === 'granted' &&
+      state.settings.sound &&
+      state.running &&
+      state.endsAt != null &&
+      state.mode !== 'flow');
+
+  const refreshAlarmStatus = useCallback(async () => {
+    const status = await readIOSAlarmStatus();
+    setAlarmStatus(status);
+    return status;
+  }, []);
+
+  const requestAlarmAuthorization = useCallback(async () => {
+    const status = await requestIOSAlarmAuthorization();
+    setAlarmStatus(status);
+    return status;
+  }, []);
+
+  // Authorization stays outside persisted Bloom data. Re-read it on return so
+  // a change made in iOS Settings is reflected without a stored copy.
+  useEffect(() => {
+    if (!alarmPlatform) return;
+    const refresh = () => {
+      if (document.visibilityState === 'visible') void refreshAlarmStatus();
+    };
+    refresh();
+    document.addEventListener('visibilitychange', refresh);
+    return () => document.removeEventListener('visibilitychange', refresh);
+  }, [alarmPlatform, refreshAlarmStatus]);
+
+  // Mirror the reducer-owned deadline into one alarm. The returned ownership is
+  // the handoff: while AlarmKit holds this exact deadline, the notification and
+  // the generic Live Activity below stand down, so one finish never produces two
+  // sounds or two system countdowns. Nothing here completes or records anything.
+  useEffect(() => {
+    if (!alarmPlatform) return;
+    const key = alarmSnapshotKey;
+    void reconcileIOSAlarm({
+      enabled: state.settings.sound,
+      running: state.running,
+      mode: state.mode,
+      deadlineMs: state.endsAt,
+      // PLAN 13.19: the AlarmKit surface's controls address this session.
+      // Breaks open none, so they send '' and render no control.
+      sessionId: state.openFocus?.id ?? '',
+    }).then((result) => {
+      setAlarmDecision({ key, owns: result.owns });
+      setAlarmStatus((current) =>
+        current.supported === result.supported &&
+        current.authorization === result.authorization
+          ? current
+          : { supported: result.supported, authorization: result.authorization },
+      );
+    });
+  }, [
+    alarmPlatform,
+    alarmSnapshotKey,
+    alarmStatus.authorization,
+    state.endsAt,
+    state.mode,
+    state.running,
+    state.settings.sound,
+  ]);
+
   const refreshCompletionAlertStatus = useCallback(async () => {
     const status = await readIOSCompletionAlertStatus();
     setCompletionAlertStatus(status);
@@ -3241,20 +3360,101 @@ export function useBloom() {
   // PLAN 13.11: mirror the reducer-owned deadline into one native local
   // request. This effect never completes or persists a session; after process
   // termination, the existing boot sweep remains the source of record truth.
+  // PLAN 13.12 hands this cue to AlarmKit whenever an authorized alarm mirrors
+  // the same deadline, so the two never sound together.
   useEffect(() => {
+    // Undecided keeps the notification scheduled: a duplicate pending request
+    // that gets cancelled seconds later is a far smaller failure than a finish
+    // with no cue at all if the alarm turns out not to be scheduled.
     void reconcileIOSCompletionAlert({
-      enabled: state.settings.sound,
+      enabled: state.settings.sound && alarmOwnsCue !== true,
       running: state.running,
       mode: state.mode,
       deadlineMs: state.endsAt,
     });
   }, [
+    alarmOwnsCue,
     completionAlertStatus.permission,
     state.endsAt,
     state.mode,
     state.running,
     state.settings.sound,
   ]);
+
+  // PLAN 13.18: drain commands left by controls in system UI.
+  //
+  // A `LiveActivityIntent` runs in the app's process while this WebView is
+  // suspended, so it can only record intent. Replay happens here, against the
+  // wall clock each command carries — never against the instant it was read —
+  // which is what keeps the reducer the single timer authority instead of
+  // making the native layer a second one. See docs/adr/0001.
+  const commandStateRef = useRef(state);
+  commandStateRef.current = state;
+  const appliedCommandIdsRef = useRef<Set<string>>(new Set());
+  const drainingCommandsRef = useRef(false);
+
+  const drainCommands = useCallback(async () => {
+    // One drain at a time: resume and visibilitychange routinely fire together,
+    // and a command applied twice from overlapping reads is exactly what the
+    // idempotency guard below exists to prevent.
+    if (!isIOSCommandPlatform() || drainingCommandsRef.current) return;
+    drainingCommandsRef.current = true;
+    try {
+      const commands = await drainIOSCommands();
+      if (commands.length === 0) return;
+
+      const current = commandStateRef.current;
+      const openSessionId = current.openFocus?.id ?? null;
+      // Dispatches in this loop do not re-render before the next iteration, so
+      // track the running state we are steering toward rather than re-reading
+      // a ref that is still one render behind.
+      let projectedRunning = current.running;
+      const handled: string[] = [];
+
+      for (const command of commands) {
+        // Acknowledge everything read, including commands deliberately dropped:
+        // a command that can never apply should not be re-delivered forever.
+        handled.push(command.id);
+        if (appliedCommandIdsRef.current.has(command.id)) continue;
+        appliedCommandIdsRef.current.add(command.id);
+        // A command whose session is gone is dropped, so a queue that survived
+        // a force-quit can never revive a session the boot sweep already closed
+        // as interrupted.
+        if (openSessionId == null || openSessionId !== command.sessionId) continue;
+        const wantsRunning = command.kind === 'resume';
+        // Already in the state this command asks for — replaying it would
+        // invert the timer rather than confirm it.
+        if (projectedRunning === wantsRunning) continue;
+        dispatch({ type: 'toggle', at: command.occurredAt });
+        projectedRunning = wantsRunning;
+      }
+
+      // The set only has to cover the window before acknowledgement lands;
+      // after a relaunch, session matching drops anything stale.
+      if (appliedCommandIdsRef.current.size > 64) {
+        appliedCommandIdsRef.current = new Set(
+          [...appliedCommandIdsRef.current].slice(-32),
+        );
+      }
+      await acknowledgeIOSCommands(handled);
+    } finally {
+      drainingCommandsRef.current = false;
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!isIOSCommandPlatform()) return;
+    void drainCommands();
+    const onResume = () => {
+      if (!document.hidden) void drainCommands();
+    };
+    document.addEventListener('visibilitychange', onResume);
+    window.addEventListener('focus', onResume);
+    return () => {
+      document.removeEventListener('visibilitychange', onResume);
+      window.removeEventListener('focus', onResume);
+    };
+  }, [drainCommands]);
 
   // PLAN 13.8: mirror only reducer lifecycle changes into one local Live
   // Activity. Running snapshots use the wall-clock deadline; paused snapshots
@@ -3333,7 +3533,11 @@ export function useBloom() {
     if (
       liveActivitySessionId &&
       liveActivityMode &&
-      liveActivityStartedAtMs != null
+      liveActivityStartedAtMs != null &&
+      // PLAN 13.12: an authorized alarm brings its own countdown presentation.
+      // Yield the surface to it rather than stacking a second Bloom activity;
+      // pausing cancels the alarm and hands this one straight back.
+      !alarmHoldsSurface
     ) {
       snapshot =
         liveActivityPhase === 'running' && liveActivityDeadlineMs != null
@@ -3357,6 +3561,7 @@ export function useBloom() {
     }
     mirrorLiveActivity(snapshot);
   }, [
+    alarmHoldsSurface,
     liveActivityDeadlineMs,
     liveActivityMode,
     liveActivityPhase,
@@ -3394,11 +3599,23 @@ export function useBloom() {
     if (handledCompletionCueRef.current !== completionCueToken) {
       handledCompletionCueRef.current = completionCueToken;
       void (async () => {
+        // PLAN 13.12: only an alarm that is genuinely alerting replaces this
+        // chime. One the person stopped early still leaves them a finish cue.
+        const systemAlarmSounded =
+          completedDeadline != null && isIOSAlarmPlatform()
+            ? (await consumeIOSAlarmDelivery(completedDeadline)) === 'system-alarm'
+            : false;
         const presentation =
           completedDeadline != null && isIOSCompletionAlertPlatform()
             ? await consumeIOSCompletionAlertDelivery(completedDeadline)
             : 'none';
-        if (!soundRef.current || presentation === 'background-system') return;
+        if (
+          !soundRef.current ||
+          systemAlarmSounded ||
+          presentation === 'background-system'
+        ) {
+          return;
+        }
         audioEngine.playRing();
         // Native iOS owns its system notification. This legacy browser path
         // must never create an unfiltered duplicate inside WKWebView.
@@ -3516,6 +3733,12 @@ export function useBloom() {
         // Settings only exposes this action with no open work session. End any
         // orphaned system presentation as part of the same confirmed cleanup.
         void reconcileIOSLiveActivity(null);
+        // The one place a ringing alarm is silenced on Bloom's initiative: the
+        // person explicitly asked for everything here to be cleared.
+        void cancelIOSAlarm(true);
+        // PLAN 13.18: pending intent for erased data is not intent worth
+        // replaying into the fresh state.
+        void clearIOSCommands();
       },
       linkDriftEvent: (eventId: string, sessionId: string) =>
         dispatch({ type: 'linkDrift', eventId, sessionId }),
@@ -3729,6 +3952,13 @@ export function useBloom() {
       status: liveActivityStatus,
       checking: liveActivityStatusChecking,
       refreshStatus: refreshLiveActivityStatus,
+    },
+    alarms: {
+      isIOS: alarmPlatform,
+      status: alarmStatus,
+      owns: alarmOwnsCue === true,
+      requestAuthorization: requestAlarmAuthorization,
+      refreshStatus: refreshAlarmStatus,
     },
     mmss,
     clock,

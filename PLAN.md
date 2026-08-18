@@ -1693,6 +1693,15 @@ Open-step gates, stated plainly: **9.2**'s `dayKeyFor` is load-bearing for every
   Simulator/SPM environment. Physical-device signing plus Lock Screen, Dynamic Island, StandBy,
   background, airplane-mode, and accessibility checks remain for user verification, so this step
   stays open.
+- **Device verification (August 7, 2026):** The Live Activity renders on the Lock Screen of the
+  user's iPhone with the correct mode label and a live countdown, confirming the mirror and the
+  system-rendered clock. Two findings came out of that run, both tracked as their own steps rather
+  than reopened here: the presentation is visually thin for the space it occupies, and it is
+  read-only — there is no way to pause, resume, or advance from it (13.19). A third gap surfaced
+  from the same session: Companion check-ins cannot reach a person whose phone is locked, because
+  `useCompanion.ts` schedules them on a JS interval that explicitly returns while `document.hidden`
+  (13.20). This step's own done-when list stays limited to Dynamic Island, StandBy, airplane-mode,
+  and accessibility observation.
 
 ### - [x] 13.9 An app icon for each friend, following whoever is on duty
 
@@ -1763,7 +1772,7 @@ Open-step gates, stated plainly: **9.2**'s `dayKeyFor` is load-bearing for every
   `npm run build`, `npx cap sync ios`, an Xcode Release Simulator build, live rail inspection, and
   `git diff --check` passed.
 
-### - [ ] 13.11 Deliver reliable local iOS timer completion alerts
+### - [x] 13.11 Deliver reliable local iOS timer completion alerts
 
 - **Goal:** Mirror each active Focus, Tiny, Short, or Long countdown into one native local
   notification so the finish cue still arrives after Bloom is backgrounded, locked, or suspended.
@@ -1804,8 +1813,18 @@ Open-step gates, stated plainly: **9.2**'s `dayKeyFor` is load-bearing for every
   permitted`, and the available Computer Use route timed out against Simulator, so actual locked
   system delivery remains intentionally unchecked for user/device verification rather than being
   claimed from an injected push payload.
+- **Closed (August 7, 2026) — on the user's direction, with the record kept honest:** The user
+  closed this step after 13.12's device run. Recorded precisely: AlarmKit's prominent alarm was
+  confirmed on device through Silent Mode, an active Focus, and a locked screen, and 13.12's
+  handoff means the notification path is deliberately withheld whenever that alarm is authorized —
+  so on iOS 26+ the finish cue this step exists to guarantee is demonstrably arriving. What was
+  **not** independently observed is the notification path *in isolation* (alarm permission off,
+  phone locked, bundled Bloom cue playing) — the check that covers pre-26 systems and anyone who
+  declines alarm authorization. That observation belongs to 13.6's release matrix; this step is
+  closed on the user's call rather than on that evidence, and the distinction is recorded here so a
+  later reader is not misled about what was proven.
 
-### - [ ] 13.12 Use AlarmKit for prominent finish alarms on supported iOS versions
+### - [x] 13.12 Use AlarmKit for prominent finish alarms on supported iOS versions
 
 - **Goal:** On iOS and iPadOS 26 or later, let a person who keeps **Ring when done** on authorize
   AlarmKit so every bounded Focus, Tiny, Short, and Long countdown can finish with a prominent
@@ -1836,6 +1855,50 @@ Open-step gates, stated plainly: **9.2**'s `dayKeyFor` is load-bearing for every
   Focused authorization/race/lifecycle/copy tests, the full test/build suite, Capacitor sync, Xcode
   Simulator compilation, physical-device locked/Silent/Focus checks, and `git diff --check` pass.
 - **Depends on:** 7.4, 8.4, 13.1, 13.8, 13.11.
+- **Implementation evidence (August 2026):** Added an availability-guarded AlarmKit bridge over one
+  fixed alarm identity, a `BloomAlarmMetadata` type shared with the 13.8 widget extension, an
+  `AlarmAttributes` presentation reusing that extension, a typed adapter, and reducer-owned
+  reconciliation. Ownership is one flag: while an authorized alarm holds the current deadline the
+  13.11 notification is cancelled and the 13.8 activity is ended, so one finish never makes two
+  sounds or two countdown surfaces. The AlarmKit countdown deliberately ships no pause button —
+  pausing cancels the alarm and hands the surface back to the reducer-driven activity rather than
+  creating a second place a session can be paused. Ordinary reconciliation never silences a ringing
+  alarm; only a replacement or the confirmed data clear does, because the reducer closes the session
+  within 250 ms of the deadline. Completion consults the bridge and skips Bloom's chime only when an
+  alarm for that exact deadline is genuinely alerting, so one stopped early still leaves a cue.
+  Authorization is explicit, one-time, system-owned, and reversible in iOS Settings; no persisted
+  state changed, so no schema bump. Flow never schedules an alarm. System UI receives only the
+  bounded mode and clock data, the cue is the bundled `BloomCompletion.wav`, and the change adds no
+  APNs, server, background mode, or Critical Alert entitlement. An iPhone 17 Pro iOS 26.5 Simulator
+  run exposed one defect that only a running system shows: the generic activity was created and
+  dismissed again ~260 ms later at every start, because ownership was unknown until the native answer
+  returned — a visible second countdown flashing into the Dynamic Island. Ownership is now a
+  three-state value keyed to the exact snapshot, so an authorized alarm holds the surface across that
+  round trip; the notification deliberately keeps the opposite bias, since a duplicate pending
+  request cancelled seconds later is smaller than a finish with no cue. A regression test covers
+  both directions. `npm test` passes 65 files/635 tests, `npm run build`, `npx cap sync ios`, plist
+  validation, and `git diff --check` pass; Xcode 26.6 code-signing-free Debug and Release Simulator
+  builds of the app and extension succeed against the iOS 26.5 SDK with no new warnings, and `otool`
+  confirms AlarmKit is weak-linked in both so pre-26 systems still launch. On that Simulator the app
+  installed and launched, the real iOS authorization alert appeared carrying
+  `NSAlarmKitUsageDescription`, granting it flipped the Settings note to its authorized wording,
+  starting Focus scheduled the fixed alarm identity with a wake date matching the reducer deadline,
+  ActivityKit created exactly one activity of the `AlarmAttributes<BloomAlarmMetadata>` type targeting
+  Bloom's own widget, no generic activity was created at all, and the Lock Screen showed a single
+  Bloom countdown with no task text. A Simulator still cannot demonstrate ringing through Silent
+  Mode, through an active Focus, or on a locked physical device, so that evidence remains for
+  user/device verification and this step stays open.
+- **Device verification (August 7, 2026):** On the user's own iPhone the AlarmKit finish alarm fires
+  as designed. The user separately observed that no local notification arrived on the same finish;
+  that is 13.11's cue being handed over, not a defect — `useBloom.ts`'s
+  `enabled: state.settings.sound && alarmOwnsCue !== true` deliberately withholds the notification
+  while an authorized alarm holds the deadline, which is exactly the never-two-sounds rule this step
+  specifies.
+- **Closed (August 7, 2026):** The user confirmed on their own iPhone that the finish alarm rings
+  through Silent Mode, through an active Focus, and on a locked device — the three observations no
+  Simulator can produce, and the entire reason this step exists on top of 13.11. With the
+  Simulator-side authorization, scheduling, single-activity, and weak-linking evidence above, every
+  done-when condition is now met.
 
 ### - [x] 13.13 Draw the upper rails with the control that fits a mid-screen slot
 
@@ -1988,6 +2051,315 @@ Open-step gates, stated plainly: **9.2**'s `dayKeyFor` is load-bearing for every
   iOS 26.5 Simulator with the ritual enabled — the state that produced the reported clipping — and
   the transport is fully clear in both the collapsed and expanded states.
 
+### - [ ] 13.18 One command channel from system UI back to the reducer
+
+- **Goal:** Make it possible for a control in system UI (Live Activity button, Dynamic Island
+  button, notification action) to reach the reducer **without ever becoming a second timer
+  authority**. A `LiveActivityIntent` performs in the app's process and the system will launch a
+  suspended app in the background to run it — but Bloom's reducer lives in the WebView, whose JS is
+  suspended at that moment, so the intent cannot call it synchronously. Add instead a durable,
+  timestamped command queue in the App Group container: the intent appends
+  `{ id, kind, sessionId, occurredAt }` and returns; the web layer drains the queue on resume,
+  `visibilitychange`, and boot, and the reducer replays each command **against the wall clock it
+  carries**, not against the time it was read. Bloom's timer is already `endsAt`-based, so a pause
+  recorded at `T` reconstructs exactly as `remaining = endsAt − T` no matter how much later the
+  WebView wakes — replay is lossless by construction, which is precisely why this design keeps one
+  authority instead of creating two. Commands are idempotent by `id` (a replayed or duplicated queue
+  entry is a no-op), are dropped when `sessionId` no longer matches the open session, and are
+  bounded so a queue left by a killed process can never grow without limit or resurrect a session
+  the boot sweep already closed as `interrupted`. The native layer may render an **optimistic**
+  presentation immediately so the button feels instant, but it never writes a `SessionRecord`,
+  never computes its own remaining time, and is corrected by the reducer's next mirror. No UI ships
+  in this step, and no persisted app state changes — the queue is transport, not user data, so no
+  `SCHEMA_VERSION` bump. This is a material architecture decision (a new inbound path to the
+  reducer): write the ADR.
+- **Science:** n/a — native lifecycle, process boundaries, and state authority.
+- **Quality:** `docs/product-quality.md` — Architecture changes (ADR); Background/interrupt
+  lifecycle; Error prevention and recovery; Privacy and security; Local-first and offline behavior;
+  integration testing. 13.12's evidence records the standing rule this step must not break: never
+  create a second place a session can be paused.
+- **Files:** ADR, App Group command queue (native writer + Capacitor reader), `src/native/` typed
+  adapter and tests, `src/store/useBloom.ts` drain/replay integration and tests,
+  `docs/ios-liquid-glass.md`.
+- **Done when:** A command enqueued while the WebView is suspended replays exactly once on resume
+  with its recorded timestamp, producing the same reducer state as if the action had happened live;
+  duplicate and replayed ids are no-ops; a command for a stale `sessionId` is dropped; a queue that
+  survives force-quit does not revive a session the boot sweep closed; the queue is bounded and
+  corrupt entries are discarded without throwing; no command path can write or upgrade a
+  `SessionRecord`; the full test/build suite, Capacitor sync, an Xcode Simulator build, and
+  `git diff --check` pass.
+- **Depends on:** 7.4, 13.1, 13.8.
+- **Implementation evidence (August 2026):** Added `docs/adr/0001-native-command-channel.md`, a
+  durable bounded queue (`BloomCommandQueue.swift`, compiled into both the app and the widget
+  extension so 13.19's shared intents can write to it), a Capacitor bridge exposing
+  drain/acknowledge/clear plus a `#if DEBUG` producer, a total typed adapter, and reducer-owned
+  replay. `toggle` gained an optional `at`, and every `Date.now()` inside that case now reads it, so
+  a press recorded on a locked screen produces exactly the state that pressing it live would have —
+  proven directly: pausing with twenty minutes left yields `remaining === 1200` no matter when the
+  drain runs, and a resume lands its deadline on the press instant so time spent asleep still counts
+  against the session. Delivery is at-least-once with acknowledgement separate from reading, so a
+  crash between applying and acknowledging re-delivers rather than loses; replay is idempotent by
+  `id`, drops commands whose `sessionId` is gone (a queue surviving force-quit cannot revive a
+  session the boot sweep closed), ignores a command asking for the state the timer is already in
+  rather than inverting it, and tracks a projected running state through a multi-command drain so a
+  pause and a resume read together apply in press order. No command path writes or upgrades a
+  `SessionRecord` (asserted). The confirmed data clear drops pending intent. Storage is the app's own
+  container rather than an App Group, since `LiveActivityIntent` performs in the app's process — the
+  ADR records the exact future trigger that would force an App Group. No persisted state changed, so
+  `SCHEMA_VERSION` is unchanged. `npm test` passes 67 files/664 tests (29 new), `npm run build`,
+  `npx cap sync ios`, and `git diff --check` pass; a code-signing-free Xcode 26.6 Debug Simulator
+  build against the iOS 26.5 SDK succeeds with the extension embedded and validated, and object
+  files confirm the plugin compiled into the app target and the queue into both. **Still open:** no
+  command has yet made the real trip from a suspended process, because nothing produces one until
+  13.19's intents exist — the `#if DEBUG` producer is a seam for that verification, not a substitute
+  for it. This step closes when 13.19 exercises it end to end on a device.
+
+### - [ ] 13.19 A Live Activity worth looking at, with controls that work
+
+- **Goal:** Two fixes to the same surface, done together because controls change the layout. **(a)
+  Presentation:** the current Lock Screen row is a glyph, "Bloom", a mode word, and a clock in a lot
+  of empty space. Give it real hierarchy — the on-duty friend's glyph, the mode, a quiet elapsed
+  progress indicator, and the clock as the clear focal point — across the Lock Screen, all three
+  Dynamic Island families, and StandBy. Keep 13.8's privacy line exactly: no task text, no session
+  target, ever. **(b) Controls:** add **pause/resume** as `Button(intent:)` over 13.18's channel, in
+  the Lock Screen presentation and the expanded Dynamic Island. Pause/resume is safe here because it
+  is reversible and losing a tap costs nothing. **Skip/advance is not** — it ends a session, and
+  8.14 already established that Bloom guards a running timer against accidental destruction, so a
+  skip control ships **only** in the expanded Dynamic Island (never the Lock Screen glance, never
+  the compact or minimal families) or not at all if device testing shows it is easy to hit by
+  accident. The AlarmKit countdown from 13.12 continues to ship **no** controls: when an alarm owns
+  the surface the session is seconds from its deadline, and 13.12's reasoning against a second pause
+  site still holds there. Pressing a control updates the activity optimistically and the reducer
+  reconciles on wake. All strings `PLACEHOLDER_COPY` against `docs/voice.md`.
+- **Science:** n/a — platform presentation and control affordances.
+- **Quality:** `docs/product-quality.md` — UX/UI correctness; Accessibility and semantics (every
+  control labelled and reachable by VoiceOver and Switch Control); Reduced motion, transparency, and
+  contrast; Visual hierarchy; Error prevention and recovery; visual regression and device testing.
+- **Files:** `ios/App/BloomLiveActivity/BloomLiveActivityWidget.swift`,
+  `ios/App/Shared/BloomLiveActivityAttributes.swift`, App Intent definitions, `src/native/
+  iosLiveActivity.ts` and tests, `src/store/useBloom.ts` lifecycle tests, `docs/ios-liquid-glass.md`.
+- **Done when:** Pausing from the Lock Screen with Bloom force-backgrounded produces exactly one
+  paused session whose remaining time matches the moment the button was pressed, not the moment the
+  app woke; resume restores the same session; double-tapping a control cannot open two sessions or
+  double-apply; the activity still ends on completion, skip, reset, abandon, relaunch recovery, and
+  data clear; every presentation family renders correctly at the largest Dynamic Type size, in light
+  and dark, with Reduced Transparency and Increased Contrast on; VoiceOver reaches and correctly
+  labels each control; no task or target text appears anywhere; iOS versions without interactive
+  Live Activities fall back to the read-only presentation; suite, build, Capacitor sync, Simulator
+  build, and device check pass.
+- **Depends on:** 13.8, 13.18; respects 8.14 and 13.12's single-pause-site rule.
+- **Implementation evidence (August 2026):** Rebuilt the Lock Screen presentation around the clock as
+  focal point — friend glyph in a tinted circle, mode name over a status line, a large rounded
+  monospaced-digit clock, and a system-advanced `ProgressView(timerInterval:)` — and gave the
+  expanded Dynamic Island the same progress bar plus a labelled control. Added `BloomPauseIntent` and
+  `BloomResumeIntent` as `LiveActivityIntent`s in `Shared/`, compiled into both targets, writing to
+  13.18's queue and then optimistically redrawing the activity so the button feels instant. Both are
+  `isDiscoverable = false`: they serve one button on one Live Activity, and exposing them to
+  Shortcuts would create a way to drive the timer from outside the app. **Skip is deliberately not
+  shipped.** It ends a session and writes a record, 8.14 guards a running timer against accidental
+  destruction, and a Lock Screen control cannot be confirmed — so the step's own "or not at all"
+  branch applies pending the device check. Pause is safe precisely because a mis-tap undoes itself.
+  The ADR's optimistic-render clause was corrected in the same change: it previously claimed the
+  native layer "computes nothing", and the redraw does re-apply one `timerEnd − pressedAt`
+  subtraction. It now states the real boundary — same arithmetic, same published inputs, no clock or
+  state of its own — because the honest constraint is what makes it safe, not the overclaim.
+  `npm test` passes 67 files/664 tests, `npm run build`, `npx cap sync ios`, and `git diff --check`
+  pass; a code-signing-free Xcode 26.6 Debug Simulator build against the iOS 26.5 SDK succeeds with
+  **no warnings**, both intents compile into the app and extension targets, and `Metadata.appintents`
+  now lists `BloomPauseIntent` and `BloomResumeIntent` for both — the registration that was absent
+  before this step. On an iPhone 17 Pro iOS 26.5 Simulator the app installed and launched, starting
+  Focus created exactly one activity of `BloomFocusActivityAttributes` targeting Bloom's own widget,
+  and the Lock Screen rendered the new layout with the glyph, mode, status line, clock, progress bar,
+  and pause button, revealing no task text. Across two screenshots the countdown advanced 24→23 and
+  the progress bar visibly filled with no app traffic, confirming both system-driven surfaces.
+  **Compact Dynamic Island follow-up (same day, from user device feedback):** the compact
+  presentation stretched far wider than its content, with a large empty span between the glyph and
+  the clock. Cause: `Text(timerInterval:)` reserves layout width for the widest value it can reach,
+  and `showsHours: true` was passed unconditionally, so every session reserved room for an hours
+  component that only a session over an hour can ever show — while the leading glyph had no frame at
+  all. `showsHours` is now asked for only when the interval genuinely reaches an hour, the glyph is
+  pinned to 14pt, and the compact clock gets exactly the width its own format needs (40pt for mm:ss,
+  58pt for h:mm:ss). **That first attempt was declared fixed on one screenshot and was wrong.**
+  Watching the same build over a longer run showed the island back at full status-bar width with a
+  shorter clock string than the frame that had looked tight — width rising while content shrank,
+  which ruled out the content as its cause. iOS gives an active timer activity the full status-bar
+  width whatever the compact regions ask for, so shrinking them could never have worked: the defect
+  was never the pill's width, it was the empty span inside it. The leading slot now carries a short
+  state word beside the glyph — "Focus"/"Tiny", "Paused", "Done" — and the gap is gone. Re-verified
+  on a clean install across two frames 25 seconds apart, both steady: `🍃 Focus · 24:23`, with the
+  status bar's own clock, Wi-Fi, and battery visible again beside a pill at roughly 59% of the
+  screen. The `showsHours` and glyph-frame changes are kept — over-reserving width for an hours
+  component that never appears is a real bug — but they were not what the user reported.
+  **That run also resolved the earlier open question:** the compact clock rendered `24:38` with
+  seconds intact, so the `23:––` seen before was the pending "Allow Live Activities from Bloom?"
+  consent prompt, **not** a width or font problem. The defensive 42pt→34pt reduction is kept because
+  it costs nothing and leaves room for `1:04:59`, but it was not the fix and the earlier regression
+  risk is retired.
+  **One thing remains unproven and is not claimed:** no button has been pressed end to end, because
+  injected taps cannot reach controls in system UI on Simulator — so 13.18's channel still has not
+  carried a command from a suspended process. That belongs to the device pass, and 13.18 stays open
+  until it lands.
+
+### - [ ] 13.20 Ask the check-in where the person actually is
+
+- **Goal:** A Companion check-in currently cannot reach a locked phone at all: `useCompanion.ts`
+  arms it on a JS interval that returns early while `document.hidden`, so backgrounding the app
+  silently suspends the question. Deliver it natively instead, in the surface that is already on
+  screen. **Live Activity path:** at the scheduled mark the activity shows the check-in state —
+  the question plus **Yes** / **Not really** buttons (`PLACEHOLDER_COPY`, `docs/voice.md` rules 2
+  and 3: it asks, it never grades) — and answering returns it to the ordinary countdown. **A hard
+  platform constraint shapes this and must be settled before implementation:** a suspended app
+  cannot update its own Live Activity, and APNs is forbidden by hard constraint #1, so the question
+  cannot simply be pushed at the right second. The intended mechanism is the activity's `staleDate`
+  set to the next check-in mark — the one system-driven re-render available without app execution —
+  with the answering intent's background window used to set the following mark. **Verify that on a
+  device before building the rest**; if it does not hold, the notification path below becomes the
+  only path and this step ships that alone rather than inventing background execution. **Notification
+  path** (also the fallback when Live Activities are off, unsupported, or unanswered): the same
+  question as a local notification with the same two actions and **no sound and no
+  interruption-level escalation** — a check-in must never be as loud as a finish, and never wakes a
+  phone that a finish alarm would be entitled to wake. Answers travel over 13.18's channel and land
+  in the existing companion event log with their recorded timestamp, so a late-drained answer is
+  timed correctly. Every existing check-in rule is preserved unchanged: opt-in only, the strict cap,
+  never-two-in-a-row, and an unanswered check-in logged as `skip` — the honest reading of "not now"
+  the model already uses. This adds no schema change if the event shape suffices; if a delivery
+  channel must be recorded, bump `SCHEMA_VERSION` with an appended migration.
+- **Science:** `docs/science.md` §Measurement — check-ins are already the 1.5/4.5 mechanism; this
+  step changes only where the question is delivered, and adds no new behavioral claim. §Do not
+  build — always-on nudging: the cap, the opt-in, and the silence are what keep this a question and
+  not a nag, so none of them may be relaxed to make native delivery easier.
+- **Quality:** `docs/product-quality.md` — Accessibility and semantics; Privacy and security (the
+  question reveals no task or target text); Local-first and offline behavior; Permission and
+  interruption lifecycle; Error prevention and recovery; integration and device testing.
+- **Files:** native check-in scheduling and notification actions, Live Activity check-in state and
+  intents, `src/store/useCompanion.ts` (native scheduling seam), `src/store/useBloom.ts`,
+  `src/native/` adapters and tests, Settings copy, `docs/ios-liquid-glass.md`.
+- **Done when:** The `staleDate` mechanism is device-verified or explicitly recorded as unavailable
+  before any dependent code lands; with the app locked, an armed check-in reaches the user through
+  whichever path is proven, and answering it appends exactly one correctly-timed companion event;
+  the notification carries no sound and no elevated interruption level; an unanswered check-in logs
+  `skip` and honours never-two-in-a-row; the cap cannot be exceeded by combining native and
+  in-app delivery; Companion off, quiet mode, and Flow sessions schedule nothing at all; no task or
+  target text appears in any system surface; denied notification permission degrades to today's
+  in-app behavior with copy saying precisely that; suite, build, Capacitor sync, Simulator build,
+  and device check pass.
+- **Depends on:** 1.5, 4.5, 13.18, 13.19 (Live Activity path only).
+
+### - [x] 13.21 Stop the icon reading as a period tracker
+
+- **Goal:** Bloom's mark is a pink-to-lavender gradient behind a five-petal cherry blossom, and the
+  first thing a stranger reads from it on a home screen is a cycle-tracking app, not a focus timer.
+  Replace the mark itself — not the friends, who stay — with a timer dial: a full ring track with an
+  accent arc starting at twelve o'clock, which is the one shape that says "timer" without a word of
+  copy. Retire the blossom and the pink from every generated surface, including the three friend
+  gradients that were themselves pink, so switching to Snappy or Coral does not put the old
+  impression straight back on the home screen. Every icon a phone can ask for is regenerated from
+  the same source: light, dark, and tinted for all six iOS sets, the maskable and adaptive
+  variants, the Android launcher and its adaptive background colour, the PWA and favicon sizes, and
+  the launch image.
+- **Science:** n/a — visual identity and first-impression legibility.
+- **Quality:** `docs/product-quality.md` — Visual design and consistency; Build and release
+  reproducibility; integration and device testing. Apple HIG *App Icons*: one recognisable shape
+  that survives down to Spotlight and Settings sizes, and dark/tinted art that lets the system own
+  the backdrop.
+- **Files:** `scripts/gen-icons.mjs`, `src/data/friends.ts`,
+  `ios/App/App/Assets.xcassets/AppIcon*.appiconset`, `ios/App/App/Assets.xcassets/Splash.imageset`,
+  `android/app/src/main/res/mipmap-*`, `android/app/src/main/res/values/ic_launcher_background.xml`,
+  `public/icon-*.png`, `public/apple-touch-icon.png`, `public/favicon-32.png`, `resources/icon*.png`.
+- **Done when:** No generated icon contains the blossom or a pink hue; the dial is legible at 40px
+  as well as 1024px; light icons still carry no alpha channel and dark/tinted ones still do; every
+  appiconset keeps its light/dark/tinted triple so `iosAppIconAssets.test.ts` passes unchanged; the
+  launch image stays on the app's canvas colour so there is no colour seam when the WebView
+  appears; suite, build, and Capacitor sync pass.
+- **Depends on:** 13.9, 13.10.
+- **Closed (August 2026):** `gen-icons.mjs` lost `blossom()` and gained `dial()`, drawn once and
+  reused by the plain mark, the six friend icons, and the launch image. The plain mark is a cream
+  dial on Bloom's new teal-to-deep-blue gradient; each friend keeps their own gradient — recoloured
+  to teal, violet, amber, night blue, brick, and moss, none of them pink — with the same dial
+  framing their sprite, which is what makes the six read as one app. Dark art drops the background
+  and keeps the cream dial; tinted art draws the dial in flat greys instead of translucent white so
+  it survives iOS's luminance mapping instead of dissolving. The launch image deliberately does not
+  use the icon gradient: it stays on the app's own canvas colour with the dial in Bloom's ink, so
+  the launch screen no longer cross-fades from a saturated tile into a near-white app. Verified at
+  1024, 180, 120, 80, 60, and 40px, on the simulated launch-screen crop, and against the
+  no-alpha-in-light-art rule; `npm test`, `npm run build`, and `npx cap sync ios` passed.
+
+### - [x] 13.22 Raise the iOS deployment floor to Apple's Spring 2027 minimum
+
+- **Goal:** App Store Connect warns that from Spring 2027 it will refuse any upload declaring a
+  `MinimumOSVersion` below 15.0, and Bloom's app target declares 14.0. Move the app target to 15.0.
+  This is a compliance change, not a decision about who Bloom supports: iOS 15 runs on exactly the
+  hardware iOS 14 ran on (iPhone 6s and later), so the floor moves without dropping a single device.
+  Do not take the opportunity to go higher — iOS 16 drops the iPhone 6s, 7, and first-generation SE,
+  which is a product decision needing its own step, and every modern surface is already behind an
+  `@available` guard rather than the floor.
+- **Science:** n/a — platform submission requirement.
+- **Quality:** `docs/product-quality.md` — Build and release reproducibility; Supported devices.
+- **Files:** `ios/App/App.xcodeproj/project.pbxproj`, `docs/ios-liquid-glass.md`.
+- **Done when:** The app target declares 15.0 in both configurations and the built `Info.plist`
+  reports it; the widget extension keeps its 16.2 floor; a Release build passes
+  `-validate-for-store`; `npx cap sync ios` does not revert the setting; the recorded floor in
+  `docs/ios-liquid-glass.md` matches the project.
+- **Depends on:** 13.1.
+- **Closed (August 2026):** All four `IPHONEOS_DEPLOYMENT_TARGET = 14.0` entries (project-level and
+  app-target, Debug and Release) moved to 15.0; the extension's 16.2 was left alone. A Release build
+  for the iPhone Simulator succeeded, ran `builtin-validationUtility -validate-for-store`, and the
+  built `App.app/Info.plist` reports `MinimumOSVersion 15.0`. `npx cap sync ios` leaves the
+  pbxproj setting untouched and regenerated `CapApp-SPM/Package.swift` to `.iOS(.v15)` on its own —
+  the CLI derives that platform from the app target — so the two stay in step without hand-editing
+  a generated file. `docs/ios-liquid-glass.md` gained a §Deployment floor section and its two stale
+  "iOS 14 deployment floor" sentences now point at it.
+- **Known remaining exposure (upstream, not fixable here):** the embedded `Capacitor.framework` and
+  `Cordova.framework` still report `MinimumOSVersion 14.0`. They are prebuilt XCFramework
+  `binaryTarget`s downloaded from `capacitor-swift-pm` 7.6.8, so the value is baked into binaries
+  this project never compiles, and rewriting their `Info.plist` would break their code signature.
+  App Store Connect has historically validated embedded frameworks as well as the app binary, so
+  this must be cleared before Spring 2027 by bumping to a Capacitor release built against iOS 15+.
+  Treat that bump as a dependency change under CLAUDE.md §Dependency and CI toolchain changes.
+
+### - [x] 13.23 Stop paying for old iOS: one floor, one availability axis
+
+- **Goal:** Bloom carried five availability axes and two implementations of some surfaces so that
+  systems almost nobody runs would still see something. The worst of it was user-facing: below iOS
+  17 the Live Activity rendered a running countdown with **no pause or resume buttons**, and below
+  iOS 16 Settings fell back to an entirely separate web-rendered form. Raise both targets to iOS
+  17.0 and delete every guard the floor makes dead, so the only remaining availability axis in
+  Bloom's own code is AlarmKit's — which must stay, because iOS 26 is recent and the fallback to
+  PLAN 13.11's ordinary notification is real. Do not touch the web layer's platform fallbacks: they
+  serve browser and Android, not old iOS.
+- **Science:** n/a — platform floor and code-path reduction.
+- **Quality:** `docs/product-quality.md` — Build and release reproducibility; Supported devices;
+  Error prevention and recovery; integration and device testing.
+- **Files:** `ios/App/App.xcodeproj/project.pbxproj`, `ios/App/App/BloomBridgeViewController.swift`,
+  `ios/App/App/BloomCompletionAlertPlugin.swift`, `ios/App/App/BloomSettingsPlugin.swift`,
+  `ios/App/App/BloomLiveActivityPlugin.swift`, `ios/App/Shared/BloomLiveActivityAttributes.swift`,
+  `ios/App/Shared/BloomTimerIntents.swift`,
+  `ios/App/BloomLiveActivity/BloomLiveActivityWidget.swift`,
+  `ios/App/BloomLiveActivity/BloomAlarmWidget.swift`, `docs/ios-liquid-glass.md`.
+- **Done when:** Both targets declare 17.0 and the built app and `.appex` `Info.plist`s report it;
+  no `@available`/`#available` below 26.0 remains anywhere in `ios/App`; `canImport(AppIntents)` is
+  gone while `canImport(AlarmKit)` stays; a clean Release build emits **zero warnings from Bloom's
+  own sources**; the JS suite, `npm run build`, and `npx cap sync ios` pass.
+- **Depends on:** 13.22.
+- **Closed (August 2026):** Nineteen guards deleted — 4 dead iOS-14 branches, 4 iOS 16.0 (the
+  duplicate web Settings path), 6 iOS 16.2 (Live Activity), and 5 iOS 17.0 (the Lock Screen
+  transport controls) — plus the three `canImport(AppIntents)` conditionals, which an iOS 17 floor
+  makes always-true. `configureSettingsButtonImage` collapsed its three-way branch into an
+  `if #available` *expression* choosing `.glass()` or `.tinted()`. The clean Release build then
+  surfaced a genuine legacy API the guards had been hiding — SwiftUI's `onChange(of:perform:)`,
+  deprecated in iOS 17 — and its three call sites moved to the two-parameter closure; the build now
+  emits no warnings from Bloom's own sources (the only two left are `WKProcessPool` deprecations
+  inside Cordova's own headers). Verified: 26 availability sites remain, every one of them iOS 26.0
+  or 26.1; app and extension `Info.plist` both report `MinimumOSVersion 17.0`; `npm test` (67 files,
+  665 tests), `npm run build`, and `npx cap sync ios` — which rewrote `CapApp-SPM/Package.swift` to
+  `.iOS(.v17)` by itself — all passed.
+- **Deliberately not changed:** the web layer. Vite emits a byte-identical bundle at `safari14`
+  through `safari17` (473.2 kB raw / 144.50 kB gzip in all four), so there was nothing to win and no
+  build target was configured. `src/styles.css`'s only `-webkit-` prefixes are `::-webkit-scrollbar`,
+  `::-webkit-details-marker`, and `-webkit-font-smoothing` — WebKit-only APIs with no standard
+  equivalent. `src/native/*.ts` keeps its `supported: false` paths because they serve web and
+  Android. Android's own `minSdk` was out of scope.
+
 ## Step dependency sketch
 
 ```
@@ -2008,6 +2380,7 @@ Phase 10: 10.1 ← (9.2, 1.1) → 10.2 ← (10.1, 8.12, 4.2, 9.2)  |  10.3 ← (
 Phase 11: 11.1 ← (8.11, 9.4, synced release slices through 10.11) → 11.2 ← (7.1, 9.4, 10.11) → 11.3  |  11.4 ← (8.4, 11.1, 11.3)  |  11.5 ← (11.2–11.4, 8.15) → 11.6 ← (7.1–7.4, 8.11, 8.15)
 Phase 12: 12.1 ← (8.4, 8.8, 8.9, 4.3, 5.3)  →  12.2
 Phase 13: 13.1 ← existing Capacitor 7 Android wrapper and local production build → 13.2 → 13.3 → 13.4a → 13.4b → 13.5 → 13.6  |  13.7 ← 13.1  |  13.8 ← (7.4, 8.3, 8.4, 13.1)  |  13.11 ← (7.4, 8.4, 13.1) → 13.12 → 13.6  |  13.13 ← (13.3, 13.10) → 13.16  |  13.14 ← 13.4a → 13.4b → (13.4c, 13.4d, 13.15) → 13.5  |  13.17 ← (13.3, 13.13)
+          13.18 ← (7.4, 13.1, 13.8) → 13.19 → 13.6  |  13.20 ← (1.5, 4.5, 13.18, 13.19)  |  13.21 ← (13.9, 13.10)  |  13.22 ← 13.1 → 13.23
 ```
 
 ## What this plan deliberately does NOT include (per §Do not build)

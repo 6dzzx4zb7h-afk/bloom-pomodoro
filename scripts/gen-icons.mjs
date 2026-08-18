@@ -1,12 +1,16 @@
 // Generates Bloom's app icons from inline SVG.
 //
-// Web, PWA, Android, and the launch image use the cozy cherry-blossom mark.
-// iOS additionally gets one app icon per friend (PLAN 13.9): the primary
-// AppIcon is Mochi the bunny, and every other friend ships as an alternate icon
-// the app can switch to when they come on duty.
+// The mark is a timer dial: a full ring track with an accent arc that starts at
+// twelve o'clock and sweeps most of the way round (PLAN 13.21). Web, PWA,
+// Android, and the launch image use the dial on its own. Android also gets its
+// adaptive launcher layers and every splash density. iOS additionally gets
+// one app icon per friend (PLAN 13.9): the primary AppIcon is Mochi the bunny,
+// and every other friend ships as an alternate icon the app can switch to when
+// they come on duty — each of them framed by the same dial, so the six icons
+// read as one app rather than six.
 //
-// The npm script enables Node's built-in type stripping so the friend art can
-// be imported straight from TypeScript on every supported Node 22+ release.
+// Run with: node scripts/gen-icons.mjs   (Node 22.18+ / 24+ — the friend art is
+// imported straight from TypeScript via Node's built-in type stripping).
 import sharp from 'sharp';
 import { mkdirSync, existsSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -19,30 +23,41 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
 const S = 1024;
 
-/** The five-petal blossom, drawn around a local origin. */
-function blossom({ inset = 1, opacity = 1, petalFill = '#fff7fb', notchFill = 'url(#bg)' }) {
-  const petalRy = 150 * inset;
-  const petalRx = 108 * inset;
-  const petalCy = -148 * inset;
-  const centerR = 92 * inset;
-  const petals = Array.from({ length: 5 }, (_, i) => {
-    const rot = i * 72;
-    return `<g transform="rotate(${rot})">
-      <ellipse cx="0" cy="${petalCy}" rx="${petalRx}" ry="${petalRy}" fill="${petalFill}"/>
-      <ellipse cx="0" cy="${petalCy - petalRy * 0.62}" rx="${petalRx * 0.2}" ry="${petalRy * 0.24}" fill="${notchFill}"/>
-    </g>`;
-  }).join('');
-  const stamens = Array.from({ length: 6 }, (_, index) => {
-    const angle = (index * Math.PI) / 3;
-    const radiusFromCenter = centerR * 0.5;
-    return `<circle cx="${Math.cos(angle) * radiusFromCenter}" cy="${Math.sin(angle) * radiusFromCenter}" r="${centerR * 0.16}" fill="#ffb84d"/>`;
-  }).join('');
-  return `<g opacity="${opacity}">${petals}<circle r="${centerR}" fill="#ffd76b"/>${stamens}</g>`;
+/** Bloom's own colours — the gradient behind the plain mark, and the two inks
+ *  the dial is drawn in on top of any friend's gradient. */
+const BRAND = {
+  from: '#3fbfae',
+  to: '#215f78',
+  /** The elapsed arc: warm cream, legible on every friend gradient. */
+  arc: '#fff3d9',
+  /** The remaining track, dimmed so the arc is what the eye lands on. */
+  track: 'rgba(255, 255, 255, 0.24)',
+};
+
+/** How far round the dial the accent arc runs, from twelve o'clock clockwise. */
+const SWEEP = 268;
+
+/**
+ * The timer dial, drawn around a local origin: a full circular track with the
+ * accent arc laid over it. Round caps give the arc its two visible ends, which
+ * is what makes it read as a clock hand's path rather than a plain ring.
+ */
+function dial({ r, w, track = BRAND.track, arc = BRAND.arc }) {
+  const rad = (deg) => (deg * Math.PI) / 180;
+  const start = -90;
+  const end = start + SWEEP;
+  const [x0, y0] = [Math.cos(rad(start)) * r, Math.sin(rad(start)) * r];
+  const [x1, y1] = [Math.cos(rad(end)) * r, Math.sin(rad(end)) * r];
+  return `<circle r="${r}" fill="none" stroke="${track}" stroke-width="${w}"/>
+    <path d="M ${x0.toFixed(2)} ${y0.toFixed(2)} A ${r} ${r} 0 ${SWEEP > 180 ? 1 : 0} 1 ${x1.toFixed(2)} ${y1.toFixed(2)}"
+      fill="none" stroke="${arc}" stroke-width="${w}" stroke-linecap="round"/>`;
 }
 
-/** Build the blossom icon SVG. `bleed` = full-square gradient (maskable/adaptive);
+/** Build the plain Bloom mark. `bleed` = full-square gradient (maskable/adaptive);
  *  otherwise a rounded tile (`round` makes it a full circle). `inset` shrinks
- *  the flower into the safe zone. */
+ *  the dial into the safe zone. `transparent` drops the background entirely,
+ *  which is what an Android adaptive foreground needs — that layer is composited
+ *  over ic_launcher_background, so painting our own gradient would hide it. */
 function svg({ bleed, inset = 1, round = false, transparent = false }) {
   const rx = round ? S / 2 : 230;
   const bg = transparent
@@ -53,13 +68,33 @@ function svg({ bleed, inset = 1, round = false, transparent = false }) {
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${S}" height="${S}" viewBox="0 0 ${S} ${S}">
     <defs>
       <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-        <stop offset="0" stop-color="#ffb0d4"/>
-        <stop offset="1" stop-color="#c79fe6"/>
+        <stop offset="0" stop-color="${BRAND.from}"/>
+        <stop offset="1" stop-color="${BRAND.to}"/>
       </linearGradient>
     </defs>
     ${bg}
     <g transform="translate(${S / 2},${S / 2})">
-      ${blossom({ inset })}
+      ${dial({ r: 300 * inset, w: 104 * inset })}
+    </g>
+  </svg>`;
+}
+
+/**
+ * The launch image. It deliberately does not use the icon's gradient: the
+ * WebView underneath it opens on the app's own canvas colour, so painting the
+ * launch screen anything else would flash a second background between the two.
+ * The dial is drawn in Bloom's ink instead, which is what makes it visible on
+ * a near-white field.
+ *
+ * The dial looks small here because the storyboard scales this square to fill
+ * the screen and crops the sides: a phone shows roughly the middle 45% of the
+ * width, so a mark drawn at ~19% of the square lands at ~40% of screen width.
+ */
+function splashSvg() {
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${S}" height="${S}" viewBox="0 0 ${S} ${S}">
+    <rect width="${S}" height="${S}" fill="#fdf3fb"/>
+    <g transform="translate(${S / 2},${S / 2})">
+      ${dial({ r: 80, w: 32, track: 'rgba(33, 95, 120, 0.14)', arc: '#2f9e94' })}
     </g>
   </svg>`;
 }
@@ -73,25 +108,31 @@ function greyOf(hex) {
   return `#${h}${h}${h}`;
 }
 
+/** Geometry of the dial that frames a friend. The sprite box is sized so the
+ *  art sits inside the ring's opening rather than colliding with the stroke. */
+const FRIEND_DIAL = { r: 382, w: 54, box: 600 };
+
 /**
- * One friend's app icon: their gradient, a soft blossom watermark so the mark
- * still reads as Bloom, and their own pixel sprite drawn at whole-pixel cell
- * sizes so it stays crisp down to the smallest home-screen size.
+ * One friend's app icon: their gradient, Bloom's timer dial framing them, and
+ * their own pixel sprite drawn at whole-pixel cell sizes so it stays crisp down
+ * to the smallest home-screen size.
  *
  * `variant` selects the iOS appearance (PLAN 13.10):
  *   light  — the default icon, gradient background and all.
  *   dark   — no background at all; iOS supplies the dark backdrop behind the
  *            sprite, so the icon sits in a dark home screen instead of
  *            punching a bright pastel tile through it.
- *   tinted — no background and a greyscale sprite, because iOS maps the
- *            image's luminance onto whatever tint the user picked.
+ *   tinted — no background and greyscale art, because iOS maps the image's
+ *            luminance onto whatever tint the user picked. The dial is drawn in
+ *            flat greys here rather than translucent white so it survives that
+ *            mapping instead of dissolving into the backdrop.
  */
 function friendIconSvg(friend, variant = 'light') {
   const rows = SPRITES[friend.sprite];
   const cols = Math.max(...rows.map((r) => r.length));
   // Fit the sprite inside a square box rather than scaling by one axis, so a
   // wide friend (crab) and a tall one (bunny) end up optically the same size.
-  const box = 660;
+  const { r, w, box } = FRIEND_DIAL;
   const cell = Math.floor(Math.min(box / cols, box / rows.length));
   const spriteW = cell * cols;
   const spriteH = cell * rows.length;
@@ -114,19 +155,17 @@ function friendIconSvg(friend, variant = 'light') {
   if (variant !== 'light') {
     // No background rect and no contact shadow: the system owns the backdrop
     // for these appearances, and anything opaque here would cover it.
-    const watermark = tinted
-      ? ''
-      : `<g transform="translate(${S / 2},${S / 2}) scale(1.55)">
-           ${blossom({ opacity: 0.14, petalFill: '#ffffff', notchFill: 'none' })}
-         </g>`;
+    const ink = tinted
+      ? { track: '#5c5c5c', arc: '#efefef' }
+      : { track: 'rgba(255, 255, 255, 0.20)', arc: BRAND.arc };
     return `<svg xmlns="http://www.w3.org/2000/svg" width="${S}" height="${S}" viewBox="0 0 ${S} ${S}">
-      ${watermark}
+      <g transform="translate(${S / 2},${S / 2})">${dial({ r, w, ...ink })}</g>
       <g shape-rendering="crispEdges">${pixels.join('')}</g>
     </svg>`;
   }
 
   // A soft contact shadow keeps the sprite from floating on the gradient.
-  const shadow = `<ellipse cx="${S / 2}" cy="${originY + spriteH - cell * 0.35}" rx="${spriteW * 0.42}" ry="${cell * 0.75}" fill="#5b4660" opacity="0.14"/>`;
+  const shadow = `<ellipse cx="${S / 2}" cy="${originY + spriteH - cell * 0.35}" rx="${spriteW * 0.4}" ry="${cell * 0.7}" fill="#243b45" opacity="0.16"/>`;
 
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${S}" height="${S}" viewBox="0 0 ${S} ${S}">
     <defs>
@@ -136,9 +175,7 @@ function friendIconSvg(friend, variant = 'light') {
       </linearGradient>
     </defs>
     <rect width="${S}" height="${S}" fill="url(#bg)"/>
-    <g transform="translate(${S / 2},${S / 2}) scale(1.55)">
-      ${blossom({ opacity: 0.16, notchFill: 'none' })}
-    </g>
+    <g transform="translate(${S / 2},${S / 2})">${dial({ r, w })}</g>
     ${shadow}
     <g shape-rendering="crispEdges">${pixels.join('')}</g>
   </svg>`;
@@ -157,11 +194,13 @@ async function png(svgStr, width, heightOrPath, pathOrOptions, maybeOptions = {}
   console.log('wrote', outPath);
 }
 
+mkdirSync(resolve(root, 'public'), { recursive: true });
+
 const tile = svg({ bleed: false });
 const roundTile = svg({ bleed: false, round: true });
 const maskable = svg({ bleed: true, inset: 0.82 });
 const adaptiveForeground = svg({ bleed: true, inset: 0.58, transparent: true });
-const splash = svg({ bleed: true, inset: 0.58 });
+const splash = splashSvg();
 
 await Promise.all([
   png(tile, 192, 192, resolve(root, 'public/icon-192.png')),
@@ -171,8 +210,10 @@ await Promise.all([
   png(tile, 32, 32, resolve(root, 'public/favicon-32.png')),
 ]);
 
+// ---- Android launcher icons + splashes (written straight into the native res dirs) ----
 const androidRes = resolve(root, 'android/app/src/main/res');
 if (existsSync(androidRes)) {
+  // px per density: [legacy launcher (48dp), adaptive foreground (108dp)]
   const launcherSizes = {
     'mipmap-mdpi': [48, 108],
     'mipmap-hdpi': [72, 162],
@@ -213,12 +254,12 @@ if (existsSync(androidRes)) {
     nativeJobs.push(png(splash, width, height, resolve(androidRes, directory, 'splash.png')));
   }
   await Promise.all(nativeJobs);
+  console.log('wrote android launcher icons and splashes');
 }
 
 // ---- iOS app icons (one per friend) + launch image ----
 const iosAssets = resolve(root, 'ios/App/App/Assets.xcassets');
 if (existsSync(iosAssets)) {
-  const splash = svg({ bleed: true, inset: 0.68 });
   const jobs = [];
 
   // Light plus the two appearance variants iOS actually supports in an asset

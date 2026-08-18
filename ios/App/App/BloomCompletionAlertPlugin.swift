@@ -200,12 +200,10 @@ final class BloomCompletionAlertPlugin: CAPPlugin, CAPBridgedPlugin {
             )
             content.threadIdentifier = "bloom-timer"
             content.userInfo = ["deadlineMs": deadlineMs]
-            if #available(iOS 15.0, *) {
-                // Ordinary active delivery: it remains under the person's
-                // Silent Mode and Focus controls. Bloom does not request the
-                // Time Sensitive or Critical Alert capabilities.
-                content.interruptionLevel = .active
-            }
+            // Ordinary active delivery: it remains under the person's Silent
+            // Mode and Focus controls. Bloom does not request the Time
+            // Sensitive or Critical Alert capabilities.
+            content.interruptionLevel = .active
 
             let trigger = UNTimeIntervalNotificationTrigger(
                 timeInterval: max(1, delay),

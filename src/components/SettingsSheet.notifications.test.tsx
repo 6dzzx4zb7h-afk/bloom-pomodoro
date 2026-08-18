@@ -4,6 +4,7 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { IOSCompletionAlertStatus } from '../native/iosCompletionAlerts';
 import type { IOSLiveActivityStatus } from '../native/iosLiveActivity';
+import type { IOSAlarmStatus } from '../native/iosAlarm';
 import { EMPTY_PERSONAL_CADENCE } from '../insights/cadence';
 import { DEFAULT_RITUAL } from '../store/ritual';
 import {
@@ -26,17 +27,20 @@ function renderSettings({
   sound = true,
   liveActivityStatus,
   liveActivityChecking = false,
+  alarmStatus,
 }: {
   status?: IOSCompletionAlertStatus;
   sound?: boolean;
   liveActivityStatus?: IOSLiveActivityStatus;
   liveActivityChecking?: boolean;
+  alarmStatus?: IOSAlarmStatus;
 } = {}) {
   const state = {
     ...DEFAULT_STATE,
     settings: { ...DEFAULT_STATE.settings, name: 'Mira', sound },
   };
   const requested = vi.fn(async () => status);
+  const requestedAlarms = vi.fn(async () => alarmStatus ?? { supported: false, authorization: 'unsupported' as const });
   const onPatch = vi.fn();
   render(
     <SettingsSheet
@@ -60,10 +64,12 @@ function renderSettings({
       onRequestCompletionAlertPermission={requested}
       liveActivityStatus={liveActivityStatus}
       liveActivityChecking={liveActivityChecking}
+      alarmStatus={alarmStatus}
+      onRequestAlarmAuthorization={requestedAlarms}
     />,
   );
   fireEvent.click(screen.getByText('Sessions', { selector: 'summary' }));
-  return { requested, onPatch };
+  return { requested, requestedAlarms, onPatch };
 }
 
 describe('Settings completion-alert permission state', () => {
@@ -158,5 +164,56 @@ describe('Settings completion-alert permission state', () => {
     expect(screen.getByText(/Live Activities are off in iOS Settings/).getAttribute('role'))
       .toBe('status');
     expect(screen.getByText(/Your timer still works normally/)).toBeTruthy();
+  });
+});
+
+describe('Settings alarm authorization state (PLAN 13.12)', () => {
+  it('explains that an alarm can ring through Silent Mode before asking', () => {
+    const { requestedAlarms } = renderSettings({
+      alarmStatus: { supported: true, authorization: 'prompt' },
+    });
+
+    expect(screen.getByText('Ring through Silent Mode')).toBeTruthy();
+    expect(
+      screen.getByText(/even in Silent Mode or while a Focus is on/),
+    ).toBeTruthy();
+    expect(screen.getByText(/you can turn alarms off in iOS Settings/)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'allow alarms' }));
+    expect(requestedAlarms).toHaveBeenCalledTimes(1);
+  });
+
+  it('names the ordinary fallback that remains when alarms are off', () => {
+    renderSettings({ alarmStatus: { supported: true, authorization: 'denied' } });
+
+    const note = screen.getByText(/Alarms are off in iOS Settings/);
+    expect(note.closest('[role="status"]')).toBeTruthy();
+    expect(
+      screen.getByText(/Bloom still sends its ordinary timer notification/),
+    ).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'allow alarms' })).toBeNull();
+  });
+
+  it('says Flow never rings once alarms are authorized', () => {
+    renderSettings({ alarmStatus: { supported: true, authorization: 'granted' } });
+
+    expect(screen.getByText(/Timer alarms are on/)).toBeTruthy();
+    expect(screen.getByText(/Flow has no set finish, so it never rings/)).toBeTruthy();
+  });
+
+  it('says nothing on a system without AlarmKit, or before the state is read', () => {
+    renderSettings({ alarmStatus: { supported: false, authorization: 'unsupported' } });
+    expect(screen.queryByText('Ring through Silent Mode')).toBeNull();
+    cleanup();
+
+    renderSettings({ alarmStatus: { supported: false, authorization: 'checking' } });
+    expect(screen.queryByText('Ring through Silent Mode')).toBeNull();
+    cleanup();
+
+    // Nothing about a finish cue belongs here when the ring itself is off.
+    renderSettings({
+      sound: false,
+      alarmStatus: { supported: true, authorization: 'prompt' },
+    });
+    expect(screen.queryByText('Ring through Silent Mode')).toBeNull();
   });
 });

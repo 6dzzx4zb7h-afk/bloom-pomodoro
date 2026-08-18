@@ -3,17 +3,30 @@ import Foundation
 import SwiftUI
 import UIKit
 import WidgetKit
+import AppIntents
 
 struct BloomLiveActivityWidget: Widget {
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: BloomFocusActivityAttributes.self) { context in
+            // No `activityBackgroundTint`. A dynamic `UIColor` resolves against
+            // whatever trait collection the render pass happens to carry, and
+            // in a Live Activity that is not guaranteed to be the environment
+            // SwiftUI hands `.primary` and `.secondary`. On an iPad Lock Screen
+            // the tint resolved light while the text resolved for a dark
+            // context — white on near-white, correcting itself only on the next
+            // re-render. Letting the system own the background makes the two
+            // agree by construction.
             BloomLockScreenView(context: context)
-                .activityBackgroundTint(BloomLiveActivityStyle.background)
                 .activitySystemActionForegroundColor(BloomLiveActivityStyle.accent)
         } dynamicIsland: { context in
             DynamicIsland {
                 DynamicIslandExpandedRegion(.leading) {
-                    BloomModeLabel(mode: context.state.mode, compact: false)
+                    HStack(spacing: 8) {
+                        BloomStatusGlyph(systemName: context.state.symbolName)
+                            .foregroundStyle(BloomLiveActivityStyle.accent)
+                            .accessibilityHidden(true)
+                        BloomModeLabel(mode: context.state.mode, compact: false)
+                    }
                 }
 
                 DynamicIslandExpandedRegion(.trailing) {
@@ -25,23 +38,34 @@ struct BloomLiveActivityWidget: Widget {
                 }
 
                 DynamicIslandExpandedRegion(.bottom) {
-                    HStack(spacing: 6) {
-                        BloomStatusGlyph(systemName: context.state.symbolName)
-                            .accessibilityHidden(true)
-                        Text(context.state.statusLabel(isStale: context.isStale))
-                            .font(.caption.weight(.semibold))
-                            .lineLimit(1)
+                    VStack(spacing: 10) {
+                        BloomProgressBar(state: context.state, isStale: context.isStale)
+                        BloomTransportControl(
+                            sessionId: context.attributes.sessionId,
+                            state: context.state,
+                            isStale: context.isStale,
+                            style: .wide
+                        )
                     }
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.top, 2)
                 }
             } compactLeading: {
-                BloomStatusGlyph(systemName: context.state.symbolName)
-                    .foregroundStyle(BloomLiveActivityStyle.accent)
-                    .accessibilityElement(children: .ignore)
-                    .accessibilityLabel(
-                        context.state.statusLabel(isStale: context.isStale)
-                    )
+                // iOS gives an active timer activity the full status-bar width
+                // whatever these regions ask for, so the leading slot names the
+                // mode rather than leaving a wide empty span beside the glyph.
+                HStack(spacing: 4) {
+                    BloomStatusGlyph(systemName: context.state.symbolName)
+                        .font(.caption2)
+                        .frame(width: 14, height: 14)
+                    Text(context.state.compactLabel(isStale: context.isStale))
+                        .font(.caption2.weight(.semibold))
+                        .lineLimit(1)
+                }
+                .foregroundStyle(BloomLiveActivityStyle.accent)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(
+                    context.state.statusLabel(isStale: context.isStale)
+                )
             } compactTrailing: {
                 BloomActivityClock(
                     state: context.state,
@@ -64,42 +88,175 @@ struct BloomLiveActivityWidget: Widget {
     }
 }
 
+/// PLAN 13.19 — the Lock Screen presentation.
+///
+/// The clock is the focal point, the mode names itself under it, and a quiet
+/// bar carries the progress the old single-row layout left to imagination. Task
+/// text and session targets stay absent by construction (PLAN 13.8): the
+/// attributes never carry them, so no layout change here can leak them.
 private struct BloomLockScreenView: View {
     let context: ActivityViewContext<BloomFocusActivityAttributes>
 
     var body: some View {
-        HStack(spacing: 14) {
-            BloomStatusGlyph(systemName: context.state.symbolName)
-                .font(.title3.weight(.semibold))
-                .foregroundStyle(BloomLiveActivityStyle.accent)
-                .frame(width: 34, height: 34)
-                .background(BloomLiveActivityStyle.accent.opacity(0.14), in: Circle())
-                .accessibilityHidden(true)
+        HStack(alignment: .center, spacing: 14) {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 8) {
+                    BloomStatusGlyph(systemName: context.state.symbolName)
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(BloomLiveActivityStyle.accent)
+                        .frame(width: 26, height: 26)
+                        .background(
+                            BloomLiveActivityStyle.accent.opacity(0.16),
+                            in: Circle()
+                        )
+                        .accessibilityHidden(true)
 
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Bloom")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                if context.isStale && context.state.phase == .running {
-                    Text("Timer reached zero — open Bloom")
-                        .font(.headline)
-                        .lineLimit(2)
-                        .minimumScaleFactor(0.8)
-                } else {
-                    BloomModeLabel(mode: context.state.mode, compact: false)
+                    if context.isStale && context.state.phase == .running {
+                        Text("Timer reached zero — open Bloom")
+                            .font(.subheadline.weight(.semibold))
+                            .lineLimit(2)
+                            .minimumScaleFactor(0.8)
+                    } else {
+                        VStack(alignment: .leading, spacing: 1) {
+                            BloomModeLabel(mode: context.state.mode, compact: false)
+                            Text(context.state.statusLabel(isStale: context.isStale))
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
+                    }
                 }
+
+                BloomActivityClock(
+                    state: context.state,
+                    compact: false,
+                    isStale: context.isStale
+                )
+                // Large enough to be the focal point, conservative enough that
+                // "1:04:59" still has room — iOS drops to a minutes-only
+                // rendering when a timer string cannot fit its slot.
+                .font(.system(size: 34, weight: .semibold, design: .rounded).monospacedDigit())
+
+                BloomProgressBar(state: context.state, isStale: context.isStale)
             }
 
-            Spacer(minLength: 8)
+            Spacer(minLength: 4)
 
-            BloomActivityClock(
+            BloomTransportControl(
+                sessionId: context.attributes.sessionId,
                 state: context.state,
-                compact: false,
-                isStale: context.isStale
+                isStale: context.isStale,
+                style: .tall
             )
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 12)
+        .padding(.vertical, 14)
+    }
+}
+
+/// Pause and resume, over PLAN 13.18's channel.
+///
+/// Deliberately the only controls here. Skip ends a session, and PLAN 8.14
+/// established that Bloom guards a running timer against accidental
+/// destruction — a control that cannot be confirmed and sits under a thumb on a
+/// Lock Screen is the wrong home for it. Pause is safe precisely because a
+/// mis-tap costs nothing and undoes itself.
+private struct BloomTransportControl: View {
+    enum Style {
+        case tall
+        case wide
+    }
+
+    let sessionId: String
+    let state: BloomFocusActivityAttributes.ContentState
+    let isStale: Bool
+    let style: Style
+
+    var body: some View {
+        if state.phase != .finished, !isStale {
+            let pausing = state.phase == .running
+            Group {
+                if pausing {
+                    Button(intent: BloomPauseIntent(sessionId: sessionId)) {
+                        label
+                    }
+                } else {
+                    Button(intent: BloomResumeIntent(sessionId: sessionId)) {
+                        label
+                    }
+                }
+            }
+            .buttonStyle(.plain)
+            .tint(BloomLiveActivityStyle.accent)
+            .accessibilityLabel(pausing ? "Pause timer" : "Resume timer")
+        }
+    }
+
+    @ViewBuilder
+    private var label: some View {
+        let pausing = state.phase == .running
+        Group {
+            // The Lock Screen slot is narrow, so it carries the glyph alone;
+            // the expanded Dynamic Island has room to name the action.
+            if style == .tall {
+                Image(systemName: pausing ? "pause.fill" : "play.fill")
+                    .font(.body.weight(.bold))
+            } else {
+                Label {
+                    Text(pausing ? "Pause" : "Resume")
+                        .font(.footnote.weight(.semibold))
+                } icon: {
+                    Image(systemName: pausing ? "pause.fill" : "play.fill")
+                        .font(.footnote.weight(.bold))
+                }
+            }
+        }
+        .foregroundStyle(BloomLiveActivityStyle.accent)
+        .frame(
+            minWidth: style == .tall ? 52 : 96,
+            minHeight: style == .tall ? 52 : 34
+        )
+        .background(
+            BloomLiveActivityStyle.accent.opacity(0.16),
+            in: Capsule()
+        )
+        .contentShape(Capsule())
+    }
+}
+
+/// A quiet, system-advanced progress bar.
+///
+/// `ProgressView(timerInterval:)` lets the system fill it without per-second
+/// bridge traffic, exactly as `Text(timerInterval:)` advances the clock.
+private struct BloomProgressBar: View {
+    let state: BloomFocusActivityAttributes.ContentState
+    let isStale: Bool
+
+    var body: some View {
+        Group {
+            if state.phase == .running && !isStale {
+                ProgressView(timerInterval: state.timerStart...state.timerEnd, countsDown: false) {
+                    EmptyView()
+                } currentValueLabel: {
+                    EmptyView()
+                }
+            } else {
+                ProgressView(value: fractionElapsed)
+            }
+        }
+        .progressViewStyle(.linear)
+        .tint(BloomLiveActivityStyle.accent)
+        .frame(height: 4)
+        // The clock beside it already announces the time; a second spoken
+        // progress value would just be noise in VoiceOver.
+        .accessibilityHidden(true)
+    }
+
+    private var fractionElapsed: Double {
+        let total = state.timerEnd.timeIntervalSince(state.timerStart)
+        guard total > 0 else { return isStale ? 1 : 0 }
+        guard let remaining = state.pausedRemainingSeconds else { return isStale ? 1 : 0 }
+        return min(1, max(0, 1 - Double(remaining) / total))
     }
 }
 
@@ -109,7 +266,7 @@ private struct BloomModeLabel: View {
 
     var body: some View {
         Text(mode == "tiny" ? "Tiny focus" : "Focus")
-            .font(compact ? .caption2.weight(.semibold) : .headline)
+            .font(compact ? .caption2.weight(.semibold) : .subheadline.weight(.semibold))
             .lineLimit(1)
             .minimumScaleFactor(0.8)
     }
@@ -125,10 +282,14 @@ private struct BloomActivityClock: View {
             if state.phase == .running && isStale {
                 Text("0:00")
             } else if state.phase == .running {
+                // `showsHours` is asked for only when the session really runs
+                // past an hour. Left always-on it reserves room for a leading
+                // "0:" that never appears, which is what stretched the compact
+                // Dynamic Island wider than its content.
                 Text(
                     timerInterval: state.timerStart...state.timerEnd,
                     countsDown: true,
-                    showsHours: true
+                    showsHours: state.needsHours
                 )
             } else {
                 Text(Self.formattedRemaining(state.pausedRemainingSeconds ?? 0))
@@ -138,6 +299,10 @@ private struct BloomActivityClock: View {
         .lineLimit(1)
         .minimumScaleFactor(0.72)
         .foregroundStyle(.primary)
+        // A self-advancing timer string still reserves layout width for the
+        // widest value it can reach, so the compact slot is given exactly the
+        // width its own format needs and no more.
+        .modifier(BloomCompactClockWidth(active: compact, needsHours: state.needsHours))
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(state.clockAccessibilityLabel(isStale: isStale))
         .accessibilityValue(state.clockAccessibilityValue(isStale: isStale))
@@ -155,7 +320,29 @@ private struct BloomActivityClock: View {
     }
 }
 
+/// Pins the compact Dynamic Island clock to the width its format needs.
+private struct BloomCompactClockWidth: ViewModifier {
+    let active: Bool
+    let needsHours: Bool
+
+    func body(content: Content) -> some View {
+        if active {
+            content.frame(width: needsHours ? 58 : 40, alignment: .trailing)
+        } else {
+            content
+        }
+    }
+}
+
 private extension BloomFocusActivityAttributes.ContentState {
+    /// True only when this session can actually show an hours component.
+    var needsHours: Bool {
+        if let paused = pausedRemainingSeconds {
+            return paused >= 3_600
+        }
+        return timerEnd.timeIntervalSince(timerStart) >= 3_600
+    }
+
     var symbolName: String {
         switch phase {
         case .running:
@@ -164,6 +351,20 @@ private extension BloomFocusActivityAttributes.ContentState {
             return "pause.fill"
         case .finished:
             return "checkmark"
+        }
+    }
+
+    /// One short word for the compact island — it shares a narrow slot with the
+    /// glyph, so it names the state rather than describing it.
+    func compactLabel(isStale: Bool) -> String {
+        switch phase {
+        case .running:
+            if isStale { return "Done" }
+            return mode == "tiny" ? "Tiny" : "Focus"
+        case .paused:
+            return "Paused"
+        case .finished:
+            return "Done"
         }
     }
 
@@ -230,18 +431,10 @@ private struct BloomStatusGlyph: View {
 }
 
 private enum BloomLiveActivityStyle {
-    static let accent = Color(
-        uiColor: UIColor { traits in
-            traits.userInterfaceStyle == .dark
-                ? UIColor(red: 0.95, green: 0.53, blue: 0.69, alpha: 1)
-                : UIColor(red: 0.68, green: 0.16, blue: 0.37, alpha: 1)
-        }
-    )
-    static let background = Color(
-        uiColor: UIColor { traits in
-            traits.userInterfaceStyle == .dark
-                ? UIColor(red: 0.13, green: 0.09, blue: 0.12, alpha: 1)
-                : UIColor(red: 0.99, green: 0.95, blue: 0.97, alpha: 1)
-        }
-    )
+    /// Deliberately one fixed mid-tone rather than a light/dark pair. A dynamic
+    /// `UIColor` cannot be trusted to resolve against the same traits the rest
+    /// of this view is rendered with, and a decorative accent that disagrees
+    /// with the text beside it is worse than one that is merely a compromise.
+    /// This reads against both the light and dark system backgrounds.
+    static let accent = BloomAlarmStyle.tint
 }
