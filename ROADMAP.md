@@ -52,6 +52,14 @@ will not show the tap highlight or the selection behaviors either.
   cross-origin request. The built bundle's only `fetch` sites are Vite's same-origin module preload
   and the inert CapacitorHttp bridge, and its only external strings are font licence text and
   React's error URL. The guard was confirmed to fail when a violation is planted.
+- ~~**Sky contrast and `prefers-contrast`** (`8.9`)~~ — **done**, and previously mis-filed under
+  "deliberately dropped" with a warning that text over the animated sky washes out and the OS
+  "Increase Contrast" setting is ignored. Neither is true: `styles.css` carries both
+  `@media (prefers-contrast: more)` and `@media (forced-colors: active)`, essential Focus copy sits
+  on stable theme-aware surfaces rather than the moving sky, and
+  `src/responsiveAccessibility.test.ts` guards it. It was restored on August 14 and closed on
+  August 17; the pinned visual baselines proving it live on the `agent/finish-bloom-usability`
+  branch and reach main when PR #2 does.
 - **Finish the small-screen matrix** (`8.8`) — 44 px targets, 16 px inputs and ring geometry are
   done and measured at 320×568. Remaining: compact-height, safe-area, 200% zoom and
   virtual-keyboard cells. Safe areas and the keyboard matter more on real phones than they did
@@ -101,7 +109,6 @@ has now shipped and is verified on device simulators:
 | **Cross-device sync** | `11.1`–`11.6` | Six steps, a backend service, an encrypted API, a merge engine and a two-device QA matrix — the only part of Bloom that would need a server. Data export/import (`9.4`) already moves your data between devices by hand. Losing this costs convenience, not capability. |
 | **Animation performance trace** | `8.7` | Only the *measurement* is dropped. The shared scheduler, frame-rate caps, and static reduced-motion rendering all shipped and stay. The trace was unobtainable through the automation harness anyway. |
 | **Deployed-web / installed-PWA offline proof** | `8.15` | Web and PWA are not release targets. The service worker already ships and only registers on production web, so it is inert for the iOS and Android builds. |
-| **Sky contrast and `prefers-contrast`** | `8.9` | Dropped by choice. ⚠️ Worth revisiting before a public launch: some text sits directly on the moving sky and washes out as clouds pass, and the OS "Increase Contrast" setting is currently ignored entirely. On iOS and Android that setting is a system accessibility promise, so this is the one dropped item that works against the native-feel goal. |
 | **Full iOS 26/27 accessibility matrix** | `13.6` | Blocked on Xcode 27 and iOS 27 runtimes that aren't installed. Replaced by the narrower real-device smoke listed under *Now*. |
 
 ## Hard constraints
