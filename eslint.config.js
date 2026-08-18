@@ -57,6 +57,16 @@ export default tseslint.config(
       'react-hooks/purity': 'warn',
       'react-hooks/globals': 'warn',
 
+      // exhaustive-deps stays a warning, not an error, and its 18 current hits
+      // were triaged rather than silenced: every one is deliberate. The memos
+      // that list `now` call Date.now() internally and use `now` purely as an
+      // invalidation signal — dropping it would freeze those insights forever.
+      // The ones "missing" a local helper (taskActual, configureNativeControl)
+      // already list that helper's own inputs, which is what keeps the memo
+      // from recomputing on every render. Read the site before acting on a hit
+      // here; the rule cannot see these intentions, and following it blindly
+      // introduces bugs rather than fixing them.
+
       // The codebase uses leading-underscore params in a few reducer branches
       // to mark a deliberately unused argument; keep that idiom legal.
       '@typescript-eslint/no-unused-vars': [

@@ -3150,6 +3150,12 @@ export function useBloom() {
   // Persist durable fields whenever they change. Flow start/pause lands here
   // too (running/mode/flowStart), so a live stopwatch survives a reload; the
   // per-second tick only touches `remaining`, which is not persisted.
+  //
+  // exhaustive-deps wants `state` here. Do not give it one: `remaining` changes
+  // ~4x/sec while a timer runs, so depending on the whole object would rewrite
+  // localStorage four times a second. The fields below are every durable one,
+  // listed so the effect fires on real changes and stays silent on ticks.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     persist(state);
   }, [state.sessions, state.streak, state.lastFocusDay, state.restDayUsedOn, state.comeBack, state.tasks, state.activeTaskId, state.palXp, state.goals, state.goalLedger, state.foundations, state.dayPlan, state.lastRolloverOfferDay, state.flowStart, state.flowAcc, state.running, state.mode, state.sessionRecords, state.openFocus, state.openFlow, state.lastWeeklyReviewWeek, state.ifThenPlans, state.ritual, state.lastWoopOfferAt, state.preSlump, state.personalCadence, state.parking, state.guideRead, state.settings]);
