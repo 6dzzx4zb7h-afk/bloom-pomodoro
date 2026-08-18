@@ -93,6 +93,11 @@
 
 * {
   box-sizing: border-box;
+  /* ROADMAP "Now": the WebView paints a translucent grey rectangle over every
+     tap target unless this is cleared. It is the single most recognizable
+     web-app tell and it fires on every button in the app. Bloom draws its own
+     press states, so nothing is lost by removing it. */
+  -webkit-tap-highlight-color: transparent;
 }
 
 html,
@@ -109,6 +114,46 @@ body {
   background: #79bff2;
   color: var(--plum);
   overscroll-behavior: none;
+  /* Long-pressing chrome in a native app does not start a text selection or
+     raise the selection magnifier and Copy/Look Up bar, and long-pressing
+     artwork does not offer a Save Image / Copy sheet. Without these, the timer
+     readout, any label, the task names and the pet canvas all do. Anything the
+     user should still be able to select opts back in below. */
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+/* Selection belongs to the places a person actually types or copies from.
+   `.selectable` is the opt-in hook for any surface that should join them. */
+input,
+textarea,
+[contenteditable='true'],
+.selectable {
+  -webkit-user-select: text;
+  user-select: text;
+  -webkit-touch-callout: default;
+}
+
+/* Drop double-tap-to-zoom, and the ~300ms tap delay that rides with it, from
+   everything tappable. The `.phone` block further down already does this for
+   the common controls; these are the links, labels and roles it does not name,
+   set unconditionally so a control is never left with the delay. */
+a,
+button,
+label,
+summary,
+select,
+input:not([type='hidden']),
+textarea,
+[role='button'],
+[role='checkbox'],
+[role='switch'],
+[role='tab'],
+[role='radio'],
+[role='menuitem'],
+[role='option'] {
+  touch-action: manipulation;
 }
 
 #root {
