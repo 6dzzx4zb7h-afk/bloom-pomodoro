@@ -2,9 +2,8 @@
 
 This document is the source of truth for Bloom's non-behavioral product quality: UX/UI,
 accessibility, usability, reliability, performance, privacy, security, and engineering quality. It
-applies prospectively to unchecked `PLAN.md` steps and to any surface changed by future work.
-Completed plan steps remain historical records; a checked box does not prove that an older feature
-meets this baseline until its relevant remediation and verification steps pass.
+applies to any surface changed by future work. It was adopted in July 2026 and applied prospectively,
+so an older feature is not presumed to meet this baseline just because it shipped before then.
 
 ## Which source governs what
 

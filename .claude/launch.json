@@ -12,14 +12,6 @@
       "runtimeExecutable": "/Users/elzeki/.nvm/versions/node/v24.18.0/bin/node",
       "runtimeArgs": ["node_modules/vite/bin/vite.js", "preview", "--port", "4173"],
       "port": 4173
-    },
-    {
-      "name": "plan-triage",
-      "runtimeExecutable": "/Users/elzeki/.nvm/versions/node/v24.18.0/bin/node",
-      "runtimeArgs": [
-        "/private/tmp/claude-501/-Users-elzeki-Developer-bloom-pomodoro/983e7e91-39e7-4579-a9cb-51580c4e277d/scratchpad/triage-server.mjs"
-      ],
-      "port": 7331
     }
   ]
 }
