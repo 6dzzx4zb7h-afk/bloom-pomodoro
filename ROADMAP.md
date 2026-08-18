@@ -3,15 +3,18 @@
 Bloom is a cozy pixel-pal focus timer that explains its suggestions from your own recorded sessions.
 It runs entirely on your device.
 
-**Status:** feature-complete for daily use. 508 tests green. The web app, the Android wrapper, and
-the native iOS wrapper all build and run.
+**Status:** feature-complete for daily use. 674 tests green. The web app, the Android wrapper, and
+the native iOS wrapper all build and run. The iOS layer now carries native tabs and segmented rails,
+a native Settings sheet, prominent finish alarms, and a Lock Screen / Dynamic Island Live Activity.
 
 **Where it's going:** a real native app on **iOS and Android**, shipped publicly — not a web page in
 a shell. The approach is to keep the single React core and deepen the native layer around it, the
 way the native tab bar and segmented rails already do. Not a rewrite.
 
-The **web build stays** as a demo and landing surface (https://bloom-pomodoro.pages.dev), auto-deployed
-from `main`. It is not a release target, and it should never constrain a native decision.
+The **web build stays** as a demo and landing surface (https://bloom-pomodoro.pages.dev). Note that
+it no longer auto-deploys: the Cloudflare Pages workflow went out with the legacy deployment tooling,
+so that URL serves whatever was last published until a deploy path is deliberately restored. The web
+build is not a release target, and it should never constrain a native decision.
 
 The detailed history of how Bloom got here — 73 completed build steps with their evidence, citations
 and verification notes — is archived in [`docs/archive/plan-2026.md`](docs/archive/plan-2026.md).
@@ -21,45 +24,47 @@ Step numbers below (`7.2`, `13.4`, …) cross-reference that archive.
 
 ## Now — make it stop feeling like a web app
 
-The goal is for Bloom to read as a real app on iOS and Android. Before rewriting anything, fix the
-concrete tells — these are what people actually perceive as "web app", and they are cheap. A static
-pass over `src/styles.css` and `index.html` on August 3, 2026 found:
+The goal is for Bloom to read as a real app on iOS and Android.
 
-- **No `-webkit-tap-highlight-color` anywhere.** Every tap in the WebView paints the default
-  translucent grey rectangle over the target. This is the single most recognizable web-app tell and
-  it fires on every button in the app.
-- **No `user-select: none` anywhere.** Long-pressing the timer readout, a label, or a task name
-  starts a text selection and raises the iOS selection magnifier and Copy/Look Up bar. Native apps
-  don't do this outside text fields.
-- **No `-webkit-touch-callout: none`.** Long-pressing the pet canvas or any image offers the
-  "Save Image / Copy" sheet.
-- **`touch-action: manipulation` appears once** (line 4742). Everywhere else, controls can still
-  carry double-tap-to-zoom and its associated tap delay.
+**The four CSS tells are fixed** (August 18, 2026). A static pass on August 3 found
+`-webkit-tap-highlight-color`, `user-select` and `-webkit-touch-callout` missing entirely, and
+`touch-action` present once; all four were still missing when the work started. Every tap painted
+the WebView's grey rectangle, long-pressing the readout or a task name raised the iOS selection
+magnifier, long-pressing the pet canvas offered a Save Image sheet, and links, labels and the
+radio/menuitem/option roles kept double-tap-to-zoom with its tap delay. Selection is restored for
+`input`, `textarea` and `contenteditable`, plus a `.selectable` hook. Two of the four are invisible
+in a desktop browser, so `src/nativeFeel.test.ts` guards them.
 
-Already handled correctly, for reference: `overscroll-behavior` (7 uses, so no rubber-band chaining),
-`safe-area-inset` (16 uses), `100vh`/`100dvh` fallback pairs, and `viewport-fit=cover`.
+Already handled correctly, for reference: `overscroll-behavior` (7 uses, so no rubber-band
+chaining), `safe-area-inset` (16 uses), `100vh`/`100dvh` fallback pairs, and `viewport-fit=cover`.
 
-Beyond CSS, judge on device: scroll momentum and deceleration, keyboard avoidance, and whether
-screen transitions animate the way the platform's do. Verify on a real phone, not a simulator —
-the tap highlight and selection behaviors are exactly what a desktop browser will not show you.
+**What is left here needs a real phone.** `-webkit-touch-callout` cannot be confirmed in Chrome,
+which does not implement it. Beyond CSS, judge on device: scroll momentum and deceleration,
+keyboard avoidance, and whether screen transitions animate the way the platform's do. A simulator
+will not show the tap highlight or the selection behaviors either.
 
 ## Then — before a public release
 
-- **Local-only privacy audit** (`7.2`) — grep source and built bundles for `fetch`,
-  `XMLHttpRequest`, `WebSocket` and external URLs; smoke a production build and confirm zero
-  application-data requests. This proves the app's core promise. Dropping sync makes it a
-  much smaller job than originally scoped: there is now no code path that is *supposed* to
-  reach the network, so any hit is a defect.
+- ~~**Local-only privacy audit** (`7.2`)~~ — **done** (August 18, 2026), and now a standing test
+  rather than a one-off grep: `src/localOnly.test.ts`. App source has no `fetch`,
+  `XMLHttpRequest`, `WebSocket`, `EventSource` or `sendBeacon` and no external origin; the HTML
+  shell loads nothing remote; both typefaces are bundled; the service worker returns early on any
+  cross-origin request. The built bundle's only `fetch` sites are Vite's same-origin module preload
+  and the inert CapacitorHttp bridge, and its only external strings are font licence text and
+  React's error URL. The guard was confirmed to fail when a violation is planted.
 - **Finish the small-screen matrix** (`8.8`) — 44 px targets, 16 px inputs and ring geometry are
   done and measured at 320×568. Remaining: compact-height, safe-area, 200% zoom and
   virtual-keyboard cells. Safe areas and the keyboard matter more on real phones than they did
   in the browser.
-- **Add a linter and gate CI on it** (`8.16`) — the repo has no ESLint or Prettier config at all.
-  Also collapse the duplicated npm version pin (workflow literal vs `package.json`
-  `packageManager`) to one source of truth so they cannot drift.
-- **Simplify the pre-start hierarchy** (`8.18`) — Start currently sits *above* the optional
-  if-then, target and ritual inputs, so the screen asks for preparation after offering the commit
-  action. One compact stack: active task → optional target → optional ritual → Start.
+- **Add a linter** (`8.16`) — the repo still has no ESLint or Prettier config and no `lint` script.
+  The rest of this step is now moot: there is no CI workflow left to gate, and with the workflow
+  gone the duplicated npm version pin collapsed to the single `packageManager` field on its own.
+  Worth pairing with a decision about whether any CI should exist at all, since nothing currently
+  runs the 674 tests except a person.
+- ~~**Simplify the pre-start hierarchy** (`8.18`)~~ — **superseded by `13.17`**, which folded
+  everything below the session target behind a single "a little more prep" row. `FocusScreen.tsx`
+  now renders active task → session target → collapsed prep → controls, so Start no longer sits
+  above the optional inputs and the described problem is gone. Verified in the running app.
 - **Real-device smoke before store submission** (narrowed from `13.6`) — one pass on a physical
   iPhone and Android device covering launch, a full session, background/foreground, the completion
   cue, rotation and airplane mode. This replaces the original step's full iOS 26 + 27 accessibility
@@ -67,16 +72,19 @@ the tap highlight and selection behaviors are exactly what a desktop browser wil
 
 ## Next — native depth
 
-The stated goal is for Bloom to feel like a real app, not a styled web view. The native tab bar and
-segmented rails (`13.2`, `13.3`) already do this and are verified on device simulators. Continuing
-along that line:
+The stated goal is for Bloom to feel like a real app, not a styled web view. Most of this section
+has now shipped and is verified on device simulators:
 
-- **Native iOS Settings** (`13.4`) — a real UIKit form with `UISwitch`, steppers and pickers.
-  Note the cost: this creates a second Settings implementation to maintain alongside the web one.
-- **Native presentations** (`13.5`) — inventory every dialog, sheet and menu, then decide
-  native-vs-web per surface rather than converting wholesale.
-- **Live Activities** (`13.8`) — Lock Screen and Dynamic Island countdown for the running session.
-  Local-only, no server, and probably the single highest "this is a real app" signal available.
+- ~~**Native iOS Settings** (`13.4`)~~ — **shipped.** `BloomSettingsPlugin` presents a real UIKit
+  sheet with a genuine `UIStepper`. The cost noted when this was planned is real and now live:
+  there are two Settings implementations to keep in step.
+- ~~**Live Activities** (`13.8`)~~ — **shipped**, and went further than scoped. Lock Screen and
+  Dynamic Island countdown with pause/resume, App Intents, a native command channel back into the
+  reducer, and AlarmKit prominent finish alarms. Local-only, no server.
+- **Native presentations** (`13.5`) — **the remaining native-depth work.** Settings is native; the
+  rest of the app still presents through the web `Dialog` component. Inventory every dialog, sheet
+  and menu, then decide native-vs-web per surface rather than converting wholesale — each
+  conversion adds a second implementation to maintain, as Settings just demonstrated.
 
 ## Deferred
 
