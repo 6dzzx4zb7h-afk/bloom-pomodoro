@@ -642,6 +642,20 @@ button.foundation-dot {
   color: var(--plum);
 }
 
+/* ROADMAP 8.8, 200%-zoom cell: 200% zoom on a 390px phone reports a 195px
+   viewport. The four mode buttons keep the 44px touch floor from PLAN 12.2, so
+   the rail needs 176px plus the shell's 8px padding and 3px border. Against the
+   normal 22px side margin that leaves ~143px, and since .tabs-inner is a plain
+   flex row with visible overflow, "Long" ran past the viewport edge with no
+   scroll to reach it. Give the margin back before that happens rather than
+   shrinking the targets. */
+@media (max-width: 240px) {
+  .tabs {
+    margin-left: 3px;
+    margin-right: 3px;
+  }
+}
+
 /* Tiny Start (PLAN 3.3): two honest first rungs, never a hidden commitment. */
 .tiny-picker {
   margin: 9px auto -5px;

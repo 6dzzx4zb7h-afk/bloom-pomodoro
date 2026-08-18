@@ -29,6 +29,16 @@ describe('PLAN 8.8 code-side responsive baseline', () => {
     expect(css).toContain('env(safe-area-inset-bottom)');
   });
 
+  it('keeps all four mode tabs on screen at 200% zoom', () => {
+    // 200% zoom on a 390px phone reports a 195px viewport. The tabs hold their
+    // 44px floor (176px for four), so against the normal 22px side margin the
+    // last one ran past the edge — and .tabs-inner is a plain flex row with
+    // visible overflow, so nothing could scroll to it.
+    expect(css).toMatch(
+      /@media \(max-width: 240px\)\s*\{\s*\.tabs\s*\{[\s\S]*?margin-left:\s*3px[\s\S]*?margin-right:\s*3px/,
+    );
+  });
+
   it('keeps onboarding keyboard-scrollable and does not autofocus into obstruction', () => {
     expect(css).toContain('scroll-padding-bottom: 42vh');
     expect(css).toMatch(/\.onboard\s*\{[\s\S]*?overflow-y:\s*auto/);
