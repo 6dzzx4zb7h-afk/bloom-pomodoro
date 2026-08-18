@@ -38,6 +38,8 @@ jobs:
       # drifts from it should fail here rather than on someone's machine.
       - run: npm ci
 
+      - run: npm run lint
+
       - run: npm test
 
       - run: npm run build

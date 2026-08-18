@@ -642,7 +642,7 @@ export function FocusScreen({
     if (!isNativeIOSTabsPlatform() || !nativeModeSlotRef.current) return;
 
     let disposed = false;
-    return observeNativeControlFrame(nativeModeSlotRef.current, (frame) => {
+    const stopObserving = observeNativeControlFrame(nativeModeSlotRef.current, (frame) => {
       nativeModeFrameRef.current = frame;
       void configureNativeModeControl(frame)
         .then(({ active, height }) => {
@@ -658,6 +658,11 @@ export function FocusScreen({
           if (!disposed) setNativeModeReady(false);
         });
     });
+
+    return () => {
+      disposed = true;
+      stopObserving();
+    };
   }, [
     nativeWebOverlayOpen,
     state.mode,

@@ -85,7 +85,7 @@ export function CollectionScreen({
     if (!isNativeIOSTabsPlatform() || !nativeSectionSlotRef.current) return;
 
     let disposed = false;
-    return observeNativeControlFrame(nativeSectionSlotRef.current, (frame) => {
+    const stopObserving = observeNativeControlFrame(nativeSectionSlotRef.current, (frame) => {
       nativeSectionFrameRef.current = frame;
       void configureNativeSectionControl(frame)
         .then(({ active }) => {
@@ -95,6 +95,11 @@ export function CollectionScreen({
           if (!disposed) setNativeSectionReady(false);
         });
     });
+
+    return () => {
+      disposed = true;
+      stopObserving();
+    };
   }, [section]);
 
   const totalLevels = FRIENDS.reduce((sum, f) => sum + levelProgress(palXp[f.name] ?? 0).level, 0);

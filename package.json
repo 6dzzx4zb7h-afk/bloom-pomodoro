@@ -23,7 +23,8 @@
     "android:verify": "node scripts/android-verify.mjs",
     "android:version": "node scripts/android-version.mjs",
     "ios:sync": "npm run build && cap sync ios",
-    "ios:open": "cap open ios"
+    "ios:open": "cap open ios",
+    "lint": "eslint ."
   },
   "dependencies": {
     "@capacitor/android": "8.4.2",
@@ -39,9 +40,13 @@
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^6.0.5",
+    "eslint": "^10.8.1",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "globals": "^17.11.0",
     "jsdom": "^29.1.1",
     "sharp": "^0.35.3",
     "typescript": "^5.6.3",
+    "typescript-eslint": "^8.67.0",
     "vite": "^8.2.1",
     "vitest": "^4.1.10"
   }
