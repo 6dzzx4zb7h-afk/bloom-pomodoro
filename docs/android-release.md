@@ -20,6 +20,12 @@ in the Play Console.
   advertising, or runtime network access under this release step.
 - The app remains local-first and offline-capable. Android cloud backup and device-transfer backup
   are disabled so local focus data is not silently copied outside the app's explicit export flow.
+- Bloom declares three runtime-visible permissions and no others: `POST_NOTIFICATIONS`,
+  `USE_EXACT_ALARM`, and `SCHEDULE_EXACT_ALARM` (API 31–32 only). None of them touch the network.
+  `USE_EXACT_ALARM` is install-time granted and restricted by Play policy to apps whose core
+  function is an alarm clock or timer — Bloom's is, and the Console declaration says so. If a future
+  change makes the exact alarm optional rather than core, drop the permission rather than restating
+  the justification.
 
 ## Prerequisites
 
@@ -119,6 +125,19 @@ npm run android:debug
 npm run android:check
 npm run android:aab
 ```
+
+The first update carrying Android's finish alert asks for `POST_NOTIFICATIONS` the first time a
+person starts a timer with **Ring when done** on. Declining is not an error state: the in-app chime
+still plays while Bloom is open, and Settings says exactly what is missing and where to change it.
+Verify both paths on the Internal testing build — accepted and declined — plus a finish that lands
+while the app is backgrounded and the device is locked, which is the case the alarm exists for.
+
+The launcher entry moved from `MainActivity` to a per-friend `<activity-alias>` in PLAN 13.18. The
+first update carrying that change retires `MainActivity` as a launcher component, so any home-screen
+shortcut a user pinned to it before the update stops working and has to be re-pinned; the app itself,
+its data, and its install are untouched. Verify on the Internal testing build that the app still
+appears in the launcher after updating over the previous Play build, and that switching friends
+changes the icon.
 
 Back up the source commit and the exact AAB uploaded. Record its SHA-256 hash, version code/name,
 and the upload-certificate fingerprint printed by `android:aab`. Upload to Internal testing, verify

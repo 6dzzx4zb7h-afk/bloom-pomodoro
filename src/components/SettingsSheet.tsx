@@ -20,13 +20,18 @@ import {
   type PersonalCadenceRecommendation,
 } from '../insights/cadence';
 import type { SessionRecord } from '../store/sessions';
-import type { IOSCompletionAlertStatus } from '../native/iosCompletionAlerts';
-import type { IOSLiveActivityStatus } from '../native/iosLiveActivity';
+import type { CompletionAlertStatus } from '../native/completionAlerts';
+import type { LiveActivityStatus } from '../native/liveActivity';
 import type { IOSAlarmStatus } from '../native/iosAlarm';
 import { Dialog } from './Dialog';
 import { Sheet } from './Sheet';
 import { SystemSwitch } from './SystemSwitch';
-import { platformWords } from '../content/platformWords';
+import {
+  currentNativeOS,
+  osName,
+  platformWords,
+  systemSettingsName,
+} from '../content/platformWords';
 import {
   dismissNativeIOSSettings,
   isNativeIOSSettingsPlatform,
@@ -50,6 +55,62 @@ import {
   type PreparedImport,
 } from '../store/exportImport';
 
+/**
+ * The two system surfaces this sheet names — the scheduled finish alert and
+ * the live countdown — exist on both phones, but under different names and in
+ * different shapes: ActivityKit on the Lock Screen and Dynamic Island on iOS, a
+ * quiet ongoing notification on Android. `docs/voice.md` asks for advice the
+ * reader can act on, and "adjust it in iOS Settings" is not something a person
+ * holding a Pixel can do.
+ *
+ * Capability is reported by the native modules; this only says what to call it.
+ */
+function nativeAlertCopy() {
+  const android = currentNativeOS() === 'android';
+  const settingsApp = systemSettingsName();
+  const system = osName();
+  return {
+    liveTitle: android ? 'Session in progress' : 'Live Activity',
+    liveWhat: android
+      ? 'Focus and Tiny can show their mode and the time left as a quiet ongoing notification, which keeps counting while Bloom is in the background. Task text never appears, and no Bloom server is involved.'
+      : 'Focus and Tiny can show their mode and time remaining on the Lock Screen and, on supported iPhones, the Dynamic Island. Task text never appears, and no Bloom server is involved.',
+    liveChecking: android
+      ? 'Checking your notification setting…'
+      : 'Checking your iOS Live Activity setting…',
+    liveUnsupported: android
+      ? 'The in-progress notification isn’t available on this Android version. Your timer still works normally.'
+      : 'Live Activities aren’t available on this iOS version. Your timer still works normally.',
+    liveDisabled: android
+      ? 'Notifications are off in ' +
+        settingsApp +
+        ', so the countdown can’t show. Your timer still works normally.'
+      : 'Live Activities are off in ' + settingsApp + '. Your timer still works normally.',
+    liveEnabled: android
+      ? 'The countdown follows your ' +
+        settingsApp +
+        ' and works without internet access.'
+      : 'Live Activities follow your ' +
+        settingsApp +
+        ' and work without internet access.',
+    alertPrompt: android
+      ? 'Bloom can chime while it’s open. Allow notifications so Android can deliver a timer alert while Bloom is in the background or your device is locked. Do Not Disturb and your notification settings still apply.'
+      : 'Bloom can chime while it’s open. Allow notifications so iOS can deliver a timer alert while Bloom is in the background or your device is locked. Silent Mode, Focus, and your notification settings still apply.',
+    alertDenied:
+      'Timer alerts are off in ' + settingsApp + '. Bloom can still chime while it’s open.',
+    alertPartial: android
+      ? 'One or more ' +
+        system +
+        ' notification options are off. Bloom can still chime while it’s open; you can adjust the alert style, sound, and lock screen visibility in ' +
+        settingsApp +
+        '.'
+      : 'One or more ' +
+        system +
+        ' notification options are off. Bloom can still chime while it’s open; you can adjust banners, sound, and Lock Screen alerts in ' +
+        settingsApp +
+        '.',
+  };
+}
+
 interface SettingsSheetProps {
   settings: Settings;
   records: SessionRecord[];
@@ -70,10 +131,10 @@ interface SettingsSheetProps {
   onClearFocusData: () => void;
   onDataImported: () => void;
   onClose: () => void;
-  completionAlertStatus: IOSCompletionAlertStatus;
-  onRequestCompletionAlertPermission: () => Promise<IOSCompletionAlertStatus>;
+  completionAlertStatus: CompletionAlertStatus;
+  onRequestCompletionAlertPermission: () => Promise<CompletionAlertStatus>;
   /** Present only in the native iOS wrapper; this setting remains system-owned. */
-  liveActivityStatus?: IOSLiveActivityStatus;
+  liveActivityStatus?: LiveActivityStatus;
   liveActivityChecking?: boolean;
   /** PLAN 13.12 — AlarmKit authorization, also system-owned and iOS-only. */
   alarmStatus?: IOSAlarmStatus;
@@ -240,6 +301,7 @@ export function SettingsSheet({
   // PLAN 13.15: iPhone and iPad have no tabs; the same leave-and-return event
   // is leaving the app, and every label that names it says so.
   const words = platformWords();
+  const alertWords = nativeAlertCopy();
   // 'unknown' until asked; used to nudge the user if they blocked notifications.
   const [notifyDenied, setNotifyDenied] = useState(false);
   // PLAN 13.12 — which alarm note the finish cue currently warrants. Nothing is
@@ -548,14 +610,14 @@ export function SettingsSheet({
       rows.push({
         kind: 'note',
         id: 'note.liveActivity',
-        title: 'Live Activity',
+        title: alertWords.liveTitle,
         body: liveActivityChecking
-          ? 'Checking your iOS Live Activity setting…'
+          ? alertWords.liveChecking
           : !liveActivityStatus.supported
-            ? 'Live Activities aren’t available on this iOS version. Your timer still works normally.'
+            ? alertWords.liveUnsupported
             : !liveActivityStatus.enabled
-              ? 'Live Activities are off in iOS Settings. Your timer still works normally.'
-              : 'Focus and Tiny can show their mode and time remaining on the Lock Screen and, on supported iPhones, the Dynamic Island. Task text never appears, and no Bloom server is involved.',
+              ? alertWords.liveDisabled
+              : alertWords.liveWhat,
         status: liveActivityChecking || !liveActivityStatus.enabled,
       });
     }
@@ -572,7 +634,7 @@ export function SettingsSheet({
         {
           kind: 'note',
           id: 'note.completionAlertPrompt',
-          body: 'Bloom can chime while it’s open. Allow notifications so iOS can deliver a timer alert while Bloom is in the background or your device is locked. Silent Mode, Focus, and your notification settings still apply.',
+          body: alertWords.alertPrompt,
         },
         {
           kind: 'button',
@@ -585,7 +647,7 @@ export function SettingsSheet({
       rows.push({
         kind: 'note',
         id: 'note.completionAlertDenied',
-        body: 'Timer alerts are off in iOS Settings. Bloom can still chime while it’s open.',
+        body: alertWords.alertDenied,
         status: true,
       });
     }
@@ -607,7 +669,7 @@ export function SettingsSheet({
       rows.push({
         kind: 'note',
         id: 'note.completionAlertPartial',
-        body: 'One or more iOS notification options are off. Bloom can still chime while it’s open; you can adjust banners, sound, and Lock Screen alerts in iOS Settings.',
+        body: alertWords.alertPartial,
         status: true,
       });
     }
@@ -1323,25 +1385,16 @@ export function SettingsSheet({
 
         {liveActivityStatus && (
           <div className="set-note live-activity-note">
-            <strong>Live Activity</strong>
-            <span>
-              Focus and Tiny can show their mode and time remaining on the Lock Screen and, on
-              supported iPhones, the Dynamic Island. Task text never appears, and no Bloom server
-              is involved.
-            </span>
+            <strong>{alertWords.liveTitle}</strong>
+            <span>{alertWords.liveWhat}</span>
             {liveActivityChecking ? (
-              <span role="status">Checking your iOS Live Activity setting…</span>
+              <span role="status">{alertWords.liveChecking}</span>
             ) : !liveActivityStatus.supported ? (
-              <span role="status">
-                Live Activities aren’t available on this iOS version. Your timer still works
-                normally.
-              </span>
+              <span role="status">{alertWords.liveUnsupported}</span>
             ) : !liveActivityStatus.enabled ? (
-              <span role="status">
-                Live Activities are off in iOS Settings. Your timer still works normally.
-              </span>
+              <span role="status">{alertWords.liveDisabled}</span>
             ) : (
-              <span>Live Activities follow your iOS Settings and work without internet access.</span>
+              <span>{alertWords.liveEnabled}</span>
             )}
           </div>
         )}
@@ -1354,11 +1407,7 @@ export function SettingsSheet({
         )}
         {settings.sound && completionAlertStatus.permission === 'prompt' && (
           <div className="set-note">
-            <span>
-              Bloom can chime while it’s open. Allow notifications so iOS can deliver a timer alert
-              while Bloom is in the background or your device is locked. Silent Mode, Focus, and
-              your notification settings still apply.
-            </span>
+            <span>{alertWords.alertPrompt}</span>
             <button
               className="mini-btn completion-alert-permission"
               type="button"
@@ -1370,7 +1419,7 @@ export function SettingsSheet({
         )}
         {settings.sound && completionAlertStatus.permission === 'denied' && (
           <div className="set-note" role="status">
-            Timer alerts are off in iOS Settings. Bloom can still chime while it’s open.
+            {alertWords.alertDenied}
           </div>
         )}
         {settings.sound && completionAlertStatus.permission === 'unavailable' && (
@@ -1385,8 +1434,7 @@ export function SettingsSheet({
             !completionAlertStatus.soundsEnabled ||
             !completionAlertStatus.lockScreenEnabled) && (
             <div className="set-note" role="status">
-              One or more iOS notification options are off. Bloom can still chime while it’s
-              open; you can adjust banners, sound, and Lock Screen alerts in iOS Settings.
+              {alertWords.alertPartial}
             </div>
           )}
         {alarmNote && (

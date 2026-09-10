@@ -94,6 +94,17 @@ The application ID `dev.bloom.pomodoro` is permanent. Web changes reach the nati
 together, and must never be regenerated for a published app. Follow `docs/android-release.md` for
 every first release and update.
 
+A finished timer has to reach someone who has put the phone down, and neither WebView keeps
+running to deliver it. Two JS contracts in `src/native/` are therefore implemented by **both**
+native shells and inert in the browser: `completionAlerts.ts` (`BloomCompletionAlert` — the
+scheduled finish alert; UserNotifications on iOS, AlarmManager plus one notification on Android)
+and `liveActivity.ts` (`BloomLiveActivity` — the live countdown; ActivityKit on iOS, an ongoing
+chronometer notification on Android). Both mirror a reducer-owned deadline and report how the cue
+was presented, so React never plays a second one; neither is ever a second timer authority.
+AlarmKit (`iosAlarm.ts`) stays iOS-only. Copy that names a system surface goes through
+`osName()`/`systemSettingsName()` in `src/content/platformWords.ts` — telling a Pixel owner to open
+iOS Settings is advice they cannot follow.
+
 On iOS, the bottom navigation and the Focus/Collection segmented rails are **native UIKit
 `UITabBar` controls**, not web elements — UIKit owns the Liquid Glass material, the moving selection
 lens, and the accessibility adaptations. A typed two-way bridge in `src/native/` syncs selection with

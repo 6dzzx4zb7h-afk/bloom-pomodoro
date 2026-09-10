@@ -2,8 +2,8 @@
 
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { IOSCompletionAlertStatus } from '../native/iosCompletionAlerts';
-import type { IOSLiveActivityStatus } from '../native/iosLiveActivity';
+import type { CompletionAlertStatus } from '../native/completionAlerts';
+import type { LiveActivityStatus } from '../native/liveActivity';
 import type { IOSAlarmStatus } from '../native/iosAlarm';
 import { EMPTY_PERSONAL_CADENCE } from '../insights/cadence';
 import { DEFAULT_RITUAL } from '../store/ritual';
@@ -13,14 +13,35 @@ import {
 } from '../store/useBloom';
 import { SettingsSheet } from './SettingsSheet';
 
-const unsupported: IOSCompletionAlertStatus = {
+/**
+ * Both native shells implement the same alert contract, so what changes
+ * between them is what the notes call the system surface. Only the naming
+ * helpers are mocked — the sheet's branching is the thing under test, and the
+ * helpers themselves are covered in `src/content/platformWords.test.ts`.
+ */
+const nativeOS = vi.hoisted(() => ({ current: 'ios' as 'ios' | 'android' }));
+vi.mock('../content/platformWords', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../content/platformWords')>();
+  return {
+    ...actual,
+    currentNativeOS: () => nativeOS.current,
+    osName: () => (nativeOS.current === 'android' ? 'Android' : 'iOS'),
+    systemSettingsName: () =>
+      nativeOS.current === 'android' ? 'Android Settings' : 'iOS Settings',
+  };
+});
+
+const unsupported: CompletionAlertStatus = {
   permission: 'unsupported',
   alertsEnabled: false,
   soundsEnabled: false,
   lockScreenEnabled: false,
 };
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  nativeOS.current = 'ios';
+});
 
 function renderSettings({
   status = unsupported,
@@ -29,9 +50,9 @@ function renderSettings({
   liveActivityChecking = false,
   alarmStatus,
 }: {
-  status?: IOSCompletionAlertStatus;
+  status?: CompletionAlertStatus;
   sound?: boolean;
-  liveActivityStatus?: IOSLiveActivityStatus;
+  liveActivityStatus?: LiveActivityStatus;
   liveActivityChecking?: boolean;
   alarmStatus?: IOSAlarmStatus;
 } = {}) {
@@ -120,7 +141,7 @@ describe('Settings completion-alert permission state', () => {
   });
 
   it('previews Ring when done without bypassing the native permission explanation', () => {
-    const status: IOSCompletionAlertStatus = {
+    const status: CompletionAlertStatus = {
       permission: 'prompt',
       alertsEnabled: false,
       soundsEnabled: false,
@@ -164,6 +185,61 @@ describe('Settings completion-alert permission state', () => {
     expect(screen.getByText(/Live Activities are off in iOS Settings/).getAttribute('role'))
       .toBe('status');
     expect(screen.getByText(/Your timer still works normally/)).toBeTruthy();
+  });
+});
+
+describe('Settings completion-alert notes on Android', () => {
+  it('names Android Settings, which is where the reader can actually go', () => {
+    nativeOS.current = 'android';
+    renderSettings({
+      status: {
+        permission: 'denied',
+        alertsEnabled: false,
+        soundsEnabled: false,
+        lockScreenEnabled: false,
+      },
+    });
+
+    expect(
+      screen.getByText(/Timer alerts are off in Android Settings/).getAttribute('role'),
+    ).toBe('status');
+    expect(screen.queryByText(/iOS Settings/)).toBeNull();
+  });
+
+  it('asks for the same permission in the words of the system that grants it', () => {
+    nativeOS.current = 'android';
+    const { requested } = renderSettings({
+      status: {
+        permission: 'prompt',
+        alertsEnabled: false,
+        soundsEnabled: false,
+        lockScreenEnabled: false,
+      },
+    });
+
+    expect(
+      screen.getByText(/Allow notifications so Android can deliver a timer alert/),
+    ).toBeTruthy();
+    // Silent Mode and Focus are iOS features; Android's equivalent is DND.
+    expect(screen.getByText(/Do Not Disturb/)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'allow notifications' }));
+    expect(requested).toHaveBeenCalledTimes(1);
+  });
+
+  it('describes the ongoing countdown rather than a Lock Screen Live Activity', () => {
+    nativeOS.current = 'android';
+    renderSettings({
+      liveActivityStatus: { supported: true, enabled: true, active: false },
+    });
+
+    expect(screen.getByText('Session in progress')).toBeTruthy();
+    expect(
+      screen.getByText(/keeps counting while Bloom is in the background/),
+    ).toBeTruthy();
+    // The same privacy promise the iOS surface makes.
+    expect(screen.getByText(/Task text never appears/)).toBeTruthy();
+    expect(screen.getByText(/no Bloom server is involved/)).toBeTruthy();
+    expect(screen.queryByText(/Dynamic Island/)).toBeNull();
   });
 });
 

@@ -65,3 +65,34 @@ export function currentSurface(): Surface {
 export function platformWords(): PlatformWords {
   return wordsFor(currentSurface());
 }
+
+/**
+ * Which native shell is running, for copy that names a system surface the
+ * reader has to go and find. `docs/voice.md` asks for advice a reader can act
+ * on, and "adjust it in iOS Settings" is not actionable on a Pixel.
+ *
+ * This is only about naming. Capability differences belong in the native
+ * modules, which report their own status.
+ */
+export type NativeOS = 'ios' | 'android' | 'none';
+
+export function currentNativeOS(): NativeOS {
+  const platform = Capacitor.getPlatform();
+  return platform === 'ios' || platform === 'android' ? platform : 'none';
+}
+
+/** What to call the OS itself: "iOS can ring…", "Android can ring…". */
+export function osName(): string {
+  const os = currentNativeOS();
+  return os === 'ios' ? 'iOS' : os === 'android' ? 'Android' : 'your device';
+}
+
+/** Where a person changes a system-owned permission for Bloom. */
+export function systemSettingsName(): string {
+  const os = currentNativeOS();
+  return os === 'ios'
+    ? 'iOS Settings'
+    : os === 'android'
+      ? 'Android Settings'
+      : 'your device settings';
+}

@@ -93,6 +93,20 @@ has now shipped and is verified on device simulators:
 - ~~**Live Activities** (`13.8`)~~ — **shipped**, and went further than scoped. Lock Screen and
   Dynamic Island countdown with pause/resume, App Intents, a native command channel back into the
   reducer, and AlarmKit prominent finish alarms. Local-only, no server.
+- ~~**Android alerting parity**~~ — **shipped** (September 10, 2026). Android had no way to tell
+  anyone a timer had finished: the WebView has no Notification API, Android freezes it in the
+  background, and the Web Audio chime cannot sound from a frozen page — so a session that ended
+  while the phone was face down ended silently. Android now implements the same two JS contracts
+  iOS does. `BloomCompletionAlertPlugin` schedules one `setAlarmClock` exact alarm at the
+  reducer's deadline and posts a high-importance notification carrying the same completion cue the
+  iOS notification and the Web Audio chime are generated from; `BloomLiveActivityPlugin` posts the
+  running countdown as an ongoing chronometer notification the system ticks while the WebView is
+  frozen. Both stand down when Bloom is in the foreground, so one finish is still one cue.
+  Deliberately no foreground service: the alarm is held by the system, so nothing needs the process
+  to stay alive.
+- **Ambient sound while focusing** — **not built, and not a platform gap.** Soundscapes were
+  removed in `12.1` and no platform has them; `settings.sound` is the completion chime alone.
+  Adding them back is a product decision, not Android parity work.
 - **Native presentations** (`13.5`) — **the remaining native-depth work.** Settings is native; the
   rest of the app still presents through the web `Dialog` component. Inventory every dialog, sheet
   and menu, then decide native-vs-web per surface rather than converting wholesale — each

@@ -1,15 +1,22 @@
 import type { AnimalKind } from '../engine/pixelpals';
 
 /**
- * How a friend is drawn on the home screen (PLAN 13.9).
+ * How a friend is drawn on the home screen (PLAN 13.9, 13.18).
  *
  * `icon` is the iOS asset-catalog name for that friend's app icon; `null` marks
  * the friend whose art is the app's primary icon, which is what
  * `setAlternateIconName(nil)` restores. `from`/`to` are the icon gradient
  * corners — deeper than the pale card tiles so the sprite still reads at 60pt.
+ *
+ * Android has no primary/alternate split: every friend is an `<activity-alias>`
+ * carrying its own launcher art, and exactly one of them is enabled at a time.
+ * `alias` is that alias's short class name (relative to the application id) and
+ * `res` is the mipmap base name `gen-icons.mjs` writes for it.
  */
 export interface FriendAppIcon {
   icon: string | null;
+  alias: string;
+  res: string;
   from: string;
   to: string;
 }
@@ -37,7 +44,13 @@ export const FRIENDS: Friend[] = [
     tileNight: '#46315c',
     blurb: 'your first friend',
     // Mochi wears Bloom's own gradient and is the primary app icon.
-    appIcon: { icon: null, from: '#3fbfae', to: '#215f78' },
+    appIcon: {
+      icon: null,
+      alias: 'BloomMochi',
+      res: 'ic_launcher_mochi',
+      from: '#3fbfae',
+      to: '#215f78',
+    },
   },
   {
     name: 'Pudding',
@@ -45,7 +58,13 @@ export const FRIENDS: Friend[] = [
     tile: '#f3eefb',
     tileNight: '#3b2f66',
     blurb: 'naps professionally',
-    appIcon: { icon: 'AppIcon-Pudding', from: '#8f7bea', to: '#3f3480' },
+    appIcon: {
+      icon: 'AppIcon-Pudding',
+      alias: 'BloomPudding',
+      res: 'ic_launcher_pudding',
+      from: '#8f7bea',
+      to: '#3f3480',
+    },
   },
   {
     name: 'Biscuit',
@@ -53,7 +72,13 @@ export const FRIENDS: Friend[] = [
     tile: '#fff7e6',
     tileNight: '#463b5a',
     blurb: 'waddles with purpose',
-    appIcon: { icon: 'AppIcon-Biscuit', from: '#f2b154', to: '#a4522b' },
+    appIcon: {
+      icon: 'AppIcon-Biscuit',
+      alias: 'BloomBiscuit',
+      res: 'ic_launcher_biscuit',
+      from: '#f2b154',
+      to: '#a4522b',
+    },
   },
   {
     name: 'Luna',
@@ -61,7 +86,13 @@ export const FRIENDS: Friend[] = [
     tile: '#eef4fd',
     tileNight: '#323a6a',
     blurb: 'wise little night owl',
-    appIcon: { icon: 'AppIcon-Luna', from: '#6f8fe0', to: '#252f6b' },
+    appIcon: {
+      icon: 'AppIcon-Luna',
+      alias: 'BloomLuna',
+      res: 'ic_launcher_luna',
+      from: '#6f8fe0',
+      to: '#252f6b',
+    },
   },
   {
     name: 'Snappy',
@@ -69,7 +100,13 @@ export const FRIENDS: Friend[] = [
     tile: '#ffecec',
     tileNight: '#4c3157',
     blurb: 'pinches with love',
-    appIcon: { icon: 'AppIcon-Snappy', from: '#ff9d6e', to: '#a83a2e' },
+    appIcon: {
+      icon: 'AppIcon-Snappy',
+      alias: 'BloomSnappy',
+      res: 'ic_launcher_snappy',
+      from: '#ff9d6e',
+      to: '#a83a2e',
+    },
   },
   {
     name: 'Coral',
@@ -77,7 +114,13 @@ export const FRIENDS: Friend[] = [
     tile: '#ffeee6',
     tileNight: '#4a3854',
     blurb: 'eight arms, all hugs',
-    appIcon: { icon: 'AppIcon-Coral', from: '#9ec96b', to: '#33663f' },
+    appIcon: {
+      icon: 'AppIcon-Coral',
+      alias: 'BloomCoral',
+      res: 'ic_launcher_coral',
+      from: '#9ec96b',
+      to: '#33663f',
+    },
   },
 ];
 
@@ -88,6 +131,16 @@ export const FRIENDS: Friend[] = [
  */
 export function appIconNameForFriend(name: string): string | null {
   return friendByName(name).appIcon.icon;
+}
+
+/**
+ * The Android launcher alias for whoever is on duty (PLAN 13.18). There is no
+ * "primary" alias to fall back to the way iOS has one: exactly one alias is
+ * enabled at a time, so this always names a friend. An unknown name falls back
+ * to the first friend, matching `friendByName`.
+ */
+export function appIconAliasForFriend(name: string): string {
+  return friendByName(name).appIcon.alias;
 }
 
 export const MAX_LEVEL = 20;

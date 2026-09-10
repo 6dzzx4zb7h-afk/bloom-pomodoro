@@ -127,12 +127,17 @@ const FRIEND_DIAL = { r: 382, w: 54, box: 600 };
  *            flat greys here rather than translucent white so it survives that
  *            mapping instead of dissolving into the backdrop.
  */
-function friendIconSvg(friend, variant = 'light') {
+function friendIconSvg(friend, variant = 'light', options = {}) {
+  // `box` shrinks the sprite (Android's adaptive foreground has a smaller safe
+  // zone than a full-bleed iOS icon) and `shape` rounds the light background:
+  // 'square' for iOS and Android's adaptive layer, 'rounded'/'circle' for the
+  // legacy pre-API-26 launcher PNGs, which are drawn unmasked.
+  const { r, w } = FRIEND_DIAL;
+  const { box = FRIEND_DIAL.box, shape = 'square', watermark = true } = options;
   const rows = SPRITES[friend.sprite];
   const cols = Math.max(...rows.map((r) => r.length));
   // Fit the sprite inside a square box rather than scaling by one axis, so a
   // wide friend (crab) and a tall one (bunny) end up optically the same size.
-  const { r, w, box } = FRIEND_DIAL;
   const cell = Math.floor(Math.min(box / cols, box / rows.length));
   const spriteW = cell * cols;
   const spriteH = cell * rows.length;
@@ -158,14 +163,20 @@ function friendIconSvg(friend, variant = 'light') {
     const ink = tinted
       ? { track: '#5c5c5c', arc: '#efefef' }
       : { track: 'rgba(255, 255, 255, 0.20)', arc: BRAND.arc };
+    // Android's adaptive foreground carries the sprite alone: its background
+    // layer already draws the dial, and the launcher mask crops both layers.
+    const mark = watermark
+      ? `<g transform="translate(${S / 2},${S / 2})">${dial({ r, w, ...ink })}</g>`
+      : '';
     return `<svg xmlns="http://www.w3.org/2000/svg" width="${S}" height="${S}" viewBox="0 0 ${S} ${S}">
-      <g transform="translate(${S / 2},${S / 2})">${dial({ r, w, ...ink })}</g>
+      ${mark}
       <g shape-rendering="crispEdges">${pixels.join('')}</g>
     </svg>`;
   }
 
   // A soft contact shadow keeps the sprite from floating on the gradient.
   const shadow = `<ellipse cx="${S / 2}" cy="${originY + spriteH - cell * 0.35}" rx="${spriteW * 0.4}" ry="${cell * 0.7}" fill="#243b45" opacity="0.16"/>`;
+  const rx = shape === 'circle' ? S / 2 : shape === 'rounded' ? 230 : 0;
 
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${S}" height="${S}" viewBox="0 0 ${S} ${S}">
     <defs>
@@ -174,10 +185,30 @@ function friendIconSvg(friend, variant = 'light') {
         <stop offset="1" stop-color="${friend.appIcon.to}"/>
       </linearGradient>
     </defs>
-    <rect width="${S}" height="${S}" fill="url(#bg)"/>
+    <rect width="${S}" height="${S}" rx="${rx}" fill="url(#bg)"/>
     <g transform="translate(${S / 2},${S / 2})">${dial({ r, w })}</g>
     ${shadow}
     <g shape-rendering="crispEdges">${pixels.join('')}</g>
+  </svg>`;
+}
+
+/**
+ * The background layer of a friend's Android adaptive icon (PLAN 13.18): their
+ * gradient and Bloom's timer dial, full-bleed and spriteless. The dial
+ * belongs here rather than in the foreground because the launcher mask crops
+ * both layers — cropping a translucent ring against the mask edge
+ * looks like a mistake, while cropping a full-bleed background is the point.
+ */
+function friendAdaptiveBackgroundSvg(friend) {
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${S}" height="${S}" viewBox="0 0 ${S} ${S}">
+    <defs>
+      <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0" stop-color="${friend.appIcon.from}"/>
+        <stop offset="1" stop-color="${friend.appIcon.to}"/>
+      </linearGradient>
+    </defs>
+    <rect width="${S}" height="${S}" fill="url(#bg)"/>
+    <g transform="translate(${S / 2},${S / 2})">${dial(FRIEND_DIAL)}</g>
   </svg>`;
 }
 
@@ -253,6 +284,65 @@ if (existsSync(androidRes)) {
   for (const [directory, [width, height]] of Object.entries(splashSizes)) {
     nativeJobs.push(png(splash, width, height, resolve(androidRes, directory, 'splash.png')));
   }
+
+  // ---- Android launcher art, one set per friend (PLAN 13.18) ----
+  //
+  // Android has no alternate-icon API, so each friend is an <activity-alias>
+  // with its own icon: an adaptive icon for API 26+, plus legacy square and
+  // round PNGs for API 24–25, which draw the tile unmasked.
+  //
+  // The adaptive foreground reuses the 'dark' variant — the sprite alone on
+  // transparency — because the gradient and watermark live in the background
+  // layer. The sprite is fitted to the 66/108 safe zone so no mask can clip it.
+  const ADAPTIVE_BOX = 450;
+  for (const friend of FRIENDS) {
+    const res = friend.appIcon.res;
+    const foreground = friendIconSvg(friend, 'dark', {
+      box: ADAPTIVE_BOX,
+      watermark: false,
+    });
+    const background = friendAdaptiveBackgroundSvg(friend);
+    const legacySquare = friendIconSvg(friend, 'light', { shape: 'rounded' });
+    const legacyRound = friendIconSvg(friend, 'light', { shape: 'circle' });
+
+    for (const [directory, [legacySize, foregroundSize]] of Object.entries(launcherSizes)) {
+      const outputDir = resolve(androidRes, directory);
+      nativeJobs.push(png(legacySquare, legacySize, legacySize, resolve(outputDir, `${res}.png`)));
+      nativeJobs.push(
+        png(legacyRound, legacySize, legacySize, resolve(outputDir, `${res}_round.png`)),
+      );
+      nativeJobs.push(
+        png(
+          foreground,
+          foregroundSize,
+          foregroundSize,
+          resolve(outputDir, `${res}_foreground.png`),
+        ),
+      );
+      nativeJobs.push(
+        png(
+          background,
+          foregroundSize,
+          foregroundSize,
+          resolve(outputDir, `${res}_background.png`),
+        ),
+      );
+    }
+
+    const adaptive = `<?xml version="1.0" encoding="utf-8"?>
+<!-- Generated by scripts/gen-icons.mjs (PLAN 13.18) — do not edit by hand. -->
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@mipmap/${res}_background"/>
+    <foreground android:drawable="@mipmap/${res}_foreground"/>
+</adaptive-icon>
+`;
+    mkdirSync(resolve(androidRes, 'mipmap-anydpi-v26'), { recursive: true });
+    for (const name of [`${res}.xml`, `${res}_round.xml`]) {
+      writeFileSync(resolve(androidRes, 'mipmap-anydpi-v26', name), adaptive);
+    }
+    console.log('wrote Android launcher art for', friend.name);
+  }
+
   await Promise.all(nativeJobs);
   console.log('wrote android launcher icons and splashes');
 }

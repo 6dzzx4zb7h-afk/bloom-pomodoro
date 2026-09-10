@@ -20,7 +20,7 @@ import {
   isNativeTabScreen,
   listenForNativeIOSTabSelection,
 } from './native/iosTabs';
-import { isNativeAppIconPlatform, selectNativeAppIcon } from './native/iosAppIcon';
+import { isNativeAppIconPlatform, selectNativeAppIcon } from './native/appIcon';
 
 export default function App() {
   const bloom = useBloom();
@@ -160,8 +160,9 @@ export default function App() {
     };
   }, [focusOverlayOpen, needsName, night, screen, showGoals]);
 
-  // PLAN 13.9: the iOS home-screen icon shows whoever is on duty. The store
-  // stays the authority; this only mirrors its choice onto the app icon.
+  // PLAN 13.9/13.18: the iOS and Android home-screen icon shows whoever is on
+  // duty. The store stays the authority; this only mirrors its choice onto the
+  // app icon.
   useEffect(() => {
     if (!isNativeAppIconPlatform()) return;
 
@@ -173,7 +174,8 @@ export default function App() {
 
     reconcile();
     // iOS refuses an icon change while the app is in the background, so try
-    // again the next time Bloom comes forward.
+    // again the next time Bloom comes forward. Android accepts it either way,
+    // and a repeat request for the icon already showing is a no-op there too.
     document.addEventListener('visibilitychange', reconcile);
     return () => {
       disposed = true;

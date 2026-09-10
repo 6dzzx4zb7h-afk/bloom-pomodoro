@@ -3,24 +3,24 @@
 import { act, render, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
-  IOSCompletionAlertPresentation,
-  IOSCompletionAlertStatus,
-} from '../native/iosCompletionAlerts';
+  CompletionAlertPresentation,
+  CompletionAlertStatus,
+} from '../native/completionAlerts';
 
-const reconcileIOSCompletionAlert = vi.fn(async () => ({
+const reconcileCompletionAlert = vi.fn(async () => ({
   scheduled: true,
   permission: 'granted' as const,
 }));
-const consumeIOSCompletionAlertDelivery = vi.fn<
-  () => Promise<IOSCompletionAlertPresentation>
+const consumeCompletionAlertDelivery = vi.fn<
+  () => Promise<CompletionAlertPresentation>
 >(async () => 'none');
-const readIOSCompletionAlertStatus = vi.fn<() => Promise<IOSCompletionAlertStatus>>(async () => ({
+const readCompletionAlertStatus = vi.fn<() => Promise<CompletionAlertStatus>>(async () => ({
   permission: 'granted' as const,
   alertsEnabled: true,
   soundsEnabled: true,
   lockScreenEnabled: true,
 }));
-const requestIOSCompletionAlertPermission = vi.fn<() => Promise<IOSCompletionAlertStatus>>(
+const requestCompletionAlertPermission = vi.fn<() => Promise<CompletionAlertStatus>>(
   async () => ({
   permission: 'granted' as const,
   alertsEnabled: true,
@@ -29,12 +29,12 @@ const requestIOSCompletionAlertPermission = vi.fn<() => Promise<IOSCompletionAle
   }),
 );
 
-vi.mock('../native/iosCompletionAlerts', () => ({
-  consumeIOSCompletionAlertDelivery,
-  isIOSCompletionAlertPlatform: () => true,
-  readIOSCompletionAlertStatus,
-  reconcileIOSCompletionAlert,
-  requestIOSCompletionAlertPermission,
+vi.mock('../native/completionAlerts', () => ({
+  consumeCompletionAlertDelivery,
+  isCompletionAlertPlatform: () => true,
+  readCompletionAlertStatus,
+  reconcileCompletionAlert,
+  requestCompletionAlertPermission,
   UNSUPPORTED_COMPLETION_ALERT_STATUS: {
     permission: 'unsupported',
     alertsEnabled: false,
@@ -67,20 +67,20 @@ function Harness() {
 describe('useBloom native completion-alert reconciliation', () => {
   beforeEach(() => {
     localStorage.clear();
-    reconcileIOSCompletionAlert.mockClear();
-    readIOSCompletionAlertStatus.mockClear();
-    requestIOSCompletionAlertPermission.mockClear();
-    consumeIOSCompletionAlertDelivery.mockReset().mockResolvedValue('none');
+    reconcileCompletionAlert.mockClear();
+    readCompletionAlertStatus.mockClear();
+    requestCompletionAlertPermission.mockClear();
+    consumeCompletionAlertDelivery.mockReset().mockResolvedValue('none');
     playRing.mockClear();
     resumeAudio.mockClear();
     notify.mockClear();
-    readIOSCompletionAlertStatus.mockResolvedValue({
+    readCompletionAlertStatus.mockResolvedValue({
       permission: 'granted',
       alertsEnabled: true,
       soundsEnabled: true,
       lockScreenEnabled: true,
     });
-    requestIOSCompletionAlertPermission.mockResolvedValue({
+    requestCompletionAlertPermission.mockResolvedValue({
       permission: 'granted',
       alertsEnabled: true,
       soundsEnabled: true,
@@ -90,12 +90,12 @@ describe('useBloom native completion-alert reconciliation', () => {
 
   it('replaces and cancels from reducer-owned start, pause, resume, and reset state', async () => {
     render(<Harness />);
-    await waitFor(() => expect(readIOSCompletionAlertStatus).toHaveBeenCalled());
-    reconcileIOSCompletionAlert.mockClear();
+    await waitFor(() => expect(readCompletionAlertStatus).toHaveBeenCalled());
+    reconcileCompletionAlert.mockClear();
 
     act(() => bloom.actions.toggle());
     await waitFor(() =>
-      expect(reconcileIOSCompletionAlert).toHaveBeenLastCalledWith(
+      expect(reconcileCompletionAlert).toHaveBeenLastCalledWith(
         expect.objectContaining({
           enabled: true,
           running: true,
@@ -108,7 +108,7 @@ describe('useBloom native completion-alert reconciliation', () => {
 
     act(() => bloom.actions.toggle());
     await waitFor(() =>
-      expect(reconcileIOSCompletionAlert).toHaveBeenLastCalledWith({
+      expect(reconcileCompletionAlert).toHaveBeenLastCalledWith({
         enabled: true,
         running: false,
         mode: 'focus',
@@ -123,7 +123,7 @@ describe('useBloom native completion-alert reconciliation', () => {
 
     act(() => bloom.actions.reset());
     await waitFor(() =>
-      expect(reconcileIOSCompletionAlert).toHaveBeenLastCalledWith({
+      expect(reconcileCompletionAlert).toHaveBeenLastCalledWith({
         enabled: true,
         running: false,
         mode: 'focus',
@@ -139,14 +139,14 @@ describe('useBloom native completion-alert reconciliation', () => {
 
     act(() => bloom.actions.patchSettings({ sound: false }));
     await waitFor(() =>
-      expect(reconcileIOSCompletionAlert).toHaveBeenLastCalledWith(
+      expect(reconcileCompletionAlert).toHaveBeenLastCalledWith(
         expect.objectContaining({ enabled: false, running: true }),
       ),
     );
   });
 
   it('starts the countdown before showing a skippable first-use primer', async () => {
-    readIOSCompletionAlertStatus.mockResolvedValue({
+    readCompletionAlertStatus.mockResolvedValue({
       permission: 'prompt',
       alertsEnabled: false,
       soundsEnabled: false,
@@ -162,11 +162,11 @@ describe('useBloom native completion-alert reconciliation', () => {
     act(() => bloom.completionAlerts.dismissPrimer());
     expect(bloom.completionAlerts.primerOpen).toBe(false);
     expect(bloom.state.running).toBe(true);
-    expect(requestIOSCompletionAlertPermission).not.toHaveBeenCalled();
+    expect(requestCompletionAlertPermission).not.toHaveBeenCalled();
   });
 
   it('schedules the already-running countdown after permission is accepted', async () => {
-    readIOSCompletionAlertStatus.mockResolvedValue({
+    readCompletionAlertStatus.mockResolvedValue({
       permission: 'prompt',
       alertsEnabled: false,
       soundsEnabled: false,
@@ -175,7 +175,7 @@ describe('useBloom native completion-alert reconciliation', () => {
     render(<Harness />);
     act(() => bloom.actions.toggle());
     await waitFor(() => expect(bloom.completionAlerts.primerOpen).toBe(true));
-    reconcileIOSCompletionAlert.mockClear();
+    reconcileCompletionAlert.mockClear();
 
     await act(async () => {
       await bloom.completionAlerts.requestPermission();
@@ -183,7 +183,7 @@ describe('useBloom native completion-alert reconciliation', () => {
 
     expect(bloom.completionAlerts.status.permission).toBe('granted');
     await waitFor(() =>
-      expect(reconcileIOSCompletionAlert).toHaveBeenLastCalledWith(
+      expect(reconcileCompletionAlert).toHaveBeenLastCalledWith(
         expect.objectContaining({
           enabled: true,
           running: true,
@@ -196,7 +196,7 @@ describe('useBloom native completion-alert reconciliation', () => {
   it('does not replay Web Audio after iOS owned a background completion', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-08-03T12:00:00Z'));
-    consumeIOSCompletionAlertDelivery.mockResolvedValue('background-system');
+    consumeCompletionAlertDelivery.mockResolvedValue('background-system');
     try {
       render(<Harness />);
       act(() => bloom.actions.toggle());
@@ -211,7 +211,7 @@ describe('useBloom native completion-alert reconciliation', () => {
       });
 
       expect(bloom.state.justDone).toBe(true);
-      expect(consumeIOSCompletionAlertDelivery).toHaveBeenCalledWith(deadlineMs);
+      expect(consumeCompletionAlertDelivery).toHaveBeenCalledWith(deadlineMs);
       expect(playRing).not.toHaveBeenCalled();
       expect(notify).not.toHaveBeenCalled();
     } finally {
@@ -222,7 +222,7 @@ describe('useBloom native completion-alert reconciliation', () => {
   it('plays one Web Audio cue after the native foreground presentation was suppressed', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-08-03T12:00:00Z'));
-    consumeIOSCompletionAlertDelivery.mockResolvedValue('foreground-suppressed');
+    consumeCompletionAlertDelivery.mockResolvedValue('foreground-suppressed');
     try {
       render(<Harness />);
       act(() => bloom.actions.toggle());

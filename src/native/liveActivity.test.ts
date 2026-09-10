@@ -11,10 +11,11 @@ vi.mock('@capacitor/core', () => ({
 }));
 
 const {
-  readIOSLiveActivityStatus,
-  reconcileIOSLiveActivity,
-  resetIOSLiveActivityReconciliationForTests,
-} = await import('./iosLiveActivity');
+  readLiveActivityStatus,
+  reconcileLiveActivity,
+  resetLiveActivityReconciliationForTests,
+  isLiveActivityPlatform,
+} = await import('./liveActivity');
 
 const runningSnapshot = {
   sessionId: 's-focus-1',
@@ -23,6 +24,19 @@ const runningSnapshot = {
   startedAtMs: 1_000,
   deadlineMs: 1_501_000,
 };
+
+describe('native live-countdown bridge platforms', () => {
+  it('is live on both native shells and inert in a browser', () => {
+    // Android renders the same snapshot as an ongoing notification the system
+    // ticks while the WebView is frozen — see BloomLiveActivityPlugin.java.
+    getPlatform.mockReturnValue('ios');
+    expect(isLiveActivityPlatform()).toBe(true);
+    getPlatform.mockReturnValue('android');
+    expect(isLiveActivityPlatform()).toBe(true);
+    getPlatform.mockReturnValue('web');
+    expect(isLiveActivityPlatform()).toBe(false);
+  });
+});
 
 describe('native iOS Live Activity bridge', () => {
   beforeEach(() => {
@@ -43,18 +57,18 @@ describe('native iOS Live Activity bridge', () => {
       active: false,
       changed: true,
     });
-    resetIOSLiveActivityReconciliationForTests();
+    resetLiveActivityReconciliationForTests();
   });
 
   it('is a quiet no-op on web and Android', async () => {
     getPlatform.mockReturnValue('web');
 
-    await expect(readIOSLiveActivityStatus()).resolves.toEqual({
+    await expect(readLiveActivityStatus()).resolves.toEqual({
       supported: false,
       enabled: false,
       active: false,
     });
-    await expect(reconcileIOSLiveActivity(runningSnapshot)).resolves.toEqual({
+    await expect(reconcileLiveActivity(runningSnapshot)).resolves.toEqual({
       supported: false,
       active: false,
       changed: false,
@@ -65,7 +79,7 @@ describe('native iOS Live Activity bridge', () => {
   });
 
   it('passes only bounded running-timer fields to native code', async () => {
-    await expect(reconcileIOSLiveActivity(runningSnapshot)).resolves.toEqual({
+    await expect(reconcileLiveActivity(runningSnapshot)).resolves.toEqual({
       supported: true,
       active: true,
       changed: true,
@@ -86,19 +100,19 @@ describe('native iOS Live Activity bridge', () => {
       remainingSeconds: 119,
     };
 
-    await reconcileIOSLiveActivity(paused);
+    await reconcileLiveActivity(paused);
 
     expect(reconcile).toHaveBeenCalledWith(paused);
     expect(reconcile.mock.calls[0][0]).not.toHaveProperty('deadlineMs');
   });
 
   it('ends every stale Bloom activity for terminal or malformed state', async () => {
-    await reconcileIOSLiveActivity(null);
+    await reconcileLiveActivity(null);
     expect(end).toHaveBeenLastCalledWith({ dismissal: 'immediate' });
 
     reconcile.mockClear();
     end.mockClear();
-    await reconcileIOSLiveActivity({
+    await reconcileLiveActivity({
       ...runningSnapshot,
       deadlineMs: Number.NaN,
     });
@@ -117,9 +131,9 @@ describe('native iOS Live Activity bridge', () => {
             resolve({ supported: true, enabled: true, active: true, changed: true });
         }),
     );
-    const start = reconcileIOSLiveActivity(runningSnapshot);
+    const start = reconcileLiveActivity(runningSnapshot);
     await vi.waitFor(() => expect(reconcile).toHaveBeenCalledTimes(1));
-    const terminal = reconcileIOSLiveActivity(null);
+    const terminal = reconcileLiveActivity(null);
     releaseStart?.();
     await Promise.all([start, terminal]);
 
@@ -137,7 +151,7 @@ describe('native iOS Live Activity bridge', () => {
       activityId: 'activity-1',
       sessionId: 's-focus-1',
     });
-    await expect(readIOSLiveActivityStatus()).resolves.toEqual({
+    await expect(readLiveActivityStatus()).resolves.toEqual({
       supported: true,
       enabled: true,
       active: true,
@@ -152,7 +166,7 @@ describe('native iOS Live Activity bridge', () => {
       changed: false,
       reason: 'disabled',
     });
-    await expect(reconcileIOSLiveActivity(runningSnapshot)).resolves.toEqual({
+    await expect(reconcileLiveActivity(runningSnapshot)).resolves.toEqual({
       supported: true,
       active: false,
       changed: false,
@@ -160,14 +174,14 @@ describe('native iOS Live Activity bridge', () => {
     });
 
     status.mockRejectedValue(new Error('plugin unavailable'));
-    await expect(readIOSLiveActivityStatus()).resolves.toEqual({
+    await expect(readLiveActivityStatus()).resolves.toEqual({
       supported: false,
       enabled: false,
       active: false,
     });
 
     reconcile.mockResolvedValue({ active: true });
-    await expect(reconcileIOSLiveActivity(runningSnapshot)).resolves.toEqual({
+    await expect(reconcileLiveActivity(runningSnapshot)).resolves.toEqual({
       supported: false,
       active: false,
       changed: false,

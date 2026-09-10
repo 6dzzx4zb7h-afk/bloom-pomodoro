@@ -1,6 +1,25 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!--
+      Still local-only: none of these reach the network, and Bloom continues to
+      make no application-data requests of any kind.
+
+      POST_NOTIFICATIONS is what lets a finished timer reach someone who has put
+      the phone down, and what lets the running countdown stay visible. Android
+      freezes a backgrounded WebView, so without it a finish has no way to be
+      heard at all.
+
+      The exact-alarm pair is the timer itself. USE_EXACT_ALARM is the install-
+      time permission Android grants to apps whose core function is a timer or
+      alarm clock, which is what Bloom is; SCHEDULE_EXACT_ALARM covers API 31–32,
+      where USE_EXACT_ALARM does not yet exist.
+    -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
+    <uses-permission
+        android:name="android.permission.SCHEDULE_EXACT_ALARM"
+        android:maxSdkVersion="32" />
     <application
         android:allowBackup="false"
         android:dataExtractionRules="@xml/data_extraction_rules"
@@ -19,13 +38,107 @@
             android:theme="@style/AppTheme.NoActionBarLaunch"
             android:launchMode="singleTask"
             android:exported="true">
+        </activity>
 
+        <!--
+          PLAN 13.18: one launcher alias per friend, each carrying that friend's
+          art. Exactly one is enabled at a time — Mochi by default, matching the
+          default `settings.pal` — and BloomAppIconPlugin switches which. The
+          MAIN/LAUNCHER filter lives here rather than on MainActivity so there is
+          never a second, friendless Bloom entry in the launcher.
+        -->
+        <activity-alias
+            android:name=".BloomMochi"
+            android:targetActivity=".MainActivity"
+            android:enabled="true"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher_mochi"
+            android:roundIcon="@mipmap/ic_launcher_mochi_round"
+            android:label="@string/title_activity_main">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+        </activity-alias>
 
-        </activity>
+        <activity-alias
+            android:name=".BloomPudding"
+            android:targetActivity=".MainActivity"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher_pudding"
+            android:roundIcon="@mipmap/ic_launcher_pudding_round"
+            android:label="@string/title_activity_main">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <activity-alias
+            android:name=".BloomBiscuit"
+            android:targetActivity=".MainActivity"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher_biscuit"
+            android:roundIcon="@mipmap/ic_launcher_biscuit_round"
+            android:label="@string/title_activity_main">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <activity-alias
+            android:name=".BloomLuna"
+            android:targetActivity=".MainActivity"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher_luna"
+            android:roundIcon="@mipmap/ic_launcher_luna_round"
+            android:label="@string/title_activity_main">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <activity-alias
+            android:name=".BloomSnappy"
+            android:targetActivity=".MainActivity"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher_snappy"
+            android:roundIcon="@mipmap/ic_launcher_snappy_round"
+            android:label="@string/title_activity_main">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <activity-alias
+            android:name=".BloomCoral"
+            android:targetActivity=".MainActivity"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher_coral"
+            android:roundIcon="@mipmap/ic_launcher_coral_round"
+            android:label="@string/title_activity_main">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <!--
+          Fires at the reducer-owned deadline. Not exported: only Bloom's own
+          AlarmManager registration may trigger it.
+        -->
+        <receiver
+            android:name=".BloomAlarmReceiver"
+            android:exported="false"
+            android:enabled="true" />
 
         <provider
             android:name="androidx.core.content.FileProvider"
@@ -38,5 +151,4 @@
         </provider>
     </application>
 
-    <!-- PLAN 8.25: no runtime permissions; the native shell remains local-only. -->
 </manifest>

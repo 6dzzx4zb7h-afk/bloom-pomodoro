@@ -3,22 +3,22 @@ import { friendByName } from '../data/friends';
 import type { AnimalKind } from '../engine/pixelpals';
 import { audioEngine, notify } from '../engine/audio';
 import {
-  consumeIOSCompletionAlertDelivery,
-  isIOSCompletionAlertPlatform,
-  readIOSCompletionAlertStatus,
-  reconcileIOSCompletionAlert,
-  requestIOSCompletionAlertPermission,
+  consumeCompletionAlertDelivery,
+  isCompletionAlertPlatform,
+  readCompletionAlertStatus,
+  reconcileCompletionAlert,
+  requestCompletionAlertPermission as requestNativeCompletionAlertPermission,
   UNSUPPORTED_COMPLETION_ALERT_STATUS,
-  type IOSCompletionAlertStatus,
-} from '../native/iosCompletionAlerts';
+  type CompletionAlertStatus,
+} from '../native/completionAlerts';
 import {
-  isIOSLiveActivityPlatform,
-  readIOSLiveActivityStatus,
-  reconcileIOSLiveActivity,
-  type IOSLiveActivityMode,
-  type IOSLiveActivitySnapshot,
-  type IOSLiveActivityStatus,
-} from '../native/iosLiveActivity';
+  isLiveActivityPlatform,
+  readLiveActivityStatus,
+  reconcileLiveActivity,
+  type LiveActivityMode,
+  type LiveActivitySnapshot,
+  type LiveActivityStatus,
+} from '../native/liveActivity';
 import {
   cancelIOSAlarm,
   consumeIOSAlarmDelivery,
@@ -3213,8 +3213,8 @@ export function useBloom() {
   const modeRef = useRef(state.mode);
   modeRef.current = state.mode;
   const [completionAlertStatus, setCompletionAlertStatus] =
-    useState<IOSCompletionAlertStatus>(() =>
-      isIOSCompletionAlertPlatform()
+    useState<CompletionAlertStatus>(() =>
+      isCompletionAlertPlatform()
         ? {
             ...UNSUPPORTED_COMPLETION_ALERT_STATUS,
             permission: 'checking',
@@ -3321,14 +3321,14 @@ export function useBloom() {
   ]);
 
   const refreshCompletionAlertStatus = useCallback(async () => {
-    const status = await readIOSCompletionAlertStatus();
+    const status = await readCompletionAlertStatus();
     setCompletionAlertStatus(status);
     if (status.permission === 'granted') setCompletionAlertPrimerOpen(false);
     return status;
   }, []);
 
   const requestCompletionAlertPermission = useCallback(async () => {
-    const status = await requestIOSCompletionAlertPermission();
+    const status = await requestNativeCompletionAlertPermission();
     setCompletionAlertStatus(status);
     if (status.permission === 'granted') setCompletionAlertPrimerOpen(false);
     return status;
@@ -3338,12 +3338,12 @@ export function useBloom() {
     if (
       completionAlertPrimerOfferedRef.current ||
       !soundRef.current ||
-      !isIOSCompletionAlertPlatform()
+      !isCompletionAlertPlatform()
     ) {
       return;
     }
     completionAlertPrimerOfferedRef.current = true;
-    void readIOSCompletionAlertStatus().then((status) => {
+    void readCompletionAlertStatus().then((status) => {
       setCompletionAlertStatus(status);
       if (status.permission === 'prompt' || status.permission === 'unavailable') {
         setCompletionAlertPrimerOpen(true);
@@ -3354,7 +3354,7 @@ export function useBloom() {
   // Permission remains system-owned. Refresh when Bloom returns so a change
   // made in iOS Settings is reflected without adding persisted app state.
   useEffect(() => {
-    if (!isIOSCompletionAlertPlatform()) return;
+    if (!isCompletionAlertPlatform()) return;
     const refresh = () => {
       if (document.visibilityState === 'visible') void refreshCompletionAlertStatus();
     };
@@ -3372,7 +3372,7 @@ export function useBloom() {
     // Undecided keeps the notification scheduled: a duplicate pending request
     // that gets cancelled seconds later is a far smaller failure than a finish
     // with no cue at all if the alarm turns out not to be scheduled.
-    void reconcileIOSCompletionAlert({
+    void reconcileCompletionAlert({
       enabled: state.settings.sound && alarmOwnsCue !== true,
       running: state.running,
       mode: state.mode,
@@ -3469,7 +3469,7 @@ export function useBloom() {
   // bridge traffic. A null session ends stale native state after terminal
   // actions or the existing interrupted-session boot sweep.
   const liveActivitySessionId = state.openFocus?.id ?? null;
-  const liveActivityMode: IOSLiveActivityMode | null =
+  const liveActivityMode: LiveActivityMode | null =
     state.openFocus?.mode === 'focus' || state.openFocus?.mode === 'tiny'
       ? state.openFocus.mode
       : null;
@@ -3484,8 +3484,8 @@ export function useBloom() {
     liveActivityPhase === 'running' ? state.endsAt : null;
   const liveActivityRemainingSeconds =
     liveActivityPhase === 'paused' ? state.remaining : null;
-  const liveActivityPlatform = isIOSLiveActivityPlatform();
-  const [liveActivityStatus, setLiveActivityStatus] = useState<IOSLiveActivityStatus>({
+  const liveActivityPlatform = isLiveActivityPlatform();
+  const [liveActivityStatus, setLiveActivityStatus] = useState<LiveActivityStatus>({
     supported: false,
     enabled: false,
     active: false,
@@ -3494,13 +3494,13 @@ export function useBloom() {
     useState(liveActivityPlatform);
   const liveActivityMirrorRef = useRef<{
     key: string;
-    snapshot: IOSLiveActivitySnapshot | null;
+    snapshot: LiveActivitySnapshot | null;
     active: boolean | null;
   }>({ key: 'none', snapshot: null, active: null });
 
   const refreshLiveActivityStatus = useCallback(async () => {
-    if (!isIOSLiveActivityPlatform()) {
-      const unsupported: IOSLiveActivityStatus = {
+    if (!isLiveActivityPlatform()) {
+      const unsupported: LiveActivityStatus = {
         supported: false,
         enabled: false,
         active: false,
@@ -3510,17 +3510,17 @@ export function useBloom() {
       return unsupported;
     }
     setLiveActivityStatusChecking(true);
-    const status = await readIOSLiveActivityStatus();
+    const status = await readLiveActivityStatus();
     setLiveActivityStatus(status);
     setLiveActivityStatusChecking(false);
     return status;
   }, []);
 
   const mirrorLiveActivity = useCallback(
-    (snapshot: IOSLiveActivitySnapshot | null) => {
+    (snapshot: LiveActivitySnapshot | null) => {
       const key = JSON.stringify(snapshot);
       liveActivityMirrorRef.current = { key, snapshot, active: null };
-      void reconcileIOSLiveActivity(snapshot).then((result) => {
+      void reconcileLiveActivity(snapshot).then((result) => {
         if (liveActivityMirrorRef.current.key === key) {
           liveActivityMirrorRef.current.active = result.active;
           setLiveActivityStatus((status) => ({
@@ -3535,7 +3535,7 @@ export function useBloom() {
   );
 
   useEffect(() => {
-    let snapshot: IOSLiveActivitySnapshot | null = null;
+    let snapshot: LiveActivitySnapshot | null = null;
     if (
       liveActivitySessionId &&
       liveActivityMode &&
@@ -3612,8 +3612,8 @@ export function useBloom() {
             ? (await consumeIOSAlarmDelivery(completedDeadline)) === 'system-alarm'
             : false;
         const presentation =
-          completedDeadline != null && isIOSCompletionAlertPlatform()
-            ? await consumeIOSCompletionAlertDelivery(completedDeadline)
+          completedDeadline != null && isCompletionAlertPlatform()
+            ? await consumeCompletionAlertDelivery(completedDeadline)
             : 'none';
         if (
           !soundRef.current ||
@@ -3625,7 +3625,7 @@ export function useBloom() {
         audioEngine.playRing();
         // Native iOS owns its system notification. This legacy browser path
         // must never create an unfiltered duplicate inside WKWebView.
-        if (!isIOSCompletionAlertPlatform()) {
+        if (!isCompletionAlertPlatform()) {
           const notice = completionNotice(state.mode, holdsTinyOffer);
           notify(notice.title, notice.body);
         }
@@ -3737,7 +3737,7 @@ export function useBloom() {
         dispatch({ type: 'clearFocusData' });
         // Settings only exposes this action with no open work session. End any
         // orphaned system presentation as part of the same confirmed cleanup.
-        void reconcileIOSLiveActivity(null);
+        void reconcileLiveActivity(null);
         // The one place a ringing alarm is silenced on Bloom's initiative: the
         // person explicitly asked for everything here to be cleared.
         void cancelIOSAlarm(true);

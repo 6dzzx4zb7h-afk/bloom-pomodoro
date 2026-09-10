@@ -1,25 +1,25 @@
 import { Capacitor, registerPlugin } from '@capacitor/core';
 
 /** PLAN 13.8 — only bounded Focus/Tiny countdowns have a Live Activity. */
-export type IOSLiveActivityMode = 'focus' | 'tiny';
+export type LiveActivityMode = 'focus' | 'tiny';
 
-export type IOSLiveActivitySnapshot =
+export type LiveActivitySnapshot =
   | {
       sessionId: string;
-      mode: IOSLiveActivityMode;
+      mode: LiveActivityMode;
       state: 'running';
       startedAtMs: number;
       deadlineMs: number;
     }
   | {
       sessionId: string;
-      mode: IOSLiveActivityMode;
+      mode: LiveActivityMode;
       state: 'paused';
       startedAtMs: number;
       remainingSeconds: number;
     };
 
-export interface IOSLiveActivityStatus {
+export interface LiveActivityStatus {
   supported: boolean;
   enabled: boolean;
   active: boolean;
@@ -27,7 +27,7 @@ export interface IOSLiveActivityStatus {
   sessionId?: string;
 }
 
-export interface IOSLiveActivityMutationResult {
+export interface LiveActivityMutationResult {
   supported: boolean;
   active: boolean;
   changed: boolean;
@@ -35,39 +35,39 @@ export interface IOSLiveActivityMutationResult {
 }
 
 interface BloomLiveActivityPlugin {
-  status(): Promise<IOSLiveActivityStatus>;
+  status(): Promise<LiveActivityStatus>;
   reconcile(
     options:
       | {
           sessionId: string;
-          mode: IOSLiveActivityMode;
+          mode: LiveActivityMode;
           state: 'running';
           startedAtMs: number;
           deadlineMs: number;
         }
       | {
           sessionId: string;
-          mode: IOSLiveActivityMode;
+          mode: LiveActivityMode;
           state: 'paused';
           startedAtMs: number;
           remainingSeconds: number;
         },
-  ): Promise<IOSLiveActivityMutationResult & { enabled?: boolean }>;
+  ): Promise<LiveActivityMutationResult & { enabled?: boolean }>;
   end(options: {
     sessionId?: string;
     dismissal: 'immediate' | 'default';
-  }): Promise<IOSLiveActivityMutationResult>;
+  }): Promise<LiveActivityMutationResult>;
 }
 
 const bloomLiveActivity = registerPlugin<BloomLiveActivityPlugin>('BloomLiveActivity');
 
-const UNSUPPORTED_STATUS: IOSLiveActivityStatus = {
+const UNSUPPORTED_STATUS: LiveActivityStatus = {
   supported: false,
   enabled: false,
   active: false,
 };
 
-const UNSUPPORTED_MUTATION: IOSLiveActivityMutationResult = {
+const UNSUPPORTED_MUTATION: LiveActivityMutationResult = {
   supported: false,
   active: false,
   changed: false,
@@ -77,11 +77,18 @@ let reconcileGeneration = 0;
 let reconcileEpoch = 0;
 let reconcileQueue: Promise<void> = Promise.resolve();
 
-export function isIOSLiveActivityPlatform(): boolean {
-  return Capacitor.getPlatform() === 'ios';
+/**
+ * The live countdown surface. iOS renders it with ActivityKit (Lock Screen and
+ * Dynamic Island); Android renders it as an ongoing foreground-service
+ * notification, which is also what keeps the process alive while a session
+ * runs. Same reducer-owned snapshot, same reconcile/end contract.
+ */
+export function isLiveActivityPlatform(): boolean {
+  const platform = Capacitor.getPlatform();
+  return platform === 'ios' || platform === 'android';
 }
 
-function validSnapshot(snapshot: IOSLiveActivitySnapshot): boolean {
+function validSnapshot(snapshot: LiveActivitySnapshot): boolean {
   return (
     typeof snapshot.sessionId === 'string' &&
     snapshot.sessionId.trim().length > 0 &&
@@ -99,9 +106,9 @@ function validSnapshot(snapshot: IOSLiveActivitySnapshot): boolean {
   );
 }
 
-function normalizeMutation(value: unknown): IOSLiveActivityMutationResult {
+function normalizeMutation(value: unknown): LiveActivityMutationResult {
   if (!value || typeof value !== 'object') return UNSUPPORTED_MUTATION;
-  const result = value as Partial<IOSLiveActivityMutationResult>;
+  const result = value as Partial<LiveActivityMutationResult>;
   if (
     typeof result.supported !== 'boolean' ||
     typeof result.active !== 'boolean' ||
@@ -121,8 +128,8 @@ function normalizeMutation(value: unknown): IOSLiveActivityMutationResult {
  * Read system availability without prompting. ActivityKit owns its own system
  * setting; Bloom stores no permission or availability flag.
  */
-export async function readIOSLiveActivityStatus(): Promise<IOSLiveActivityStatus> {
-  if (!isIOSLiveActivityPlatform()) return UNSUPPORTED_STATUS;
+export async function readLiveActivityStatus(): Promise<LiveActivityStatus> {
+  if (!isLiveActivityPlatform()) return UNSUPPORTED_STATUS;
   try {
     const status = await bloomLiveActivity.status();
     if (
@@ -150,14 +157,14 @@ export async function readIOSLiveActivityStatus(): Promise<IOSLiveActivityStatus
  * pause, reset, or mode change. A null or malformed snapshot ends all stale
  * Bloom activities, which also reconciles the native surface after relaunch.
  */
-export function reconcileIOSLiveActivity(
-  snapshot: IOSLiveActivitySnapshot | null,
-): Promise<IOSLiveActivityMutationResult> {
+export function reconcileLiveActivity(
+  snapshot: LiveActivitySnapshot | null,
+): Promise<LiveActivityMutationResult> {
   const generation = ++reconcileGeneration;
   const epoch = reconcileEpoch;
-  if (!isIOSLiveActivityPlatform()) return Promise.resolve(UNSUPPORTED_MUTATION);
+  if (!isLiveActivityPlatform()) return Promise.resolve(UNSUPPORTED_MUTATION);
 
-  const task = reconcileQueue.then(async (): Promise<IOSLiveActivityMutationResult> => {
+  const task = reconcileQueue.then(async (): Promise<LiveActivityMutationResult> => {
     const isStale = () => generation !== reconcileGeneration || epoch !== reconcileEpoch;
     if (isStale()) return UNSUPPORTED_MUTATION;
 
@@ -182,7 +189,7 @@ export function reconcileIOSLiveActivity(
   return task;
 }
 
-export function resetIOSLiveActivityReconciliationForTests(): void {
+export function resetLiveActivityReconciliationForTests(): void {
   reconcileEpoch += 1;
   reconcileGeneration = 0;
   reconcileQueue = Promise.resolve();

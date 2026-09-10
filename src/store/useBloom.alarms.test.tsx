@@ -8,9 +8,9 @@ import type {
   IOSAlarmStatus,
 } from '../native/iosAlarm';
 import type {
-  IOSLiveActivityMutationResult,
-  IOSLiveActivitySnapshot,
-} from '../native/iosLiveActivity';
+  LiveActivityMutationResult,
+  LiveActivitySnapshot,
+} from '../native/liveActivity';
 
 const owned: IOSAlarmReconcileResult = {
   owns: true,
@@ -49,23 +49,23 @@ vi.mock('../native/iosAlarm', () => ({
   UNSUPPORTED_ALARM_STATUS: { supported: false, authorization: 'unsupported' },
 }));
 
-const reconcileIOSCompletionAlert = vi.fn(async () => ({
+const reconcileCompletionAlert = vi.fn(async () => ({
   scheduled: true,
   permission: 'granted' as const,
 }));
-const consumeIOSCompletionAlertDelivery = vi.fn(async () => 'none' as const);
+const consumeCompletionAlertDelivery = vi.fn(async () => 'none' as const);
 
-vi.mock('../native/iosCompletionAlerts', () => ({
-  consumeIOSCompletionAlertDelivery,
-  isIOSCompletionAlertPlatform: () => true,
-  readIOSCompletionAlertStatus: async () => ({
+vi.mock('../native/completionAlerts', () => ({
+  consumeCompletionAlertDelivery,
+  isCompletionAlertPlatform: () => true,
+  readCompletionAlertStatus: async () => ({
     permission: 'granted' as const,
     alertsEnabled: true,
     soundsEnabled: true,
     lockScreenEnabled: true,
   }),
-  reconcileIOSCompletionAlert,
-  requestIOSCompletionAlertPermission: async () => ({
+  reconcileCompletionAlert,
+  requestCompletionAlertPermission: async () => ({
     permission: 'granted' as const,
     alertsEnabled: true,
     soundsEnabled: true,
@@ -79,20 +79,20 @@ vi.mock('../native/iosCompletionAlerts', () => ({
   },
 }));
 
-const reconcileIOSLiveActivity = vi.fn<
+const reconcileLiveActivity = vi.fn<
   (
-    snapshot: IOSLiveActivitySnapshot | null,
-  ) => Promise<IOSLiveActivityMutationResult>
+    snapshot: LiveActivitySnapshot | null,
+  ) => Promise<LiveActivityMutationResult>
 >(async () => ({ supported: true, active: true, changed: true }));
 
-vi.mock('../native/iosLiveActivity', () => ({
-  isIOSLiveActivityPlatform: () => true,
-  readIOSLiveActivityStatus: async () => ({
+vi.mock('../native/liveActivity', () => ({
+  isLiveActivityPlatform: () => true,
+  readLiveActivityStatus: async () => ({
     supported: true,
     enabled: true,
     active: false,
   }),
-  reconcileIOSLiveActivity,
+  reconcileLiveActivity,
 }));
 
 const playRing = vi.fn();
@@ -114,7 +114,7 @@ function Harness() {
 
 /** The snapshot the generic PLAN 13.8 activity was most recently asked for. */
 function lastLiveActivitySnapshot() {
-  const calls = reconcileIOSLiveActivity.mock.calls;
+  const calls = reconcileLiveActivity.mock.calls;
   return calls.length ? calls[calls.length - 1][0] : undefined;
 }
 
@@ -126,9 +126,9 @@ describe('useBloom AlarmKit reconciliation (PLAN 13.12)', () => {
     readIOSAlarmStatus.mockClear();
     requestIOSAlarmAuthorization.mockClear();
     cancelIOSAlarm.mockClear();
-    reconcileIOSCompletionAlert.mockClear();
-    consumeIOSCompletionAlertDelivery.mockClear();
-    reconcileIOSLiveActivity.mockClear();
+    reconcileCompletionAlert.mockClear();
+    consumeCompletionAlertDelivery.mockClear();
+    reconcileLiveActivity.mockClear();
     playRing.mockClear();
     notify.mockClear();
   });
@@ -171,7 +171,7 @@ describe('useBloom AlarmKit reconciliation (PLAN 13.12)', () => {
 
     await waitFor(() => expect(bloom.alarms.owns).toBe(true));
     await waitFor(() =>
-      expect(reconcileIOSCompletionAlert).toHaveBeenLastCalledWith(
+      expect(reconcileCompletionAlert).toHaveBeenLastCalledWith(
         expect.objectContaining({ enabled: false, running: true }),
       ),
     );
@@ -187,7 +187,7 @@ describe('useBloom AlarmKit reconciliation (PLAN 13.12)', () => {
     let release: (value: IOSAlarmReconcileResult) => void = () => {};
     render(<Harness />);
     await waitFor(() => expect(bloom.alarms.status.authorization).toBe('granted'));
-    reconcileIOSLiveActivity.mockClear();
+    reconcileLiveActivity.mockClear();
     reconcileIOSAlarm.mockImplementationOnce(
       () => new Promise((resolve) => (release = resolve)),
     );
@@ -195,7 +195,7 @@ describe('useBloom AlarmKit reconciliation (PLAN 13.12)', () => {
     act(() => bloom.actions.toggle());
     // Held: no snapshot is requested while the decision is outstanding.
     expect(
-      reconcileIOSLiveActivity.mock.calls.some(([snapshot]) => snapshot !== null),
+      reconcileLiveActivity.mock.calls.some(([snapshot]) => snapshot !== null),
     ).toBe(false);
 
     await act(async () => {
@@ -203,7 +203,7 @@ describe('useBloom AlarmKit reconciliation (PLAN 13.12)', () => {
       await Promise.resolve();
     });
     expect(
-      reconcileIOSLiveActivity.mock.calls.some(([snapshot]) => snapshot !== null),
+      reconcileLiveActivity.mock.calls.some(([snapshot]) => snapshot !== null),
     ).toBe(false);
   });
 
@@ -232,7 +232,7 @@ describe('useBloom AlarmKit reconciliation (PLAN 13.12)', () => {
     act(() => bloom.actions.toggle());
 
     await waitFor(() =>
-      expect(reconcileIOSCompletionAlert).toHaveBeenLastCalledWith(
+      expect(reconcileCompletionAlert).toHaveBeenLastCalledWith(
         expect.objectContaining({ enabled: true, running: true }),
       ),
     );

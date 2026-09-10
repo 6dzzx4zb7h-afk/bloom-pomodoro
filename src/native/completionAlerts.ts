@@ -2,7 +2,7 @@ import { Capacitor, registerPlugin } from '@capacitor/core';
 import type { TimerMode } from '../store/useBloom';
 
 /** PLAN 13.11 — system-owned permission remains outside persisted Bloom data. */
-export type IOSCompletionAlertPermission =
+export type CompletionAlertPermission =
   | 'checking'
   | 'prompt'
   | 'granted'
@@ -10,21 +10,21 @@ export type IOSCompletionAlertPermission =
   | 'unavailable'
   | 'unsupported';
 
-export type IOSCompletionAlertPresentation =
+export type CompletionAlertPresentation =
   | 'foreground-suppressed'
   | 'background-system'
   | 'none';
 
-export interface IOSCompletionAlertStatus {
-  permission: IOSCompletionAlertPermission;
+export interface CompletionAlertStatus {
+  permission: CompletionAlertPermission;
   alertsEnabled: boolean;
   soundsEnabled: boolean;
   lockScreenEnabled: boolean;
 }
 
 interface BloomCompletionAlertPlugin {
-  status(): Promise<IOSCompletionAlertStatus>;
-  requestPermission(): Promise<IOSCompletionAlertStatus>;
+  status(): Promise<CompletionAlertStatus>;
+  requestPermission(): Promise<CompletionAlertStatus>;
   schedule(options: {
     deadlineMs: number;
     title: string;
@@ -33,14 +33,14 @@ interface BloomCompletionAlertPlugin {
   cancel(): Promise<void>;
   consumeDue(options: {
     deadlineMs: number;
-  }): Promise<{ presentation: IOSCompletionAlertPresentation }>;
+  }): Promise<{ presentation: CompletionAlertPresentation }>;
   pending(): Promise<{ count: number; deadlineMs?: number }>;
 }
 
 const completionAlertPlugin =
   registerPlugin<BloomCompletionAlertPlugin>('BloomCompletionAlert');
 
-export const UNSUPPORTED_COMPLETION_ALERT_STATUS: IOSCompletionAlertStatus = {
+export const UNSUPPORTED_COMPLETION_ALERT_STATUS: CompletionAlertStatus = {
   permission: 'unsupported',
   alertsEnabled: false,
   soundsEnabled: false,
@@ -48,8 +48,8 @@ export const UNSUPPORTED_COMPLETION_ALERT_STATUS: IOSCompletionAlertStatus = {
 };
 
 function normalizeStatus(
-  value: Partial<IOSCompletionAlertStatus> | undefined,
-): IOSCompletionAlertStatus {
+  value: Partial<CompletionAlertStatus> | undefined,
+): CompletionAlertStatus {
   const permission = value?.permission;
   if (
     permission !== 'prompt' &&
@@ -69,12 +69,19 @@ function normalizeStatus(
   };
 }
 
-export function isIOSCompletionAlertPlatform(): boolean {
-  return Capacitor.getPlatform() === 'ios';
+/**
+ * Both native shells implement this contract: iOS through
+ * `BloomCompletionAlertPlugin.swift` (UserNotifications), Android through
+ * `BloomCompletionAlertPlugin.java` (AlarmManager + NotificationManager).
+ * The browser has no scheduled-notice path and keeps the in-page chime.
+ */
+export function isCompletionAlertPlatform(): boolean {
+  const platform = Capacitor.getPlatform();
+  return platform === 'ios' || platform === 'android';
 }
 
-export async function readIOSCompletionAlertStatus(): Promise<IOSCompletionAlertStatus> {
-  if (!isIOSCompletionAlertPlatform()) return UNSUPPORTED_COMPLETION_ALERT_STATUS;
+export async function readCompletionAlertStatus(): Promise<CompletionAlertStatus> {
+  if (!isCompletionAlertPlatform()) return UNSUPPORTED_COMPLETION_ALERT_STATUS;
   try {
     return normalizeStatus(await completionAlertPlugin.status());
   } catch {
@@ -85,8 +92,8 @@ export async function readIOSCompletionAlertStatus(): Promise<IOSCompletionAlert
   }
 }
 
-export async function requestIOSCompletionAlertPermission(): Promise<IOSCompletionAlertStatus> {
-  if (!isIOSCompletionAlertPlatform()) return UNSUPPORTED_COMPLETION_ALERT_STATUS;
+export async function requestCompletionAlertPermission(): Promise<CompletionAlertStatus> {
+  if (!isCompletionAlertPlatform()) return UNSUPPORTED_COMPLETION_ALERT_STATUS;
   try {
     return normalizeStatus(await completionAlertPlugin.requestPermission());
   } catch {
@@ -129,16 +136,16 @@ export function scheduledCompletionNotice(
   };
 }
 
-export interface IOSCompletionAlertSnapshot {
+export interface CompletionAlertSnapshot {
   enabled: boolean;
   running: boolean;
   mode: TimerMode;
   deadlineMs: number | null;
 }
 
-export interface IOSCompletionAlertReconcileResult {
+export interface CompletionAlertReconcileResult {
   scheduled: boolean;
-  permission: IOSCompletionAlertPermission;
+  permission: CompletionAlertPermission;
 }
 
 let reconcileGeneration = 0;
@@ -152,16 +159,16 @@ let reconcileQueue: Promise<void> = Promise.resolve();
  * notification-center calls are asynchronous, so the queue is what makes the
  * stable request identifier deterministic across rapid React state changes.
  */
-export function reconcileIOSCompletionAlert(
-  snapshot: IOSCompletionAlertSnapshot,
-): Promise<IOSCompletionAlertReconcileResult> {
+export function reconcileCompletionAlert(
+  snapshot: CompletionAlertSnapshot,
+): Promise<CompletionAlertReconcileResult> {
   const generation = ++reconcileGeneration;
   const epoch = reconcileEpoch;
-  if (!isIOSCompletionAlertPlatform()) {
+  if (!isCompletionAlertPlatform()) {
     return Promise.resolve({ scheduled: false, permission: 'unsupported' });
   }
 
-  const task = reconcileQueue.then(async (): Promise<IOSCompletionAlertReconcileResult> => {
+  const task = reconcileQueue.then(async (): Promise<CompletionAlertReconcileResult> => {
     const isStale = () => generation !== reconcileGeneration || epoch !== reconcileEpoch;
     if (isStale()) return { scheduled: false, permission: 'checking' };
 
@@ -182,7 +189,7 @@ export function reconcileIOSCompletionAlert(
       return { scheduled: false, permission: 'checking' };
     }
 
-    const status = await readIOSCompletionAlertStatus();
+    const status = await readCompletionAlertStatus();
     if (isStale()) return { scheduled: false, permission: status.permission };
     if (status.permission !== 'granted') {
       try {
@@ -216,11 +223,11 @@ export function reconcileIOSCompletionAlert(
 }
 
 /** Used by native smoke tooling and focused tests; it exposes no user data. */
-export async function pendingIOSCompletionAlert(): Promise<{
+export async function pendingCompletionAlert(): Promise<{
   count: number;
   deadlineMs?: number;
 }> {
-  if (!isIOSCompletionAlertPlatform()) return { count: 0 };
+  if (!isCompletionAlertPlatform()) return { count: 0 };
   try {
     return await completionAlertPlugin.pending();
   } catch {
@@ -234,10 +241,10 @@ export async function pendingIOSCompletionAlert(): Promise<{
  * catching up on visibility. Foreground-suppressed and none keep Web Audio as
  * the one foreground cue.
  */
-export async function consumeIOSCompletionAlertDelivery(
+export async function consumeCompletionAlertDelivery(
   deadlineMs: number,
-): Promise<IOSCompletionAlertPresentation> {
-  if (!isIOSCompletionAlertPlatform() || !Number.isFinite(deadlineMs)) return 'none';
+): Promise<CompletionAlertPresentation> {
+  if (!isCompletionAlertPlatform() || !Number.isFinite(deadlineMs)) return 'none';
   try {
     const result = await completionAlertPlugin.consumeDue({ deadlineMs });
     return result.presentation === 'foreground-suppressed' ||
@@ -249,7 +256,7 @@ export async function consumeIOSCompletionAlertDelivery(
   }
 }
 
-export function resetIOSCompletionAlertReconciliationForTests(): void {
+export function resetCompletionAlertReconciliationForTests(): void {
   reconcileEpoch += 1;
   reconcileGeneration = 0;
   reconcileQueue = Promise.resolve();

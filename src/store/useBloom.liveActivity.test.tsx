@@ -3,26 +3,26 @@
 import { act, cleanup, render, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
-  IOSLiveActivityMutationResult,
-  IOSLiveActivitySnapshot,
-} from '../native/iosLiveActivity';
+  LiveActivityMutationResult,
+  LiveActivitySnapshot,
+} from '../native/liveActivity';
 
-const reconcileIOSLiveActivity = vi.fn<
+const reconcileLiveActivity = vi.fn<
   (
-    snapshot: IOSLiveActivitySnapshot | null,
-  ) => Promise<IOSLiveActivityMutationResult>
+    snapshot: LiveActivitySnapshot | null,
+  ) => Promise<LiveActivityMutationResult>
 >(async () => ({ supported: true, active: true, changed: true }));
-const isIOSLiveActivityPlatform = vi.fn(() => true);
-const readIOSLiveActivityStatus = vi.fn(async () => ({
+const isLiveActivityPlatform = vi.fn(() => true);
+const readLiveActivityStatus = vi.fn(async () => ({
   supported: true,
   enabled: true,
   active: false,
 }));
 
-vi.mock('../native/iosLiveActivity', () => ({
-  isIOSLiveActivityPlatform,
-  readIOSLiveActivityStatus,
-  reconcileIOSLiveActivity,
+vi.mock('../native/liveActivity', () => ({
+  isLiveActivityPlatform,
+  readLiveActivityStatus,
+  reconcileLiveActivity,
 }));
 
 vi.mock('../engine/audio', () => ({
@@ -45,13 +45,13 @@ function Harness() {
 describe('useBloom Live Activity reconciliation', () => {
   beforeEach(() => {
     localStorage.clear();
-    reconcileIOSLiveActivity.mockReset().mockResolvedValue({
+    reconcileLiveActivity.mockReset().mockResolvedValue({
       supported: true,
       active: true,
       changed: true,
     });
-    isIOSLiveActivityPlatform.mockReturnValue(true);
-    readIOSLiveActivityStatus.mockReset().mockResolvedValue({
+    isLiveActivityPlatform.mockReturnValue(true);
+    readLiveActivityStatus.mockReset().mockResolvedValue({
       supported: true,
       enabled: true,
       active: false,
@@ -68,14 +68,14 @@ describe('useBloom Live Activity reconciliation', () => {
 
   it('mirrors start, pause, resume, and terminal state from one stable session', () => {
     render(<Harness />);
-    expect(reconcileIOSLiveActivity).toHaveBeenLastCalledWith(null);
-    reconcileIOSLiveActivity.mockClear();
+    expect(reconcileLiveActivity).toHaveBeenLastCalledWith(null);
+    reconcileLiveActivity.mockClear();
 
     act(() => bloom.actions.toggle());
     const sessionId = bloom.state.openFocus?.id;
     const startedAtMs = bloom.state.openFocus?.startedAt;
     const firstDeadline = bloom.state.endsAt;
-    expect(reconcileIOSLiveActivity).toHaveBeenLastCalledWith({
+    expect(reconcileLiveActivity).toHaveBeenLastCalledWith({
       sessionId,
       mode: 'focus',
       state: 'running',
@@ -86,10 +86,10 @@ describe('useBloom Live Activity reconciliation', () => {
     act(() => {
       vi.advanceTimersByTime(1_000);
     });
-    expect(reconcileIOSLiveActivity).toHaveBeenCalledTimes(1);
+    expect(reconcileLiveActivity).toHaveBeenCalledTimes(1);
 
     act(() => bloom.actions.toggle());
-    expect(reconcileIOSLiveActivity).toHaveBeenLastCalledWith({
+    expect(reconcileLiveActivity).toHaveBeenLastCalledWith({
       sessionId,
       mode: 'focus',
       state: 'paused',
@@ -99,7 +99,7 @@ describe('useBloom Live Activity reconciliation', () => {
 
     act(() => bloom.actions.toggle());
     expect(bloom.state.openFocus?.id).toBe(sessionId);
-    expect(reconcileIOSLiveActivity).toHaveBeenLastCalledWith({
+    expect(reconcileLiveActivity).toHaveBeenLastCalledWith({
       sessionId,
       mode: 'focus',
       state: 'running',
@@ -108,35 +108,35 @@ describe('useBloom Live Activity reconciliation', () => {
     });
 
     act(() => bloom.actions.reset());
-    expect(reconcileIOSLiveActivity).toHaveBeenLastCalledWith(null);
+    expect(reconcileLiveActivity).toHaveBeenLastCalledWith(null);
   });
 
   it('mirrors Tiny work but never sends break or Flow timer details', () => {
     render(<Harness />);
-    reconcileIOSLiveActivity.mockClear();
+    reconcileLiveActivity.mockClear();
 
     act(() => bloom.actions.pickTiny(2));
-    expect(reconcileIOSLiveActivity).not.toHaveBeenCalled();
+    expect(reconcileLiveActivity).not.toHaveBeenCalled();
     act(() => bloom.actions.toggle());
-    expect(reconcileIOSLiveActivity).toHaveBeenLastCalledWith(
+    expect(reconcileLiveActivity).toHaveBeenLastCalledWith(
       expect.objectContaining({ mode: 'tiny', state: 'running' }),
     );
 
     act(() => bloom.actions.reset());
-    expect(reconcileIOSLiveActivity).toHaveBeenLastCalledWith(null);
-    reconcileIOSLiveActivity.mockClear();
+    expect(reconcileLiveActivity).toHaveBeenLastCalledWith(null);
+    reconcileLiveActivity.mockClear();
 
     act(() => bloom.actions.pick('short'));
     act(() => bloom.actions.toggle());
     act(() => bloom.actions.pick('flow'));
-    expect(reconcileIOSLiveActivity).not.toHaveBeenCalled();
+    expect(reconcileLiveActivity).not.toHaveBeenCalled();
   });
 
   it('ends once when a countdown completes or is skipped', () => {
     render(<Harness />);
     act(() => bloom.actions.toggle());
     const deadlineMs = bloom.state.endsAt!;
-    reconcileIOSLiveActivity.mockClear();
+    reconcileLiveActivity.mockClear();
 
     act(() => {
       vi.setSystemTime(deadlineMs);
@@ -144,67 +144,67 @@ describe('useBloom Live Activity reconciliation', () => {
     });
 
     expect(bloom.state.justDone).toBe(true);
-    expect(reconcileIOSLiveActivity).toHaveBeenCalledTimes(1);
-    expect(reconcileIOSLiveActivity).toHaveBeenCalledWith(null);
+    expect(reconcileLiveActivity).toHaveBeenCalledTimes(1);
+    expect(reconcileLiveActivity).toHaveBeenCalledWith(null);
 
     act(() => bloom.actions.reset());
     act(() => bloom.actions.toggle());
-    reconcileIOSLiveActivity.mockClear();
+    reconcileLiveActivity.mockClear();
     act(() => bloom.actions.skip());
-    expect(reconcileIOSLiveActivity).toHaveBeenCalledTimes(1);
-    expect(reconcileIOSLiveActivity).toHaveBeenCalledWith(null);
+    expect(reconcileLiveActivity).toHaveBeenCalledTimes(1);
+    expect(reconcileLiveActivity).toHaveBeenCalledWith(null);
   });
 
   it('does not recreate a manually dismissed activity on display ticks', () => {
-    reconcileIOSLiveActivity.mockResolvedValue({
+    reconcileLiveActivity.mockResolvedValue({
       supported: true,
       active: false,
       changed: false,
       reason: 'dismissed',
     });
     render(<Harness />);
-    reconcileIOSLiveActivity.mockClear();
+    reconcileLiveActivity.mockClear();
 
     act(() => bloom.actions.toggle());
-    expect(reconcileIOSLiveActivity).toHaveBeenCalledTimes(1);
+    expect(reconcileLiveActivity).toHaveBeenCalledTimes(1);
     act(() => vi.advanceTimersByTime(5_000));
-    expect(reconcileIOSLiveActivity).toHaveBeenCalledTimes(1);
+    expect(reconcileLiveActivity).toHaveBeenCalledTimes(1);
   });
 
   it('retries an eligible inactive snapshot once when Bloom returns', async () => {
-    reconcileIOSLiveActivity.mockResolvedValue({
+    reconcileLiveActivity.mockResolvedValue({
       supported: true,
       active: false,
       changed: false,
       reason: 'unavailable',
     });
     render(<Harness />);
-    reconcileIOSLiveActivity.mockClear();
+    reconcileLiveActivity.mockClear();
 
     await act(async () => {
       bloom.actions.toggle();
       await Promise.resolve();
     });
-    expect(reconcileIOSLiveActivity).toHaveBeenCalledTimes(1);
+    expect(reconcileLiveActivity).toHaveBeenCalledTimes(1);
 
     await act(async () => {
       document.dispatchEvent(new Event('visibilitychange'));
       await Promise.resolve();
     });
-    expect(reconcileIOSLiveActivity).toHaveBeenCalledTimes(2);
-    expect(reconcileIOSLiveActivity.mock.calls[1][0]).toEqual(
-      reconcileIOSLiveActivity.mock.calls[0][0],
+    expect(reconcileLiveActivity).toHaveBeenCalledTimes(2);
+    expect(reconcileLiveActivity.mock.calls[1][0]).toEqual(
+      reconcileLiveActivity.mock.calls[0][0],
     );
   });
 
   it('performs one idempotent stale cleanup with idle focus-data clear', () => {
     render(<Harness />);
-    reconcileIOSLiveActivity.mockClear();
+    reconcileLiveActivity.mockClear();
 
     act(() => bloom.actions.clearFocusData());
 
-    expect(reconcileIOSLiveActivity).toHaveBeenCalledTimes(1);
-    expect(reconcileIOSLiveActivity).toHaveBeenCalledWith(null);
+    expect(reconcileLiveActivity).toHaveBeenCalledTimes(1);
+    expect(reconcileLiveActivity).toHaveBeenCalledWith(null);
   });
 
   it('ends stale native state after relaunch sweeps an open countdown', () => {
@@ -213,15 +213,15 @@ describe('useBloom Live Activity reconciliation', () => {
     expect(first.result.current.state.openFocus).not.toBeNull();
     first.unmount();
 
-    reconcileIOSLiveActivity.mockClear();
+    reconcileLiveActivity.mockClear();
     const reloaded = renderHook(() => useBloom());
 
     expect(reloaded.result.current.state.openFocus).toBeNull();
     expect(reloaded.result.current.state.sessionRecords).toEqual([
       expect.objectContaining({ outcome: 'interrupted' }),
     ]);
-    expect(reconcileIOSLiveActivity).toHaveBeenCalledTimes(1);
-    expect(reconcileIOSLiveActivity).toHaveBeenCalledWith(null);
+    expect(reconcileLiveActivity).toHaveBeenCalledTimes(1);
+    expect(reconcileLiveActivity).toHaveBeenCalledWith(null);
     reloaded.unmount();
   });
 });

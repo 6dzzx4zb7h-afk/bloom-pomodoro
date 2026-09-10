@@ -45,20 +45,20 @@ vi.mock('../native/iosAlarm', () => ({
   UNSUPPORTED_ALARM_STATUS: { supported: false, authorization: 'unsupported' },
 }));
 
-vi.mock('../native/iosCompletionAlerts', () => ({
-  consumeIOSCompletionAlertDelivery: vi.fn(async () => 'none' as const),
-  isIOSCompletionAlertPlatform: () => false,
-  readIOSCompletionAlertStatus: async () => ({
+vi.mock('../native/completionAlerts', () => ({
+  consumeCompletionAlertDelivery: vi.fn(async () => 'none' as const),
+  isCompletionAlertPlatform: () => false,
+  readCompletionAlertStatus: async () => ({
     permission: 'unsupported' as const,
     alertsEnabled: false,
     soundsEnabled: false,
     lockScreenEnabled: false,
   }),
-  reconcileIOSCompletionAlert: vi.fn(async () => ({
+  reconcileCompletionAlert: vi.fn(async () => ({
     scheduled: false,
     permission: 'unsupported' as const,
   })),
-  requestIOSCompletionAlertPermission: async () => ({
+  requestCompletionAlertPermission: async () => ({
     permission: 'unsupported' as const,
     alertsEnabled: false,
     soundsEnabled: false,
@@ -72,14 +72,14 @@ vi.mock('../native/iosCompletionAlerts', () => ({
   },
 }));
 
-vi.mock('../native/iosLiveActivity', () => ({
-  isIOSLiveActivityPlatform: () => false,
-  readIOSLiveActivityStatus: async () => ({
+vi.mock('../native/liveActivity', () => ({
+  isLiveActivityPlatform: () => false,
+  readLiveActivityStatus: async () => ({
     supported: false,
     enabled: false,
     active: false,
   }),
-  reconcileIOSLiveActivity: vi.fn(async () => ({
+  reconcileLiveActivity: vi.fn(async () => ({
     supported: false,
     active: false,
     changed: false,

@@ -62,12 +62,12 @@ vi.mock('./native/iosTabs', async (importOriginal) => {
     },
   };
 });
-vi.mock('./native/iosCompletionAlerts', () => ({
-  consumeIOSCompletionAlertDelivery: nativeCompletionAlerts.consume,
-  isIOSCompletionAlertPlatform: () => true,
-  readIOSCompletionAlertStatus: nativeCompletionAlerts.readStatus,
-  reconcileIOSCompletionAlert: nativeCompletionAlerts.reconcile,
-  requestIOSCompletionAlertPermission: nativeCompletionAlerts.requestPermission,
+vi.mock('./native/completionAlerts', () => ({
+  consumeCompletionAlertDelivery: nativeCompletionAlerts.consume,
+  isCompletionAlertPlatform: () => true,
+  readCompletionAlertStatus: nativeCompletionAlerts.readStatus,
+  reconcileCompletionAlert: nativeCompletionAlerts.reconcile,
+  requestCompletionAlertPermission: nativeCompletionAlerts.requestPermission,
   UNSUPPORTED_COMPLETION_ALERT_STATUS: {
     permission: 'unsupported',
     alertsEnabled: false,

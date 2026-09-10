@@ -2,7 +2,7 @@
 
 import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { IOSCompletionAlertStatus } from '../native/iosCompletionAlerts';
+import type { CompletionAlertStatus } from '../native/completionAlerts';
 import { EMPTY_PERSONAL_CADENCE } from '../insights/cadence';
 import { DEFAULT_RITUAL } from '../store/ritual';
 import { DEFAULT_STATE, persistedShapeFromState } from '../store/useBloom';
@@ -45,7 +45,7 @@ vi.mock('../native/iosSettings', async (importOriginal) => {
 
 import { SettingsSheet } from './SettingsSheet';
 
-const unsupported: IOSCompletionAlertStatus = {
+const unsupported: CompletionAlertStatus = {
   permission: 'unsupported',
   alertsEnabled: false,
   soundsEnabled: false,

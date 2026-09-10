@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -9,7 +9,15 @@ const projectRoot = resolve(scriptDir, '..');
 const cue = JSON.parse(
   readFileSync(resolve(projectRoot, 'src/engine/completionCue.json'), 'utf8'),
 );
-const outputPath = resolve(projectRoot, 'ios/App/App/BloomCompletion.wav');
+// One cue, two shells. iOS names notification sounds by bundle filename;
+// Android names them by raw resource id, which must be lowercase with no
+// hyphens. Both are generated from `completionCue.json`, the same data the
+// Web Audio foreground chime is synthesized from, so a finish sounds the same
+// wherever it is heard.
+const outputPaths = [
+  resolve(projectRoot, 'ios/App/App/BloomCompletion.wav'),
+  resolve(projectRoot, 'android/app/src/main/res/raw/bloom_completion.wav'),
+];
 
 const phraseStarts = [0, cue.secondPhraseDelaySeconds];
 const lastNoteStart =
@@ -77,7 +85,11 @@ for (let frame = 0; frame < frameCount; frame += 1) {
   wav.writeInt16LE(Math.round(sample * 32767), 44 + frame * 2);
 }
 
-writeFileSync(outputPath, wav);
-process.stdout.write(
-  `Generated ${outputPath} (${durationSeconds.toFixed(2)}s, ${cue.sampleRate}Hz mono PCM)\n`,
-);
+for (const outputPath of outputPaths) {
+  mkdirSync(dirname(outputPath), { recursive: true });
+  writeFileSync(outputPath, wav);
+  process.stdout.write(
+    `Generated ${outputPath} (${durationSeconds.toFixed(2)}s, ${cue.sampleRate}Hz mono PCM)
+`,
+  );
+}

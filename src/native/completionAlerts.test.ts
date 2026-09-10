@@ -21,14 +21,16 @@ vi.mock('@capacitor/core', () => ({
 }));
 
 const {
-  consumeIOSCompletionAlertDelivery,
-  pendingIOSCompletionAlert,
-  readIOSCompletionAlertStatus,
-  reconcileIOSCompletionAlert,
-  requestIOSCompletionAlertPermission,
-  resetIOSCompletionAlertReconciliationForTests,
+  consumeCompletionAlertDelivery,
+  pendingCompletionAlert,
+  readCompletionAlertStatus,
+  reconcileCompletionAlert,
+  requestCompletionAlertPermission,
+  resetCompletionAlertReconciliationForTests,
   scheduledCompletionNotice,
-} = await import('./iosCompletionAlerts');
+  isCompletionAlertPlatform,
+  UNSUPPORTED_COMPLETION_ALERT_STATUS,
+} = await import('./completionAlerts');
 
 const granted = {
   permission: 'granted' as const,
@@ -36,6 +38,69 @@ const granted = {
   soundsEnabled: true,
   lockScreenEnabled: true,
 };
+
+describe('native completion-alert bridge platforms', () => {
+  beforeEach(() => {
+    status.mockReset();
+    resetCompletionAlertReconciliationForTests();
+  });
+
+  it('is live on both native shells and inert in a browser', async () => {
+    // Android implements the same JS contract in
+    // BloomCompletionAlertPlugin.java, so the reducer wiring is shared rather
+    // than duplicated per platform.
+    for (const platform of ['ios', 'android'] as const) {
+      getPlatform.mockReturnValue(platform);
+      expect(isCompletionAlertPlatform()).toBe(true);
+      status.mockResolvedValue({
+        permission: 'granted',
+        alertsEnabled: true,
+        soundsEnabled: true,
+        lockScreenEnabled: true,
+      });
+      await expect(readCompletionAlertStatus()).resolves.toEqual({
+        permission: 'granted',
+        alertsEnabled: true,
+        soundsEnabled: true,
+        lockScreenEnabled: true,
+      });
+    }
+
+    getPlatform.mockReturnValue('web');
+    expect(isCompletionAlertPlatform()).toBe(false);
+    status.mockClear();
+    await expect(readCompletionAlertStatus()).resolves.toEqual(
+      UNSUPPORTED_COMPLETION_ALERT_STATUS,
+    );
+    expect(status).not.toHaveBeenCalled();
+  });
+
+  it('schedules one Android request from the same reducer snapshot', async () => {
+    getPlatform.mockReturnValue('android');
+    status.mockResolvedValue({
+      permission: 'granted',
+      alertsEnabled: true,
+      soundsEnabled: true,
+      lockScreenEnabled: true,
+    });
+    schedule.mockResolvedValue({ scheduled: true, deadlineMs: 1_000 });
+
+    const result = await reconcileCompletionAlert({
+      enabled: true,
+      running: true,
+      mode: 'focus',
+      deadlineMs: 1_000,
+    });
+
+    expect(result).toEqual({ scheduled: true, permission: 'granted' });
+    expect(schedule).toHaveBeenCalledTimes(1);
+    expect(schedule).toHaveBeenCalledWith({
+      deadlineMs: 1_000,
+      title: 'Focus timer finished',
+      body: 'Bloom is ready when you are.',
+    });
+  });
+});
 
 describe('native iOS completion-alert bridge', () => {
   beforeEach(() => {
@@ -46,25 +111,25 @@ describe('native iOS completion-alert bridge', () => {
     cancel.mockReset().mockResolvedValue(undefined);
     consumeDue.mockReset().mockResolvedValue({ presentation: 'none' });
     pending.mockReset().mockResolvedValue({ count: 1, deadlineMs: 123_000 });
-    resetIOSCompletionAlertReconciliationForTests();
+    resetCompletionAlertReconciliationForTests();
   });
 
   it('is a quiet no-op outside the iOS wrapper', async () => {
     getPlatform.mockReturnValue('web');
 
-    await expect(readIOSCompletionAlertStatus()).resolves.toMatchObject({
+    await expect(readCompletionAlertStatus()).resolves.toMatchObject({
       permission: 'unsupported',
     });
     await expect(
-      reconcileIOSCompletionAlert({
+      reconcileCompletionAlert({
         enabled: true,
         running: true,
         mode: 'focus',
         deadlineMs: 123_000,
       }),
     ).resolves.toEqual({ scheduled: false, permission: 'unsupported' });
-    await expect(pendingIOSCompletionAlert()).resolves.toEqual({ count: 0 });
-    await expect(consumeIOSCompletionAlertDelivery(123_000)).resolves.toBe('none');
+    await expect(pendingCompletionAlert()).resolves.toEqual({ count: 0 });
+    await expect(consumeCompletionAlertDelivery(123_000)).resolves.toBe('none');
     expect(status).not.toHaveBeenCalled();
     expect(schedule).not.toHaveBeenCalled();
     expect(cancel).not.toHaveBeenCalled();
@@ -75,7 +140,7 @@ describe('native iOS completion-alert bridge', () => {
     const deadlineMs = Date.now() + 25 * 60_000;
 
     await expect(
-      reconcileIOSCompletionAlert({
+      reconcileCompletionAlert({
         enabled: true,
         running: true,
         mode: 'focus',
@@ -103,7 +168,7 @@ describe('native iOS completion-alert bridge', () => {
     });
 
     await expect(
-      reconcileIOSCompletionAlert({
+      reconcileCompletionAlert({
         enabled: true,
         running: true,
         mode: 'long',
@@ -120,7 +185,7 @@ describe('native iOS completion-alert bridge', () => {
     { enabled: true, running: false, mode: 'focus' as const, deadlineMs: null },
     { enabled: true, running: true, mode: 'flow' as const, deadlineMs: null },
   ])('cancels an ineligible reducer snapshot: %o', async (snapshot) => {
-    await reconcileIOSCompletionAlert(snapshot);
+    await reconcileCompletionAlert(snapshot);
     expect(cancel).toHaveBeenCalledTimes(1);
     expect(status).not.toHaveBeenCalled();
     expect(schedule).not.toHaveBeenCalled();
@@ -134,13 +199,13 @@ describe('native iOS completion-alert bridge', () => {
       }),
     );
 
-    const staleStart = reconcileIOSCompletionAlert({
+    const staleStart = reconcileCompletionAlert({
       enabled: true,
       running: true,
       mode: 'focus',
       deadlineMs: Date.now() + 60_000,
     });
-    await reconcileIOSCompletionAlert({
+    await reconcileCompletionAlert({
       enabled: true,
       running: false,
       mode: 'focus',
@@ -162,14 +227,14 @@ describe('native iOS completion-alert bridge', () => {
         }),
     );
 
-    const start = reconcileIOSCompletionAlert({
+    const start = reconcileCompletionAlert({
       enabled: true,
       running: true,
       mode: 'focus',
       deadlineMs: Date.now() + 60_000,
     });
     await vi.waitFor(() => expect(schedule).toHaveBeenCalledTimes(1));
-    const pause = reconcileIOSCompletionAlert({
+    const pause = reconcileCompletionAlert({
       enabled: true,
       running: false,
       mode: 'focus',
@@ -186,9 +251,9 @@ describe('native iOS completion-alert bridge', () => {
   });
 
   it('reads and requests system-owned permission without persisting it', async () => {
-    await expect(requestIOSCompletionAlertPermission()).resolves.toEqual(granted);
+    await expect(requestCompletionAlertPermission()).resolves.toEqual(granted);
     expect(requestPermission).toHaveBeenCalledTimes(1);
-    await expect(pendingIOSCompletionAlert()).resolves.toEqual({
+    await expect(pendingCompletionAlert()).resolves.toEqual({
       count: 1,
       deadlineMs: 123_000,
     });
@@ -198,25 +263,25 @@ describe('native iOS completion-alert bridge', () => {
     'returns the native %s delivery disposition for the exact deadline',
     async (presentation) => {
       consumeDue.mockResolvedValue({ presentation });
-      await expect(consumeIOSCompletionAlertDelivery(123_000)).resolves.toBe(presentation);
+      await expect(consumeCompletionAlertDelivery(123_000)).resolves.toBe(presentation);
       expect(consumeDue).toHaveBeenCalledWith({ deadlineMs: 123_000 });
     },
   );
 
   it('normalizes malformed delivery dispositions and deadlines to none', async () => {
     consumeDue.mockResolvedValue({ presentation: 'mystery' });
-    await expect(consumeIOSCompletionAlertDelivery(123_000)).resolves.toBe('none');
-    await expect(consumeIOSCompletionAlertDelivery(Number.NaN)).resolves.toBe('none');
+    await expect(consumeCompletionAlertDelivery(123_000)).resolves.toBe('none');
+    await expect(consumeCompletionAlertDelivery(Number.NaN)).resolves.toBe('none');
     expect(consumeDue).toHaveBeenCalledTimes(1);
   });
 
   it('reports malformed native status and bridge errors as unavailable', async () => {
     status.mockResolvedValue({ permission: 'mystery' });
-    await expect(readIOSCompletionAlertStatus()).resolves.toMatchObject({
+    await expect(readCompletionAlertStatus()).resolves.toMatchObject({
       permission: 'unavailable',
     });
     requestPermission.mockRejectedValue(new Error('native unavailable'));
-    await expect(requestIOSCompletionAlertPermission()).resolves.toMatchObject({
+    await expect(requestCompletionAlertPermission()).resolves.toMatchObject({
       permission: 'unavailable',
     });
   });
