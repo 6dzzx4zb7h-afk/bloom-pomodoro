@@ -1389,13 +1389,22 @@ button.foundation-dot {
   width: 100%;
   accent-color: var(--pink);
 }
-.cadence-preset-grid {
+.set-row-stack {
+  display: block;
+}
+.set-row-stack .set-label {
+  display: block;
+}
+
+.cadence-preset-grid,
+.choice-grid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 7px;
   margin-top: 9px;
 }
-.cadence-preset {
+.cadence-preset,
+.choice-btn {
   border: 2px solid #eaddf5;
   border-radius: 13px;
   background: #fff;
@@ -1405,19 +1414,29 @@ button.foundation-dot {
   font: 700 12px var(--font-display);
   transition: border-color 0.15s, background 0.15s, transform 0.12s ease;
 }
-.cadence-preset small {
+.cadence-preset small,
+.choice-btn small {
   display: block;
   margin-top: 2px;
   color: var(--soft3);
   font: 600 9px var(--font-body);
 }
-.cadence-preset.on {
+.cadence-preset.on,
+.choice-btn.on {
   border-color: var(--pink-2);
   background: linear-gradient(150deg, #fff2f8, #f6effc);
 }
-.cadence-preset:active {
+.cadence-preset:active,
+.choice-btn:active {
   transform: scale(0.96);
 }
+.choice-grid {
+  grid-template-columns: repeat(4, 1fr);
+}
+.choice-btn {
+  text-transform: lowercase;
+}
+
 .cadence-learned-card {
   margin-top: 10px;
   padding: 11px 12px;
@@ -4477,6 +4496,7 @@ body.night {
 }
 .night .chronotype-choice,
 .night .cadence-preset,
+.night .choice-btn,
 .night .cadence-history-list button,
 .night .day-boundary-presets button,
 .night .day-boundary-custom select {
@@ -4486,6 +4506,7 @@ body.night {
 }
 .night .chronotype-choice.on,
 .night .cadence-preset.on,
+.night .choice-btn.on,
 .night .day-boundary-presets button.on {
   border-color: var(--pink-2);
   background: linear-gradient(150deg, #43305c, #3a2f66);

@@ -36,6 +36,7 @@ import mainV28 from './fixtures/migrations/main-v28.json';
 import mainV29 from './fixtures/migrations/main-v29.json';
 import mainV30 from './fixtures/migrations/main-v30.json';
 import mainV31 from './fixtures/migrations/main-v31.json';
+import mainV32 from './fixtures/migrations/main-v32.json';
 import { loadEvents, updateEvent } from './companion';
 import { readPersisted, SCHEMA_VERSION } from './useBloom';
 
@@ -128,6 +129,7 @@ const mainFixtures: MainFixture[] = [
   mainV29,
   mainV30,
   mainV31,
+  mainV32,
 ];
 const companionFixtures: CompanionFixture[] = [
   companionV1,

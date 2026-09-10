@@ -26,6 +26,9 @@ in the Play Console.
   function is an alarm clock or timer — Bloom's is, and the Console declaration says so. If a future
   change makes the exact alarm optional rather than core, drop the permission rather than restating
   the justification.
+  `scripts/android-verify.mjs` holds that list and fails the release build in both directions: on a
+  permission nobody declared (a plugin's manifest merge is the usual way one appears) and on a
+  declared one that went missing. Change the list only alongside a decision recorded here.
 
 ## Prerequisites
 

@@ -1,6 +1,14 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { DurationMode, PersistedShape, Settings } from '../store/useBloom';
 import { audioEngine, requestNotifyPermission } from '../engine/audio';
+import {
+  AMBIENT_CHOICES,
+  AMBIENT_PREVIEW_MS,
+  ambientEngine,
+  isAmbientChoice,
+  previewAmbient,
+  type AmbientChoice,
+} from '../engine/ambient';
 import {
   AWAY_CHOICES,
   CHECKIN_CHOICES,
@@ -302,6 +310,37 @@ export function SettingsSheet({
   // is leaving the app, and every label that names it says so.
   const words = platformWords();
   const alertWords = nativeAlertCopy();
+  // Choosing a scene plays a few seconds of it. PLAN 12.1 removed the old
+  // previews together with ambient sound itself; a picker whose options can
+  // only be heard by starting a session an hour long is the reason this one
+  // comes back with it. It sounds only from the tap that asked for it, and
+  // stops on its own, so it is not the always-on audio the do-not-build list
+  // rules out.
+  const previewTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const stopPreview = useCallback(() => {
+    if (previewTimer.current) {
+      clearTimeout(previewTimer.current);
+      previewTimer.current = null;
+    }
+    ambientEngine.stop();
+  }, []);
+  useEffect(() => stopPreview, [stopPreview]);
+
+  const chooseAmbient = useCallback(
+    (ambient: AmbientChoice) => {
+      onPatch({ ambient });
+      if (previewTimer.current) clearTimeout(previewTimer.current);
+      // The tap is the gesture that unlocks the shared AudioContext.
+      audioEngine.resume();
+      previewAmbient(ambient);
+      if (ambient === 'off') return;
+      previewTimer.current = setTimeout(() => {
+        previewTimer.current = null;
+        ambientEngine.stop();
+      }, AMBIENT_PREVIEW_MS);
+    },
+    [onPatch],
+  );
   // 'unknown' until asked; used to nudge the user if they blocked notifications.
   const [notifyDenied, setNotifyDenied] = useState(false);
   // PLAN 13.12 — which alarm note the finish cue currently warrants. Nothing is
@@ -605,6 +644,18 @@ export function SettingsSheet({
         value: settings.sound,
       },
     );
+
+    rows.push({
+      kind: 'segmented',
+      id: 'settings.ambient',
+      title: 'Sound while you work',
+      subtitle: 'plays during focus, tiny and flow — breaks stay quiet',
+      options: AMBIENT_CHOICES.map((choice) => ({
+        id: `ambient.${choice.id}`,
+        title: choice.label,
+      })),
+      selected: `ambient.${settings.ambient}`,
+    });
 
     if (liveActivityStatus) {
       rows.push({
@@ -1005,6 +1056,11 @@ export function SettingsSheet({
       case 'settings.flow':
         if (flag !== undefined) onPatch({ flow: flag });
         return;
+      case 'settings.ambient': {
+        const choice = text?.startsWith('ambient.') ? text.slice('ambient.'.length) : null;
+        if (isAmbientChoice(choice)) chooseAmbient(choice);
+        return;
+      }
       case 'settings.sound':
         if (flag !== undefined && flag !== settings.sound) void toggleRing();
         return;
@@ -1365,9 +1421,30 @@ export function SettingsSheet({
             onChange={(flow) => onPatch({ flow })}
           />
         </div>
-        {/* Ambient sounds were removed in PLAN 12.1. The disclosed completion
-            cue remains with the other session behavior instead of keeping a
-            one-row Sound section. */}
+        <div className="set-row set-row-stack">
+          <span className="set-label">
+            Sound while you work
+            <span className="set-sub">
+              during focus, tiny and flow — breaks stay quiet
+            </span>
+          </span>
+          <div className="choice-grid" role="radiogroup" aria-label="Sound while you work">
+            {AMBIENT_CHOICES.map((choice) => (
+              <button
+                key={choice.id}
+                type="button"
+                role="radio"
+                aria-checked={settings.ambient === choice.id}
+                className={`choice-btn${settings.ambient === choice.id ? ' on' : ''}`}
+                onClick={() => chooseAmbient(choice.id)}
+              >
+                {choice.label}
+                <small>{choice.blurb}</small>
+              </button>
+            ))}
+          </div>
+        </div>
+
         <div className="set-row">
           <span className="set-label">
             Ring when done

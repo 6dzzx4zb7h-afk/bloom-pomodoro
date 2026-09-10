@@ -104,9 +104,21 @@ has now shipped and is verified on device simulators:
   frozen. Both stand down when Bloom is in the foreground, so one finish is still one cue.
   Deliberately no foreground service: the alarm is held by the system, so nothing needs the process
   to stay alive.
-- **Ambient sound while focusing** — **not built, and not a platform gap.** Soundscapes were
-  removed in `12.1` and no platform has them; `settings.sound` is the completion chime alone.
-  Adding them back is a product decision, not Android parity work.
+- ~~**Ambient sound while focusing**~~ — **shipped** (September 10, 2026), reversing part of
+  `12.1`. Three scenes — rain, waves, hush — synthesized from filtered noise in
+  `src/engine/ambient.ts`, so nothing is downloaded and nothing is bundled: a loop long enough not
+  to sound repetitive would be megabytes as a recording and is a few hundred bytes as filter
+  settings. It plays under focus, tiny and flow; breaks and the finish stay quiet so the chime
+  lands alone. `settings.ambient` defaults to `'off'` and only ever starts from the user's own
+  Start press, which is what keeps it clear of the forced-audio entry on the do-not-build list.
+  `12.1`'s reasons for removing it were Settings complexity and a one-row Sound section, both
+  addressed by folding one picker into Sessions rather than restoring a section.
+  Costs ~1.5 kB gzipped.
+
+  Not yet solved: Android and iOS both suspend a backgrounded WebView, so the scene pauses when
+  you leave the app and resumes when you return. The finish alert is unaffected — the system holds
+  that alarm — but continuous background playback would need a native audio session on both
+  platforms, which is a real piece of work rather than a flag.
 - **Native presentations** (`13.5`) — **the remaining native-depth work.** Settings is native; the
   rest of the app still presents through the web `Dialog` component. Inventory every dialog, sheet
   and menu, then decide native-vs-web per surface rather than converting wholesale — each

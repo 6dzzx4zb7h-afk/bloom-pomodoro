@@ -3,6 +3,11 @@ import { friendByName } from '../data/friends';
 import type { AnimalKind } from '../engine/pixelpals';
 import { audioEngine, notify } from '../engine/audio';
 import {
+  ambientEngine,
+  isAmbientChoice,
+  type AmbientChoice,
+} from '../engine/ambient';
+import {
   consumeCompletionAlertDelivery,
   isCompletionAlertPlatform,
   readCompletionAlertStatus,
@@ -223,6 +228,11 @@ export interface Settings {
   durations: Durations;
   /** Play the end-of-session chime and post a notification when available. */
   sound: boolean;
+  /**
+   * Optional ambient scene for the length of a work session, or 'off'.
+   * Synthesized locally by `engine/ambient.ts`; breaks stay quiet.
+   */
+  ambient: AmbientChoice;
   /** Automatically start the next timer after the celebrate animation. */
   autoStart: boolean;
   /** Night sky theme: dark palette + animated stars and meteors. */
@@ -327,6 +337,9 @@ export const DEFAULT_SETTINGS: Settings = {
   name: '',
   durations: { focus: 1500, short: 300, long: 900 },
   sound: true,
+  // Off by default. `docs/science.md#do-not-build` rules out forced audio, so
+  // a scene only ever sounds because someone chose one.
+  ambient: 'off',
   autoStart: false,
   night: false,
   pal: 'Mochi',
@@ -398,7 +411,7 @@ export const BLOOM_STORAGE_KEY = 'bloom-state';
 const STORAGE_KEY = BLOOM_STORAGE_KEY;
 /** Older keys we still read from once, newest first. */
 const LEGACY_KEYS = ['bloom-state-v2', 'bloom-state-v1'];
-export const SCHEMA_VERSION = 31;
+export const SCHEMA_VERSION = 32;
 
 export interface PersistedShape {
   version: number;
@@ -664,6 +677,15 @@ const MIGRATIONS: Array<(blob: Record<string, unknown>) => Record<string, unknow
       settings: rest,
     };
   },
+  // v31 -> v32: ambient scenes return as `settings.ambient`, a named choice
+  // rather than v30's boolean `bgSound`. No transform: the field is optional
+  // and `withDefaults` supplies 'off', which is what someone who has never
+  // chosen a scene should get. The version still moves, because the persisted
+  // shape did. A v30 blob reaches here through v31, which already dropped
+  // `bgSound`, so an old "on" is deliberately not read as a scene — Bloom
+  // cannot know which one, and starting an unrequested sound would be worse
+  // than starting none.
+  (blob) => blob,
 ];
 
 type ValidationNote = (reason: string) => void;
@@ -796,6 +818,7 @@ function withDefaults(blob: Record<string, unknown>, note?: ValidationNote): Per
   };
   invalidSetting('name', (value) => typeof value === 'string');
   invalidSetting('sound', (value) => typeof value === 'boolean');
+  invalidSetting('ambient', (value) => isAmbientChoice(value));
   invalidSetting('autoStart', (value) => typeof value === 'boolean');
   invalidSetting('night', (value) => typeof value === 'boolean');
   invalidSetting('pal', (value) => typeof value === 'string' && value.length > 0);
@@ -877,6 +900,9 @@ function withDefaults(blob: Record<string, unknown>, note?: ValidationNote): Per
     ...DEFAULT_SETTINGS,
     name: typeof bSettings.name === 'string' ? bSettings.name : DEFAULT_SETTINGS.name,
     sound: typeof bSettings.sound === 'boolean' ? bSettings.sound : DEFAULT_SETTINGS.sound,
+    ambient: isAmbientChoice(bSettings.ambient)
+      ? bSettings.ambient
+      : DEFAULT_SETTINGS.ambient,
     autoStart:
       typeof bSettings.autoStart === 'boolean'
         ? bSettings.autoStart
@@ -3639,6 +3665,45 @@ export function useBloom() {
     };
   }, [state.justDone, state.mode, state.sessionRecords]);
 
+  // The ambient scene mirrors the running work session, and only that.
+  //
+  // Breaks stay quiet on purpose: this is sound to think under, and a break is
+  // the part where you stop. `justDone` silences it too, so the finish chime
+  // lands in the quiet rather than on top of six seconds of rain.
+  //
+  // Nothing here is persisted or recorded. The scene is a property of the
+  // moment, derived from the reducer like every other running-state effect.
+  const ambientChoice = state.settings.ambient;
+  const ambientRef = useRef(ambientChoice);
+  ambientRef.current = ambientChoice;
+  const ambientScene =
+    ambientChoice !== 'off' &&
+    state.running &&
+    !state.justDone &&
+    (state.mode === 'focus' || state.mode === 'tiny' || state.mode === 'flow')
+      ? ambientChoice
+      : null;
+
+  useEffect(() => {
+    ambientEngine.set(ambientScene);
+  }, [ambientScene]);
+
+  // A WebView that went to the background comes back with the AudioContext
+  // suspended even though nothing about the session changed. Re-asserting the
+  // same scene resumes it; asking for the scene already set is a no-op.
+  useEffect(() => {
+    if (!ambientScene) return;
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') ambientEngine.set(ambientScene);
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, [ambientScene]);
+
+  // Leaving the app running is not a reason to keep making noise after Bloom
+  // itself is gone.
+  useEffect(() => () => ambientEngine.stop(), []);
+
   // Derived animal mood.
   const mood = useMemo<'idle' | 'work' | 'sleep' | 'celebrate'>(() => {
     if (state.justDone) return 'celebrate';
@@ -3668,8 +3733,10 @@ export function useBloom() {
   const actions = useMemo(
     () => ({
       toggle: (ifThenPlanId?: string, targetText?: string) => {
-        // The first start press is the user gesture that unlocks the finish cue.
-        if (soundRef.current) audioEngine.resume();
+        // The first start press is the user gesture that unlocks Bloom's audio
+        // — the finish cue and the ambient scene share one AudioContext, and
+        // WebView autoplay policy will not open it any other way.
+        if (soundRef.current || ambientRef.current !== 'off') audioEngine.resume();
         if (!runningRef.current && modeRef.current !== 'flow') {
           // The timer starts regardless; this only opens a skippable primer if
           // iOS has never asked for completion-alert permission.
@@ -3701,7 +3768,7 @@ export function useBloom() {
       setActiveTask: (id: number) => dispatch({ type: 'setActiveTask', id }),
       finishFlow: () => dispatch({ type: 'finishFlow' }),
       extendTiny: () => {
-        if (soundRef.current) audioEngine.resume();
+        if (soundRef.current || ambientRef.current !== 'off') audioEngine.resume();
         dispatch({ type: 'extendTiny' });
       },
       declineTiny: () => dispatch({ type: 'declineTiny' }),

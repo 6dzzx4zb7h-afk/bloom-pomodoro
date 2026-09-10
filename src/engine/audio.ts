@@ -1,43 +1,41 @@
 import completionCue from './completionCue.json';
+import {
+  audioUnlocked,
+  ensureAudioContext,
+  resumeAudioContext,
+  unlockAudio,
+} from './audioContext';
 
 /**
- * Bloom's one remaining audio path (PLAN 12.1): the optional completion chime.
+ * Bloom's completion chime (PLAN 12.1).
  *
- * The AudioContext is created lazily from a user gesture so the timer never
- * violates browser/WebView autoplay rules. The foreground cue is synthesized
- * locally; iOS's bundled notification rendering is generated from the same
- * data, and neither path needs a network request.
+ * The AudioContext is opened lazily from a user gesture so the timer never
+ * violates browser/WebView autoplay rules, and it is shared with the ambient
+ * scene in `ambient.ts` rather than opened twice. The foreground cue is
+ * synthesized locally; the bundled iOS and Android notification sounds are
+ * generated from the same data, and no path here needs a network request.
  */
 
 class CompletionAudio {
   private ctx: AudioContext | null = null;
   private master: GainNode | null = null;
-  private userUnlocked = false;
 
   private ensure(): AudioContext | null {
-    if (typeof window === 'undefined') return null;
-    if (!this.ctx) {
-      const AudioContextClass: typeof AudioContext | undefined =
-        window.AudioContext ||
-        (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-      if (!AudioContextClass) return null;
-      try {
-        this.ctx = new AudioContextClass();
-      } catch {
-        return null;
-      }
-      this.master = this.ctx.createGain();
+    const ctx = ensureAudioContext();
+    if (!ctx) return null;
+    if (this.ctx !== ctx || !this.master) {
+      this.ctx = ctx;
+      this.master = ctx.createGain();
       this.master.gain.value = 0.9;
-      this.master.connect(this.ctx.destination);
+      this.master.connect(ctx.destination);
     }
-    return this.ctx;
+    return ctx;
   }
 
-  /** Unlock the completion cue. Must be called from a user gesture. */
+  /** Unlock every Bloom sound. Must be called from a user gesture. */
   resume() {
-    this.userUnlocked = true;
-    const ctx = this.ensure();
-    if (ctx?.state === 'suspended') ctx.resume().catch(() => {});
+    unlockAudio();
+    this.ensure();
   }
 
   private bell(frequency: number, peak: number, duration: number, delay = 0) {
@@ -64,10 +62,10 @@ class CompletionAudio {
 
   /** A warm rising two-phrase chime played when a timer ends. */
   playRing() {
-    if (!this.userUnlocked) return;
+    if (!audioUnlocked()) return;
     const ctx = this.ensure();
     if (!ctx) return;
-    if (ctx.state === 'suspended') ctx.resume().catch(() => {});
+    resumeAudioContext();
     const phrase = completionCue.frequencies; // E5 · G5 · B5
     const play = (base = 0) =>
       phrase.forEach((frequency, index) =>

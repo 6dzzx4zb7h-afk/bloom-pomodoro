@@ -119,7 +119,7 @@ The codebase is layered by React-dependence, which is what makes it testable:
 
 | Layer | Contains | Current boundary |
 | --- | --- | --- |
-| `src/engine/` | `pixelpals.ts` (Canvas 2D sprite engine), `audio.ts` (Web Audio), `breath.ts` | No React |
+| `src/engine/` | `pixelpals.ts` (Canvas 2D sprite engine), `audioContext.ts` (the one shared AudioContext), `audio.ts` (completion chime), `ambient.ts` (synthesized work-session scenes), `breath.ts` | No React |
 | `src/store/*.ts` | Types + pure helpers: `sessions`, `companion`, `streak`, `parking`, `ifThen`, `goals`, `ritual`, `sessionStats`, `dailyTarget`, `foundations`, `historyArchive`, `sessionRepair` | No React |
 | `src/store/use*.ts` | `useBloom` (reducer, timer, persistence), `useCompanion` (check-in scheduling) | Hooks |
 | `src/insights/` | Pure analysis over records: `why`, `weekly`, `cadence`, `triggers` | No React |
