@@ -11,7 +11,7 @@ import { SettingsSheet } from '../components/SettingsSheet';
 import { WeeklyReview } from '../components/WeeklyReview';
 import { WoopCard } from '../components/WoopCard';
 import { shouldOfferWoop } from '../insights/triggers';
-import { WEEKLY_WINDOW_DAYS, weekKeyForStudyDay } from '../insights/weekly';
+import { WEEKLY_MIN_SESSIONS, WEEKLY_WINDOW_DAYS, weekKeyForStudyDay } from '../insights/weekly';
 import type { SessionRecord, TargetOutcome } from '../store/sessions';
 import {
   SESSION_TARGET_MAX,
@@ -19,7 +19,6 @@ import {
   TINY_START_OPTIONS,
   flowCreditsForElapsed,
   isTinyFirstRung,
-  persistedShapeFromState,
   timerTransitionPolicy,
   type TimerTransitionIntent,
   type TimerMode,
@@ -76,12 +75,14 @@ export function FocusScreen({
   onOpenGuideArticle,
   onOpenGoals,
   onNativeOverlayChange,
+  nativeWebOverlayOpen = false,
 }: {
   bloom: ReturnType<typeof useBloom>;
   companion: Companion;
   onOpenGuideArticle: (id: GuideArticleId) => void;
   onOpenGoals?: () => void;
   onNativeOverlayChange?: (open: boolean) => void;
+  nativeWebOverlayOpen?: boolean;
 }) {
   const {
     state,
@@ -110,9 +111,9 @@ export function FocusScreen({
   // PLAN 13.10: the room UIKit reported it needs for the rail. The slot grows
   // to match so the system is never handed a frame that clips its own labels.
   const [nativeModeHeight, setNativeModeHeight] = useState(0);
-  const [nativeWebOverlayOpen, setNativeWebOverlayOpen] = useState(false);
   const [parkingDeferred, setParkingDeferred] = useState(false);
-  const [dayTargetIndex, setDayTargetIndex] = useState(0);
+  // Follow the armed target until the user explicitly browses the other targets.
+  const [dayTargetSelection, setDayTargetSelection] = useState<{ day: string; index: number } | null>(null);
   const completionAlertLaterRef = useRef<HTMLButtonElement>(null);
   const [pendingTransition, setPendingTransition] = useState<{
     title: string;
@@ -132,15 +133,20 @@ export function FocusScreen({
   // tail means boot-time 'interrupted' sweeps never trigger a card — only a
   // session the user just ended (completed or abandoned) does.
   const records = state.sessionRecords;
+  const hasOpenWorkSession = Boolean(state.openFocus || state.openFlow);
   const [debrief, setDebrief] = useState<SessionRecord | null>(() =>
-    [...records].reverse().find((record) => record.goalCredit === 'pending') ?? null,
+    !state.running && !hasOpenWorkSession
+      ? [...records].reverse().find((record) => record.goalCredit === 'pending') ?? null
+      : null,
   );
   const activeReturnSession = state.openFocus?.returnSnapshot?.returnedAt
     ? state.openFocus
     : null;
-  const interruptedReturnSession = [...records]
-    .reverse()
-    .find((record) => record.outcome === 'interrupted' && record.resumeCuePending) ?? null;
+  const interruptedReturnSession = !state.running && !hasOpenWorkSession
+    ? [...records]
+        .reverse()
+        .find((record) => record.outcome === 'interrupted' && record.resumeCuePending) ?? null
+    : null;
   const resumeSession = activeReturnSession ?? interruptedReturnSession;
   const hasResumeCue = Boolean(resumeSession);
   const resumeParkedText = resumeSession
@@ -188,20 +194,20 @@ export function FocusScreen({
   useEffect(() => setRitualOpen(false), [state.mode]);
 
   useEffect(() => {
-    if (state.running || state.justDone || debrief || weekly || showSettings || hasBlockingReturnedParking || hasResumeCue) return;
+    if (state.running || hasOpenWorkSession || state.justDone || debrief || weekly || showSettings || hasBlockingReturnedParking || hasResumeCue) return;
     const week = weekKeyForStudyDay(state.today);
     if (state.lastWeeklyReviewWeek === week) return;
-    const hasRecentStudyDay = groupSessionsByStudyDay(
+    const recentSessionCount = groupSessionsByStudyDay(
       records,
       state.settings.dayStartHour,
-    ).some((group) => {
+    ).reduce((count, group) => {
       const age = daysBetween(group.day, state.today);
-      return age >= 0 && age < WEEKLY_WINDOW_DAYS;
-    });
-    if (!hasRecentStudyDay) return;
+      return count + (age >= 0 && age < WEEKLY_WINDOW_DAYS ? group.records.length : 0);
+    }, 0);
+    if (recentSessionCount < WEEKLY_MIN_SESSIONS) return;
     setWeekly(true);
     actions.markWeeklyReview(week);
-  }, [state.running, state.justDone, debrief, weekly, showSettings, hasBlockingReturnedParking, hasResumeCue, records, state.lastWeeklyReviewWeek, state.settings.dayStartHour, state.today, actions]);
+  }, [state.running, hasOpenWorkSession, state.justDone, debrief, weekly, showSettings, hasBlockingReturnedParking, hasResumeCue, records, state.lastWeeklyReviewWeek, state.settings.dayStartHour, state.today, actions]);
 
   // A fresh work run begins a new pause cycle; thoughts deferred during the
   // prior pause may return after this run ends.
@@ -215,11 +221,6 @@ export function FocusScreen({
   // a paused session already has its record (and plan) stamped.
   const showPlanner =
     state.mode === 'focus' && !state.running && !state.openFocus && !state.justDone;
-  // PLAN 13.17: everything below the session target folds behind one row, so a
-  // fresh Focus screen fits on a phone without the transport sliding under the
-  // tab bar. Only worth offering when there is something in there to open.
-  const prepCollapsible =
-    showPlanner || (state.mode === 'focus' && state.ritual.enabled);
   const activeTaskId = activeTask?.id;
   // Remembered per task: default to the plan this task last started with.
   const rememberedPlanId = useMemo(() => {
@@ -365,6 +366,13 @@ export function FocusScreen({
     );
   }
 
+  function dismissDebrief() {
+    if (debrief && records.some((record) => record.id === debrief.id && record.goalCredit === 'pending')) {
+      actions.resolveGoalCredit('session', debrief.id, false);
+    }
+    setDebrief(null);
+  }
+
   const isFlow = state.mode === 'flow';
   const isTiny = state.mode === 'tiny';
   const activeSessionTarget = (isFlow ? state.openFlow : state.openFocus)?.targetText;
@@ -394,12 +402,6 @@ export function FocusScreen({
   const idx = Math.max(0, modes.indexOf(state.mode));
   const pillW = `calc((100% - 8px) / ${modes.length})`;
 
-  // Session dots: progress through the current cycle of 4. All four stay lit
-  // through the celebrate + long-break stretch, then reset for the next cycle.
-  const cyc = state.sessions % 4;
-  const filled =
-    cyc === 0 && state.sessions > 0 && (state.justDone || state.mode !== 'focus') ? 4 : cyc;
-
   const todayGoalTargets = useMemo(
     () =>
       (state.dayPlan?.targets ?? [])
@@ -419,10 +421,11 @@ export function FocusScreen({
   const armedTargetIndex = todayGoalTargets.findIndex(
     (target) => target.goalId === state.armedGoalId,
   );
+  const dayTargetIndex = dayTargetSelection?.day === state.today ? dayTargetSelection.index : null;
   const shownTargetIndex =
-    armedTargetIndex >= 0
+    dayTargetIndex === null && armedTargetIndex >= 0
       ? armedTargetIndex
-      : Math.min(dayTargetIndex, Math.max(0, todayGoalTargets.length - 1));
+      : Math.min(dayTargetIndex ?? 0, Math.max(0, todayGoalTargets.length - 1));
   const shownTarget = todayGoalTargets[shownTargetIndex];
   const shownTargetActual = shownTarget
     ? targetActual(shownTarget, state.goalLedger)
@@ -477,7 +480,7 @@ export function FocusScreen({
     returnedParking:
       hasBlockingReturnedParking &&
       (!state.running || state.mode === 'short' || state.mode === 'long'),
-    debrief: Boolean(debrief && !state.running && !state.justDone),
+    debrief: Boolean(debrief && !state.running && !hasOpenWorkSession && !state.justDone),
     weekly: Boolean(weekly && !state.running && !state.justDone),
     ritual: Boolean(ritualOpen && freshWorkStart),
     woop: Boolean(woopOpen && !state.running && !state.justDone),
@@ -485,23 +488,8 @@ export function FocusScreen({
     companionPrompt: coordinatedCompanionPrompt,
   });
 
-  // PLAN 13.17: WOOP takes the screen when it opens, so the fold can never be
-  // what hides it.
-  const prepExpanded = prepOpen || surface.owner === 'woop';
-
-  // Native views always composite above WKWebView, independent of web z-index.
-  // Dialogs portal to document.body, so observe that portal host (rather than
-  // the Focus <main>) to catch locally-owned presentations such as the
-  // foundations picker and clear native chrome.
-  useEffect(() => {
-    if (!isNativeIOSTabsPlatform()) return;
-    const root = document.body;
-    const update = () => setNativeWebOverlayOpen(Boolean(root.querySelector('.dialog-layer')));
-    const observer = new MutationObserver(update);
-    observer.observe(root, { childList: true, subtree: true });
-    update();
-    return () => observer.disconnect();
-  }, []);
+  // Expanded planning needs enough scrolling room above the native controls.
+  const prepExpanded = (showPlanner && prepOpen) || surface.owner === 'woop';
 
   const configureNativeModeControl = (frame = nativeModeFrameRef.current) => {
     if (!frame) return Promise.resolve({ active: false, height: 0 });
@@ -721,7 +709,8 @@ export function FocusScreen({
     }
   }, [actions, breakGuideSuggestion]);
 
-  const nowChip = (
+  const displayedTask = activeSessionTask ?? activeTask;
+  const nowChip = displayedTask ? (
     <div className="now-chip">
       <span className="now-badge">{state.mode === 'short' || state.mode === 'long' ? '☕' : '✓'}</span>
       <div style={{ flex: 1, minWidth: 0 }}>
@@ -729,16 +718,11 @@ export function FocusScreen({
           {state.mode === 'short' || state.mode === 'long' ? 'Up next' : 'Now focusing on'}
         </div>
         <div className="now-task">
-          {(activeSessionTask ?? activeTask)?.t ?? 'all done — go play!'}
+          {displayedTask.t}
         </div>
       </div>
-      <div className="session-dots">
-        {Array.from({ length: 4 }, (_, i) => (
-          <span key={i} className={`sdot ${i < filled ? 'on' : 'off'}`} />
-        ))}
-      </div>
     </div>
-  );
+  ) : null;
 
   return (
     <main
@@ -871,7 +855,7 @@ export function FocusScreen({
                 className="day-target-next"
                 aria-label="Show next daily target"
                 onClick={() =>
-                  setDayTargetIndex((shownTargetIndex + 1) % todayGoalTargets.length)
+                  setDayTargetSelection({ day: state.today, index: (shownTargetIndex + 1) % todayGoalTargets.length })
                 }
               >
                 ›
@@ -954,7 +938,7 @@ export function FocusScreen({
 
           {companion.conf.intention && (
             <label className="prestart-target">
-              <span>one doable thing for this session <span aria-hidden="true">·</span> optional</span>
+              <span>What will you work on? <span className="prestart-optional">(optional)</span></span>
               <input
                 className="intention-input"
                 value={targetDraft}
@@ -963,38 +947,22 @@ export function FocusScreen({
                   const next = e.target.value.slice(0, SESSION_TARGET_MAX);
                   setTargetDraft(next);
                 }}
-                placeholder="name the first visible finish line"
-                aria-label="Session target"
+                placeholder="e.g. answer 5 questions"
+                aria-label="What will you work on?"
               />
             </label>
           )}
 
-          {/* PLAN 13.17: the target keeps its place — naming one doable thing
-              is the part with a behaviour-change reason behind it. The rest of
-              the preparation folds into one row so the transport controls are
-              never pushed under the tab bar on a phone. Opening it is one tap,
-              and a surface that owns the screen (WOOP) opens it itself. */}
-          {prepCollapsible && !prepExpanded && (
-            <button
-              type="button"
-              className="prestart-prep-toggle"
-              aria-expanded={false}
-              aria-controls="prestart-prep"
-              onClick={() => setPrepOpen(true)}
-            >
-              <span aria-hidden="true">✦</span> a little more prep
-              <span>optional</span>
-            </button>
-          )}
-
           <div
             className="prestart-prep"
-            id="prestart-prep"
             aria-label="Optional preparation"
-            hidden={prepCollapsible && !prepExpanded}
           >
             {showPlanner && !woopOpen && (
               <IfThenPlanner
+                title="Plan for distractions"
+                triggerLabel="Plan for distractions"
+                initialCueType="obstacle"
+                onOpenChange={setPrepOpen}
                 plans={state.ifThenPlans}
                 selectedId={planId}
                 onSelect={(id) => setChosenPlanId(id)}
@@ -1157,7 +1125,7 @@ export function FocusScreen({
           <PixelPal sprite={palSprite} mode="idle" scale={3} size={64} className="pop-pal" />
           <div className="pop-body">
             <div className="pop-text">tiny start complete — that counts ♡</div>
-            <div className="tiny-rung-question">keep going for {TINY_EXTENSION_MIN}?</div>
+            <div className="tiny-rung-question">keep going for {TINY_EXTENSION_MIN} more minutes?</div>
             <div className="pop-actions">
               <button className="pop-btn primary" onClick={actions.extendTiny}>
                 yes, {TINY_EXTENSION_MIN} more
@@ -1225,7 +1193,7 @@ export function FocusScreen({
           onGuideSuggested={actions.markGuideArticleSuggested}
           onOpenGuideArticle={onOpenGuideArticle}
           onRepair={(proposal) => setDebrief(actions.repairSession(proposal))}
-          onDismiss={() => setDebrief(null)}
+          onDismiss={dismissDebrief}
         />
       )}
 
@@ -1278,7 +1246,6 @@ export function FocusScreen({
           ritual={state.ritual}
           running={state.running}
           hasOpenSession={Boolean(state.openFocus || state.openFlow)}
-          persistedState={persistedShapeFromState(state)}
           onPatch={(patch) => {
             if (patch.flow === false) {
               requestTransition('flowOff', () => actions.patchSettings(patch));
@@ -1295,7 +1262,6 @@ export function FocusScreen({
           onPatchRitual={actions.patchRitual}
           onUpdateRitualItem={actions.updateRitualItem}
           onClearFocusData={actions.clearFocusData}
-          onDataImported={actions.reloadPersistedState}
           onClose={() => setShowSettings(false)}
           completionAlertStatus={completionAlerts.status}
           onRequestCompletionAlertPermission={completionAlerts.requestPermission}

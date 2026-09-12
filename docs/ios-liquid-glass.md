@@ -1,5 +1,8 @@
 # iOS Liquid Glass architecture
 
+Current implementation notes and historical context. Old PLAN references explain earlier choices;
+they are not a task checklist or additional project rules.
+
 Bloom uses Apple's native controls for the iOS navigation and control layer. It does not recreate
 Liquid Glass with CSS. React and `useBloom` remain the single owners of product state, timer rules,
 persistence, and content; the Capacitor bridge only exchanges validated UI events and snapshots.
@@ -54,18 +57,18 @@ React applies the existing navigation guard exactly once. If the guard refuses t
 React acknowledges the actual screen back to UIKit so the native selection lens returns to the
 visible destination. If the native plugin is unavailable or stale, Bloom keeps the web tab bar.
 
-## Surface inventory and roadmap
+## Surface inventory
 
 | Surface | Decision | Plan step |
 | --- | --- | --- |
 | Bottom destinations | Native standalone `UITabBar`; system glass and moving lens | 13.2 |
-| Focus/Tiny/Short/Long/Flow selector | Native `UISegmentedControl` on a `UIGlassEffect`, in the measured web slot | 13.3, 13.13, 13.16 |
+| Focus/Tiny/Short/Long/Flow selector | Standard `UISegmentedControl`, in the measured web slot | 13.3, 13.13; simplified September 12, 2026 |
 | Friends/Field Guide selector | Same native `UISegmentedControl`; React section remains authoritative | 13.3, 13.13 |
 | Settings affordance | Native SF Symbol glass button over a measured web fallback slot | 13.4a |
 | Boolean switches | Accessible web switch on every platform until Settings itself is a native presentation | 13.14, then 13.4b |
 | Settings presentation and form | Native sheet rendering a React-owned form snapshot; no web sheet behind it | 13.4b |
 | Timer lengths | Native cadence card, ladder, preset control, and `UIStepper` rows | 13.4c |
-| Data export/import/clear | Web sheet scoped to that one section, reached from a native disclosure row | 13.4d |
+| Local data and history | Web sheet with local-saving information and confirmed data clear, reached from a native disclosure row | 13.4d |
 | Dialogs, menus, and sheets | Standard native presentations where behavior improves | 13.5 |
 | Exceptional custom control chrome | Consider `UIGlassEffect` only when no standard control fits | 13.5 |
 | Timer ring, pixel pet, sky, task/history cards, and other content | Keep as web content; do not glaze | intentional |
@@ -73,9 +76,8 @@ visible destination. If the native plugin is unavailable or stale, Bloom keeps t
 | Prominent finish alarm on iOS 26+ | AlarmKit, authorized once; owns the countdown surface while scheduled | 13.12 |
 | A control pressed in system UI | Records timestamped intent; the reducer replays it and stays the only authority | 13.18 |
 
-Moving all of these surfaces in one change would duplicate too much state and make timer/settings
-regressions hard to isolate. Each later step must preserve cancellation, navigation guards,
-exactly-once reducer actions, offline operation, browser/Android behavior, and accessibility.
+Native controls mirror the shared state. Cancellation, navigation guards, reducer actions,
+browser/Android behavior, and accessibility are relevant checks when changing these surfaces.
 
 ## Native segmented-rail decision
 
@@ -89,17 +91,24 @@ metric on a Simulator and the crop still reached devices.
 
 Since 13.13 both rails are a `UISegmentedControl`: the control Apple provides for a mid-screen
 selector, which fills the frame it is handed, has no safe-area behaviour of its own, and on iOS 26
-carries the same Liquid Glass sliding selection indicator. UIKit still owns the material,
-selection, interaction, motion, accessibility adaptations, and OS refreshes; Bloom sets no
-background, blur, mask, glass effect, selection image, or selection animation. The web rail stays
+carries the same Liquid Glass sliding selection indicator. UIKit still owns selection, interaction,
+motion, accessibility adaptations, and OS refreshes; Bloom sets no selection image or selection
+animation. The web rail stays
 as the layout slot and the browser/Android fallback, and the bridge still reports the height it
 used so the slot can reserve more room if a system text size ever needs it.
 
-Two corrections since. A segmented control draws its own opaque track, so a few hundred points above
-the system tab bar the rail read as flat plastic against real glass. 13.16 floats it inside a
-`UIVisualEffectView` carrying `UIGlassEffect` and clears only the control's own `backgroundColor`.
-Blanking its `.normal` background image as well is the tempting next step and is wrong: that clears
-the *selected* segment's indicator too, leaving every mode looking identically unselected.
+PLAN 13.16 added a `UIVisualEffectView` with `UIGlassEffect` for an additional floating background.
+The September 12, 2026 audit removed that wrapper after trying the standard control in Simulator.
+Bloom now leaves the track, background, selected indicator, and animation to `UISegmentedControl`.
+The control explicitly receives Bloom's light/dark interface style so its labels remain readable
+when the app theme differs from the device theme. There is no custom blur, clipping capsule,
+background image, or selection animation.
+
+On iOS 26.5, the current synchronized build was exercised on a fresh iPhone 17 Simulator: day and
+night appearance, Focus-to-Short selection and countdown update, bottom navigation, and
+Friends-to-Field Guide selection all worked. An earlier installed Simulator copy provided the
+before comparison; its newer saved schema was preserved when the current checkout refused to
+downgrade it. These checks do not establish physical-device or older-iOS behavior.
 
 ## Native Settings control boundary
 
@@ -153,10 +162,19 @@ spoken label per item, so the cadence ladder announces "shorter: 20 minutes focu
 rather than reading "20 slash 4". And a `segmented` or `picker` row may carry an empty `selected`,
 because the preset control genuinely has no selection when the user's own lengths match no pair.
 
-Your data remains a native disclosure row until 13.4d. Choosing it dismisses the native sheet and
-opens the same web sheet scoped to that single section, so no control is unreachable in the
-meantime. One known loss: the pet's wave when Companion mode turns on is a web flourish with no
-native equivalent yet.
+Your data uses a native **Local data and history** disclosure row. Choosing it dismisses the native
+sheet and opens the same web sheet scoped to local-saving information and confirmed history clear.
+Backup export/import controls have been removed; normal on-device saving remains. One known loss:
+the pet's wave when Companion mode turns on is a web flourish with no native equivalent yet.
+
+`AppDelegate` applies Apple's `isExcludedFromBackup` resource value to the app container's Documents
+and Library directories at launch and when entering the background. Library includes WKWebView's
+local storage and native UserDefaults; directory exclusion also covers files created later. The data
+stays in durable storage, never a purgeable cache. These are OS backup exclusions, not a backup or
+sync service: Apple describes the resource value as guidance, so it cannot guarantee removal from
+an existing external backup. See [Apple's backup guidance](https://developer.apple.com/documentation/foundation/optimizing-your-app-s-data-for-icloud-backup).
+Deleting the app removes its local data; iOS **Offload App** deliberately retains documents and data.
+See [Apple's storage guidance](https://support.apple.com/en-us/108429).
 
 ## Verification matrix
 
@@ -215,13 +233,27 @@ Focus, Scheduled Summary, sound, banner, and Lock Screen choices remain in contr
 endpoint, account, runtime download, analytics, or task data. Regenerate the native resource after
 intentionally changing the cue with `node scripts/gen-completion-sound.mjs`.
 
+Generic Live Activity pause/resume also updates this ordinary notification while JavaScript is
+suspended. The shared native transport retains one session-matched notification template. Pause
+cancels its pending request; Resume rechecks permission and schedules the same content at the
+activity's new deadline. Sound off, reset, completion, and mode departure revoke that template.
+Stale session, deadline, and paused-time snapshots cannot change the newer cue. The bridge and
+AppIntents share a serialized queue so an unfinished schedule cannot win after cancellation.
+AlarmKit's controls continue to pause/resume their own system cue.
+
+Simulator execution verified the real notification-content archive and restore path, native
+cancellation/rescheduling with an injected notification center, permission and stale-control
+guards, and an in-flight scheduling race. Actual Lock Screen delivery and sound still need a
+physical-device check.
+
 ## Deployment floor
 
 Both targets — the app and `BloomLiveActivityExtension` — declare
-`IPHONEOS_DEPLOYMENT_TARGET = 17.0`. **AlarmKit is the only availability axis left in Bloom's own
-code**: every remaining `@available` / `#available` in `ios/App` names iOS 26.0 or 26.1, and
-`canImport(AlarmKit)` guards the SDK rather than the OS. There is no second implementation of
-anything for the sake of an older system.
+`IPHONEOS_DEPLOYMENT_TARGET = 17.0`. **AlarmKit and the explicit native glass APIs retain their
+iOS 26 availability guards**: every remaining `@available` / `#available` in `ios/App` names iOS
+26.0 or 26.1, and `canImport(AlarmKit)` guards the SDK rather than the OS. Earlier systems use the
+same segmented control without its glass container and a standard tinted Settings button, while
+AlarmKit falls back to the existing local notification and Live Activity.
 
 The floor was 14.0 and moved in two steps. **14.0 → 15.0** was pure compliance: App Store Connect
 warns that from Spring 2027 it will reject uploads declaring a `MinimumOSVersion` below 15.0, and
@@ -239,11 +271,9 @@ The device cost was the iPhone 6s, 7, and first-generation SE (from 16), plus th
 (from 17). That was accepted knowingly: the alternative was shipping a Live Activity whose controls
 were missing on the systems that could see it.
 
-Raising the floor again needs its own numbered step and a reason. **Do not raise it to iOS 18 or
-later merely for tidiness** — Bloom has no iOS 18 guards to collapse, so the move would drop devices
-and simplify nothing. The one guard set that must stay is AlarmKit's: iOS 26 is recent enough that
-weak-linking it behind `@available` is what lets earlier systems fall back to PLAN 13.11's ordinary
-notification.
+The current iOS 17 floor supports the APIs in use. AlarmKit and the Settings button's glass
+configuration retain iOS 26 guards so earlier systems use ordinary notifications and their
+standard button appearance. The segmented control uses one implementation across supported OSes.
 
 The web layer is *not* part of this. Vite emits a byte-identical bundle at `safari14` through
 `safari17` (473.2 kB raw / 144.50 kB gzip in all four), so no build target is configured and none is
@@ -257,13 +287,11 @@ paths stay, because they serve web and Android, not old iOS.
 CLI from the app target's deployment target — each `npx cap sync ios` after a bump rewrites its
 `platforms:` to match. Never hand-edit it; change the app target and let sync follow.
 
-One thing the bump does **not** fix: the embedded `Capacitor.framework` and `Cordova.framework`
-still report `MinimumOSVersion 14.0`. They are prebuilt XCFramework `binaryTarget`s downloaded from
-`capacitor-swift-pm`, so that value is baked into binaries this project never compiles, and
-rewriting their `Info.plist` would invalidate their code signature. App Store Connect has
-historically validated embedded frameworks as well as the app binary, so clearing this before
-Spring 2027 means bumping to a Capacitor release built against iOS 15 or later — a dependency
-change, subject to CLAUDE.md §Dependency and CI toolchain changes.
+The September 12, 2026 audit found the generated Swift package still pinned to Capacitor 7.6.8
+while npm used 8.4.2. Running `cap sync ios` and Xcode package resolution aligned them at 8.4.2.
+Both embedded frameworks in the resulting Simulator build report `MinimumOSVersion 15.0`.
+`iosPluginRegistration.test.ts` checks that the generated manifest and resolved package match
+the npm iOS version, as well as checking registration of every local native plugin.
 
 ## Live Activity decision
 
@@ -321,10 +349,12 @@ copy that says plainly what a prominent alarm does. iOS asks once; the person re
 Settings, and Bloom re-reads the state on return rather than persisting a copy. No schema change.
 
 The reducer stays the only session authority. One fixed alarm identity mirrors the current `endsAt`,
-so every deadline change is a replacement rather than a queue. The countdown presentation ships
-**without a pause button** on purpose: AlarmKit must not become a second place a Bloom session can
-be paused. Pausing therefore cancels the alarm and hands the countdown surface back to the 13.8
-activity, which the reducer already drives — one system surface throughout, never two.
+so every deadline change is a replacement rather than a queue. PLAN 13.12 initially omitted pause;
+PLAN 13.19 added pause/resume buttons through the
+[timestamped command channel](adr/0001-native-command-channel.md). An AlarmKit button records the
+press for the reducer and pauses/resumes the system countdown while JavaScript is suspended. On
+reconciliation, the reducer's paused state cancels the alarm and hands the countdown surface back
+to the 13.8 activity — one system surface throughout, never two.
 
 Ordinary reconciliation never silences an alarm that is already ringing; only a replacement or the
 confirmed data clear does. That matters because the reducer closes the session within 250 ms of the

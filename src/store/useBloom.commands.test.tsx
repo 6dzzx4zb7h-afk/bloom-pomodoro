@@ -140,6 +140,97 @@ afterEach(() => {
 });
 
 describe('replaying a command against the clock it carries (PLAN 13.18)', () => {
+  it('applies a queued pause before catching up past the old deadline', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-08-03T12:00:00Z'));
+    render(<Harness />);
+    const endsAt = await startFocus();
+    const pause = command({ kind: 'pause', occurredAt: endsAt - 60_000 });
+    let finishDrain!: (commands: IOSCommand[]) => void;
+    drainIOSCommands.mockImplementationOnce(() => new Promise((resolve) => { finishDrain = resolve; }));
+    vi.setSystemTime(endsAt + 30_000);
+
+    await resumeApp();
+    act(() => vi.advanceTimersByTime(250));
+    await act(async () => finishDrain([pause]));
+
+    expect(bloom.state.running).toBe(false);
+    expect(bloom.state.remaining).toBe(60);
+    expect(bloom.state.openFocus?.id).toBe(pause.sessionId);
+    expect(bloom.state.sessionRecords).toHaveLength(0);
+  });
+
+  it('catches up once when the native queue is empty or unavailable', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-08-03T12:00:00Z'));
+    render(<Harness />);
+    const endsAt = await startFocus();
+    // The adapter returns [] when a wrapper has no commands plugin.
+    drainIOSCommands.mockResolvedValue([]);
+    vi.setSystemTime(endsAt + 30_000);
+    await resumeApp();
+    act(() => vi.advanceTimersByTime(250));
+    expect(bloom.state.justDone).toBe(true);
+    expect(bloom.state.sessionRecords).toHaveLength(1);
+    expect(bloom.state.sessionRecords[0].outcome).toBe('completed');
+  });
+
+  it('defers a short Companion return until the queued pause is applied', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-08-03T12:00:00Z'));
+    render(<Harness />);
+    const endsAt = await startFocus();
+    act(() => bloom.actions.captureTabLeave(endsAt - 15_000));
+    const pause = command({ kind: 'pause', occurredAt: endsAt - 10_000 });
+    let finishDrain!: (commands: IOSCommand[]) => void;
+    drainIOSCommands.mockImplementationOnce(() => new Promise((resolve) => { finishDrain = resolve; }));
+    vi.setSystemTime(endsAt + 15_000);
+    await resumeApp();
+    act(() => bloom.actions.markTabReturn(Date.now(), 45));
+    await act(async () => finishDrain([pause]));
+
+    expect(bloom.state.running).toBe(false);
+    expect(bloom.state.remaining).toBe(10);
+    expect(bloom.state.openFocus?.returnSnapshot).toBeUndefined();
+    expect(bloom.state.sessionRecords).toHaveLength(0);
+  });
+
+  it('reads again when another foreground transition arrives during an older native read', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-08-03T12:00:00Z'));
+    render(<Harness />);
+    const endsAt = await startFocus();
+    const pause = command({ kind: 'pause', occurredAt: endsAt - 60_000 });
+    let finishDrain!: (commands: IOSCommand[]) => void;
+    drainIOSCommands
+      .mockImplementationOnce(() => new Promise((resolve) => { finishDrain = resolve; }))
+      .mockResolvedValueOnce([pause]);
+    vi.setSystemTime(endsAt + 30_000);
+    await resumeApp();
+    await resumeApp();
+    await act(async () => finishDrain([]));
+
+    expect(bloom.state.running).toBe(false);
+    expect(bloom.state.remaining).toBe(60);
+    expect(bloom.state.sessionRecords).toHaveLength(0);
+  });
+
+  it('does not apply an old command to a replacement session started during the native read', async () => {
+    render(<Harness />);
+    await startFocus();
+    const pause = command();
+    let finishDrain!: (commands: IOSCommand[]) => void;
+    drainIOSCommands.mockImplementationOnce(() => new Promise((resolve) => { finishDrain = resolve; }));
+    await resumeApp();
+    act(() => bloom.actions.reset());
+    await startFocus();
+    const replacementId = bloom.state.openFocus?.id;
+    await act(async () => finishDrain([pause]));
+    expect(bloom.state.running).toBe(true);
+    expect(bloom.state.openFocus?.id).toBe(replacementId);
+    expect(replacementId).not.toBe(pause.sessionId);
+  });
+
   it('pauses at the instant the button was pressed, not the instant of the drain', async () => {
     render(<Harness />);
     const endsAt = await startFocus();
@@ -159,6 +250,8 @@ describe('replaying a command against the clock it carries (PLAN 13.18)', () => 
   });
 
   it('resumes onto a deadline measured from the press, so time spent asleep still counts', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-08-03T12:00:00Z'));
     render(<Harness />);
     await startFocus();
     await act(async () => {
@@ -168,13 +261,14 @@ describe('replaying a command against the clock it carries (PLAN 13.18)', () => 
     const remaining = bloom.state.remaining;
     expect(bloom.state.running).toBe(false);
 
-    const pressedAt = Date.now() - 30_000;
+    const pressedAt = Date.now() + 60_000;
+    vi.setSystemTime(pressedAt + 30_000);
     drainIOSCommands.mockResolvedValue([
       command({ kind: 'resume', occurredAt: pressedAt }),
     ]);
     await resumeApp();
 
-    await waitFor(() => expect(bloom.state.running).toBe(true));
+    expect(bloom.state.running).toBe(true);
     // Thirty seconds genuinely elapsed while the phone was locked and the
     // session was running, so the deadline is thirty seconds earlier than a
     // live resume would have produced.
@@ -196,6 +290,38 @@ describe('replaying a command against the clock it carries (PLAN 13.18)', () => 
 });
 
 describe('idempotency and ordering', () => {
+  it.each(['pause', 'resume'] as const)(
+    'keeps a newer in-app %s when an older native batch arrives late',
+    async (latestAction) => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-08-03T12:00:00Z'));
+      render(<Harness />);
+      await startFocus();
+      const startedAt = Date.now();
+      const queued = [command({ occurredAt: startedAt + 60_000 })];
+      if (latestAction === 'pause') {
+        queued.push(command({ kind: 'resume', occurredAt: startedAt + 90_000 }));
+      }
+      let finishDrain!: (commands: IOSCommand[]) => void;
+      drainIOSCommands.mockImplementationOnce(() => new Promise((resolve) => { finishDrain = resolve; }));
+      vi.setSystemTime(startedAt + 120_000);
+      await resumeApp();
+      act(() => bloom.actions.toggle());
+      if (latestAction === 'resume') {
+        vi.setSystemTime(startedAt + 180_000);
+        act(() => bloom.actions.toggle());
+      }
+      const manualDeadline = bloom.state.endsAt;
+      const manualRemaining = bloom.state.remaining;
+      await act(async () => finishDrain(queued));
+
+      expect(bloom.state.running).toBe(latestAction === 'resume');
+      expect(bloom.state.endsAt).toBe(manualDeadline);
+      expect(bloom.state.remaining).toBe(manualRemaining);
+      expect(acknowledgeIOSCommands).toHaveBeenCalledWith(queued.map(({ id }) => id));
+    },
+  );
+
   it('applies a re-delivered command exactly once', async () => {
     render(<Harness />);
     const endsAt = await startFocus();

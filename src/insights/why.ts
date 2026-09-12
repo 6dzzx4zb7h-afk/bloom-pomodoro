@@ -168,7 +168,7 @@ export function whyFor(
   //    self-forgiveness predicts less future procrastination).
   if (record.outcome === 'abandoned') {
     return {
-      text: 'that happened — no note taken. smallest next step, when you’re ready?',
+      text: 'that session is saved. a small next step, when you’re ready?',
       evidenceKey: 'kind-restart',
     };
   }

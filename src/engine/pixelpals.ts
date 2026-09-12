@@ -124,23 +124,37 @@ export interface AnimalController {
 
 export function makeAnimal(canvas: HTMLCanvasElement, opts: AnimalOptions = {}): AnimalController {
   const sprite = parseSprite(SPRITES[opts.sprite || 'bunny'] || SPRITES.bunny);
-  const scale = opts.scale || 7;
+  const requestedScale = opts.scale || 7;
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
   const ctx = canvas.getContext('2d')!;
   let cssW = 0;
   let cssH = 0;
+  let scale = requestedScale;
+  let spriteW = 0;
+  let spriteH = 0;
+  let originY = 0;
 
   function fit() {
-    const r = canvas.getBoundingClientRect();
-    cssW = r.width || 140;
-    cssH = r.height || 140;
+    // Canvas drawing coordinates use the layout size, before CSS transforms.
+    // Measuring the scaled ring with getBoundingClientRect cropped the feet
+    // because the full sprite was drawn into an already-shrunken bitmap.
+    const r = canvas.clientWidth && canvas.clientHeight ? null : canvas.getBoundingClientRect();
+    cssW = canvas.clientWidth || r?.width || 140;
+    cssH = canvas.clientHeight || r?.height || 140;
+    // Reserve room for the widest squash/skew and the lowest breathing pose.
+    // Tiny thumbnails may need smaller pixels, but never a cropped animal.
+    scale = Math.min(
+      requestedScale,
+      Math.max(1, cssW - 2) / (sprite.width * 1.05 + sprite.height * 0.04),
+      Math.max(1, cssH - 2 - 6.2) / (sprite.height * 1.06),
+    );
+    spriteW = sprite.width * scale;
+    spriteH = sprite.height * scale;
+    originY = Math.min(cssH * 0.56, cssH - 1 - spriteH * 1.06 / 2 - 6.2);
     canvas.width = Math.round(cssW * dpr);
     canvas.height = Math.round(cssH * dpr);
   }
   fit();
-
-  const spriteW = sprite.width * scale;
-  const spriteH = sprite.height * scale;
 
   let mode: Mode = opts.mode || 'idle';
   let modeStart = performance.now();
@@ -190,7 +204,7 @@ export function makeAnimal(canvas: HTMLCanvasElement, opts: AnimalOptions = {}):
     // Upward hops scale down to whatever headroom the canvas actually has, so
     // small renders (speech bubbles, settings rows) never clip the pet's ears
     // mid-jump. Large canvases have plenty of room and are unaffected.
-    const headroom = Math.max(0, cssH * 0.56 - spriteH / 2 - 1);
+    const headroom = Math.max(0, originY - spriteH * 1.06 / 2 - 1);
 
     if (mode === 'idle') {
       if (!reducedMotion) {
@@ -249,7 +263,7 @@ export function makeAnimal(canvas: HTMLCanvasElement, opts: AnimalOptions = {}):
 
     // body
     ctx.save();
-    ctx.translate(cssW / 2, cssH * 0.56 + offsetY);
+    ctx.translate(cssW / 2, originY + offsetY);
     ctx.transform(sx, 0, skew, sy, 0, 0);
     const ox = -spriteW / 2;
     const oy = -spriteH / 2;
@@ -293,14 +307,18 @@ export function makeAnimal(canvas: HTMLCanvasElement, opts: AnimalOptions = {}):
         p.vy += 26 * dt;
         const a = Math.max(0, 1 - p.life / p.max);
         if (a <= 0) return false;
-        // Anchor particles to the same origin as the body (cssH * 0.56).
-        drawGlyph(ctx, p.type, cssW / 2 + p.x - 5, cssH * 0.56 + p.y, p.s, p.col, a);
+        drawGlyph(ctx, p.type, cssW / 2 + p.x - 5, originY + p.y, p.s, p.col, a);
         return true;
       });
     }
   }
 
   const animation = observeDecorativeAnimation(canvas, frame, { framesPerSecond: 15 });
+  const resize = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(() => {
+    fit();
+    animation.requestRender();
+  });
+  resize?.observe(canvas);
 
   return {
     setMode(m: Mode) {
@@ -316,6 +334,7 @@ export function makeAnimal(canvas: HTMLCanvasElement, opts: AnimalOptions = {}):
     },
     destroy() {
       running = false;
+      resize?.disconnect();
       animation.destroy();
     },
   };

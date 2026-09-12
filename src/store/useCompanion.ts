@@ -81,6 +81,7 @@ export function useCompanion(bloom: Bloom) {
   // transition. Claim the exact prompt/snapshot object synchronously so one
   // honest "I drifted" answer can append and link at most one event.
   const claimedDriftDecisionsRef = useRef(new WeakSet<object>());
+  const skippedCheckinsRef = useRef(new WeakSet<object>());
 
   // Latest values for interval/event handlers without re-subscribing.
   const ref = useRef({ state, conf, prompt, active, returnTrackingActive });
@@ -136,6 +137,8 @@ export function useCompanion(bloom: Bloom) {
    */
   const logSkip = useCallback(
     (p: { min: number; shownAt: number; sessionId?: string }) => {
+      if (skippedCheckinsRef.current.has(p)) return;
+      skippedCheckinsRef.current.add(p);
       appendEvent({
         ts: Date.now(),
         shownAt: p.shownAt,
@@ -380,6 +383,13 @@ export function useCompanion(bloom: Bloom) {
 
   const actions = useMemo(
     () => ({
+      /** Dismiss without asserting focus or drift; leave the next interval quiet. */
+      skipCheckin: () => {
+        const p = ref.current.prompt;
+        if (p?.type !== 'checkin') return;
+        logSkip(p);
+        close();
+      },
       /** "yes, focused" on a check-in. */
       focused: () => {
         const p = ref.current.prompt;
@@ -513,7 +523,7 @@ export function useCompanion(bloom: Bloom) {
       },
       close,
     }),
-    [bloom.actions, close, sessionLenMins, activeSessionId],
+    [bloom.actions, close, sessionLenMins, activeSessionId, logSkip],
   );
 
   return {

@@ -39,6 +39,7 @@ import {
   clearIOSCommands,
   drainIOSCommands,
   isIOSCommandPlatform,
+  type IOSCommand,
 } from '../native/iosCommands';
 import {
   EMPTY_PRE_SLUMP_CAPS,
@@ -1116,7 +1117,7 @@ export function migratePersistedBlob(
 }
 
 export function readPersisted(): PersistedShape | null {
-  // A corrupt newest blob must not hide a valid legacy backup. Parse each
+  // A corrupt newest blob must not hide a readable save under a legacy key. Parse each
   // candidate independently and keep walking when one is unreadable.
   let sawFailure = false;
   for (const key of [STORAGE_KEY, ...LEGACY_KEYS]) {
@@ -1655,6 +1656,7 @@ export type Action =
   // control pressed in system UI while the WebView was suspended replays with
   // its recorded instant, never with the instant the queue was drained.
   | { type: 'toggle'; ifThenPlanId?: string; targetText?: string; at?: number }
+  | { type: 'replayCommand'; command: IOSCommand }
   | { type: 'reset' }
   | { type: 'discardFalseStart' }
   | { type: 'pick'; mode: TimerMode; tinyMinutes?: TinyStartMinutes }
@@ -1774,6 +1776,15 @@ export function reducer(s: BloomState, a: Action): BloomState {
     }
     case 'rollOverDay':
       return rollOverDay(s, a.at);
+    case 'replayCommand': {
+      // Validate against the reducer's current state, including earlier queued
+      // commands or a user action made while the native read was in flight.
+      if (
+        s.openFocus?.id !== a.command.sessionId ||
+        s.running === (a.command.kind === 'resume')
+      ) return s;
+      return reducer(s, { type: 'toggle', at: a.command.occurredAt });
+    }
     case 'toggle': {
       // PLAN 13.18: a replayed command carries the instant it was pressed, so
       // the arithmetic below is identical whether the press happened live or on
@@ -2832,18 +2843,21 @@ export function reducer(s: BloomState, a: Action): BloomState {
       return changed ? { ...s, sessionRecords } : s;
     }
     case 'resumeInterrupted': {
+      // A stale reminder/action must never replace newer work or a running break.
+      if (s.running || s.openFocus || s.openFlow) return s;
       const record = s.sessionRecords.find(
         (item) => item.id === a.sessionId && item.outcome === 'interrupted' && item.resumeCuePending,
       );
       if (!record || record.mode === 'flow' || record.plannedMin == null) return s;
       const plannedSec = Math.max(0, record.plannedMin * 60);
-      const remaining = Math.max(
-        1,
+      const remaining = Math.round(Math.max(
+        0,
         Math.min(
           plannedSec,
           record.returnSnapshot?.remainingSec ?? plannedSec - record.actualMin * 60,
         ),
-      );
+      ));
+      if (remaining <= 0) return reducer(s, { type: 'dismissResumeCue', sessionId: record.id });
       const endsAt = Date.now() + remaining * 1000;
       const openFocus: OpenSession = {
         id: record.id,
@@ -3172,6 +3186,7 @@ export function reducer(s: BloomState, a: Action): BloomState {
 export function useBloom() {
   const [state, dispatch] = useReducer(reducer, undefined, loadState);
   const dayStartHour = state.settings.dayStartHour;
+  const nativeClockReadyRef = useRef(!isIOSCommandPlatform());
 
   // Persist durable fields whenever they change. Flow start/pause lands here
   // too (running/mode/flowStart), so a live stopwatch survives a reload; the
@@ -3191,7 +3206,12 @@ export function useBloom() {
   useEffect(() => {
     if (!state.running) return;
     const iv = setInterval(
-      () => dispatch({ type: 'tick', at: Date.now() }),
+      () => {
+        // System controls can change the deadline while the WebView sleeps.
+        // Replay that intent before an old deadline can finalize the session.
+        if (isIOSCommandPlatform() && (document.hidden || !nativeClockReadyRef.current)) return;
+        dispatch({ type: 'tick', at: Date.now() });
+      },
       250,
     );
     return () => clearInterval(iv);
@@ -3214,6 +3234,10 @@ export function useBloom() {
   // visible again so a session that ended while hidden completes immediately.
   useEffect(() => {
     const onVis = () => {
+      if (isIOSCommandPlatform()) {
+        if (document.hidden) nativeClockReadyRef.current = false;
+        return; // Native command reconciliation owns the foreground catch-up.
+      }
       if (document.visibilityState === 'visible') {
         dispatch({ type: 'tick', at: Date.now() });
       }
@@ -3342,6 +3366,7 @@ export function useBloom() {
     alarmStatus.authorization,
     state.endsAt,
     state.mode,
+    state.openFocus?.id,
     state.running,
     state.settings.sound,
   ]);
@@ -3394,6 +3419,7 @@ export function useBloom() {
   // termination, the existing boot sweep remains the source of record truth.
   // PLAN 13.12 hands this cue to AlarmKit whenever an authorized alarm mirrors
   // the same deadline, so the two never sound together.
+  const completionPausedRemaining = state.running ? null : state.remaining;
   useEffect(() => {
     // Undecided keeps the notification scheduled: a duplicate pending request
     // that gets cancelled seconds later is a far smaller failure than a finish
@@ -3403,12 +3429,16 @@ export function useBloom() {
       running: state.running,
       mode: state.mode,
       deadlineMs: state.endsAt,
+      sessionId: state.openFocus?.id ?? null,
+      remainingSeconds: completionPausedRemaining,
     });
   }, [
     alarmOwnsCue,
+    completionPausedRemaining,
     completionAlertStatus.permission,
     state.endsAt,
     state.mode,
+    state.openFocus?.id,
     state.running,
     state.settings.sound,
   ]);
@@ -3420,65 +3450,62 @@ export function useBloom() {
   // wall clock each command carries — never against the instant it was read —
   // which is what keeps the reducer the single timer authority instead of
   // making the native layer a second one. See docs/adr/0001.
-  const commandStateRef = useRef(state);
-  commandStateRef.current = state;
   const appliedCommandIdsRef = useRef<Set<string>>(new Set());
-  const drainingCommandsRef = useRef(false);
+  const latestLocalTimerPressRef = useRef(0);
+  const drainingCommandsRef = useRef<Promise<void> | null>(null);
+  const drainAgainRef = useRef(false);
 
-  const drainCommands = useCallback(async () => {
+  const drainCommands = useCallback((foregroundTransition = false): Promise<void> => {
     // One drain at a time: resume and visibilitychange routinely fire together,
     // and a command applied twice from overlapping reads is exactly what the
     // idempotency guard below exists to prevent.
-    if (!isIOSCommandPlatform() || drainingCommandsRef.current) return;
-    drainingCommandsRef.current = true;
-    try {
-      const commands = await drainIOSCommands();
-      if (commands.length === 0) return;
-
-      const current = commandStateRef.current;
-      const openSessionId = current.openFocus?.id ?? null;
-      // Dispatches in this loop do not re-render before the next iteration, so
-      // track the running state we are steering toward rather than re-reading
-      // a ref that is still one render behind.
-      let projectedRunning = current.running;
-      const handled: string[] = [];
-
-      for (const command of commands) {
-        // Acknowledge everything read, including commands deliberately dropped:
-        // a command that can never apply should not be re-delivered forever.
-        handled.push(command.id);
-        if (appliedCommandIdsRef.current.has(command.id)) continue;
-        appliedCommandIdsRef.current.add(command.id);
-        // A command whose session is gone is dropped, so a queue that survived
-        // a force-quit can never revive a session the boot sweep already closed
-        // as interrupted.
-        if (openSessionId == null || openSessionId !== command.sessionId) continue;
-        const wantsRunning = command.kind === 'resume';
-        // Already in the state this command asks for — replaying it would
-        // invert the timer rather than confirm it.
-        if (projectedRunning === wantsRunning) continue;
-        dispatch({ type: 'toggle', at: command.occurredAt });
-        projectedRunning = wantsRunning;
-      }
-
-      // The set only has to cover the window before acknowledgement lands;
-      // after a relaunch, session matching drops anything stale.
-      if (appliedCommandIdsRef.current.size > 64) {
-        appliedCommandIdsRef.current = new Set(
-          [...appliedCommandIdsRef.current].slice(-32),
-        );
-      }
-      await acknowledgeIOSCommands(handled);
-    } finally {
-      drainingCommandsRef.current = false;
+    if (!isIOSCommandPlatform()) return Promise.resolve();
+    if (drainingCommandsRef.current) {
+      // A second return may carry newer commands than the pending read. Join
+      // it, then read once more before allowing the timer to catch up.
+      if (foregroundTransition) drainAgainRef.current = true;
+      return drainingCommandsRef.current;
     }
+    nativeClockReadyRef.current = false;
+    const drain = (async () => {
+      try {
+        do {
+          drainAgainRef.current = false;
+          const commands = await drainIOSCommands();
+          const handled: string[] = [];
+          for (const command of commands) {
+            // Dropped/stale commands are acknowledged too, so they do not
+            // remain queued forever. The reducer decides whether each applies.
+            handled.push(command.id);
+            if (appliedCommandIdsRef.current.has(command.id)) continue;
+            appliedCommandIdsRef.current.add(command.id);
+            // Native reads can finish after a newer in-app pause/resume. Keep
+            // that newer choice, but acknowledge the old transport entry.
+            if (command.occurredAt < latestLocalTimerPressRef.current) continue;
+            dispatch({ type: 'replayCommand', command });
+          }
+          if (appliedCommandIdsRef.current.size > 64) {
+            appliedCommandIdsRef.current = new Set(
+              [...appliedCommandIdsRef.current].slice(-32),
+            );
+          }
+          if (handled.length > 0) await acknowledgeIOSCommands(handled);
+        } while (drainAgainRef.current && !document.hidden);
+      } finally {
+        drainingCommandsRef.current = null;
+        nativeClockReadyRef.current = !document.hidden;
+        if (nativeClockReadyRef.current) dispatch({ type: 'tick', at: Date.now() });
+      }
+    })();
+    drainingCommandsRef.current = drain;
+    return drain;
   }, []);
 
   useEffect(() => {
     if (!isIOSCommandPlatform()) return;
     void drainCommands();
     const onResume = () => {
-      if (!document.hidden) void drainCommands();
+      if (!document.hidden) void drainCommands(true);
     };
     document.addEventListener('visibilitychange', onResume);
     window.addEventListener('focus', onResume);
@@ -3626,8 +3653,13 @@ export function useBloom() {
     if (!state.justDone) return;
     const lastRecord = state.sessionRecords[state.sessionRecords.length - 1];
     const holdsTinyOffer = state.mode === 'tiny' && isTinyFirstRung(lastRecord);
-    const completedDeadline = lastCountdownDeadlineRef.current;
-    const completionCueToken = `${state.mode}:${completedDeadline ?? 'unknown'}`;
+    // A stopwatch has no countdown deadline. Its completed record identifies
+    // this finish, so later Flow sessions get their own cue and cannot consume
+    // a delivery left by an earlier countdown.
+    const completedDeadline = state.mode === 'flow' ? null : lastCountdownDeadlineRef.current;
+    const completionCueToken = state.mode === 'flow' && lastRecord
+      ? `flow:${lastRecord.id}`
+      : `${state.mode}:${completedDeadline ?? 'unknown'}`;
     if (handledCompletionCueRef.current !== completionCueToken) {
       handledCompletionCueRef.current = completionCueToken;
       void (async () => {
@@ -3743,7 +3775,9 @@ export function useBloom() {
           maybeOfferCompletionAlertPermission();
         }
         const target = targetText?.trim().slice(0, SESSION_TARGET_MAX) || undefined;
-        dispatch({ type: 'toggle', ifThenPlanId, targetText: target });
+        const at = Date.now();
+        latestLocalTimerPressRef.current = at;
+        dispatch({ type: 'toggle', ifThenPlanId, targetText: target, at });
       },
       reset: () => dispatch({ type: 'reset' }),
       discardFalseStart: () => dispatch({ type: 'discardFalseStart' }),
@@ -3883,8 +3917,16 @@ export function useBloom() {
       markGuideArticleSuggested: (id: GuideArticleId, momentKey: string) =>
         dispatch({ type: 'markGuideArticleSuggested', id, momentKey, at: Date.now() }),
       captureTabLeave: (at: number) => dispatch({ type: 'captureTabLeave', at }),
-      markTabReturn: (at: number, thresholdSec: number) =>
-        dispatch({ type: 'markTabReturn', at, thresholdSec }),
+      markTabReturn: (at: number, thresholdSec: number) => {
+        const markReturn = () => dispatch({ type: 'markTabReturn', at, thresholdSec });
+        // Short returns can complete the countdown directly. Apply system
+        // pauses first, just as the ordinary display catch-up does.
+        if (isIOSCommandPlatform() && !nativeClockReadyRef.current) {
+          void drainCommands().then(markReturn);
+        } else {
+          markReturn();
+        }
+      },
       resolveTabReturn: (resolution: ReturnResolution) =>
         dispatch({ type: 'resolveTabReturn', resolution }),
       setNextAction: (sessionId: string, text: string) =>
@@ -3918,7 +3960,6 @@ export function useBloom() {
         dispatch({ type: 'markFoundationRestartOffered', instanceId, dayKey }),
       patchSettings: (patch: Partial<Settings>) =>
         dispatch({ type: 'patchSettings', patch, at: Date.now() }),
-      reloadPersistedState: () => dispatch({ type: 'replaceState', state: loadState() }),
     }),
     [],
   );
@@ -3926,21 +3967,25 @@ export function useBloom() {
   const retryStorage = useCallback(() => {
     const before = getStorageHealthSnapshot();
     if (before.failures.some((failure) => failure.area === 'bloom-state')) {
-      const persisted = readPersisted();
       if (
-        persisted &&
-        !getStorageHealthSnapshot().failures.some(
-          (failure) => failure.area === 'bloom-state',
-        )
-      ) {
-        dispatch({ type: 'replaceState', state: loadState() });
-      } else if (
         before.failures.every(
           (failure) =>
             failure.area !== 'bloom-state' || failure.kind === 'write',
         )
       ) {
+        // A failed write leaves newer changes in memory. Retry those changes;
+        // reading the older saved copy first would silently discard them.
         persist(state);
+      } else {
+        const persisted = readPersisted();
+        if (
+          persisted &&
+          !getStorageHealthSnapshot().failures.some(
+            (failure) => failure.area === 'bloom-state',
+          )
+        ) {
+          dispatch({ type: 'replaceState', state: loadState() });
+        }
       }
     }
     if (before.failures.some((failure) => failure.area === 'companion-log')) {
@@ -3955,8 +4000,8 @@ export function useBloom() {
       persist(state, true);
     }
     if (failures.some((failure) => failure.area === 'companion-log')) {
-      // loadEvents keeps every usable row in memory while preserving the raw
-      // corrupt payload in the downloadable recovery bundle.
+      // Saving the readable rows replaces the damaged log only after the
+      // person explicitly chooses to keep the recovered copy.
       replaceCompanionLog(loadEvents());
     }
   }, [state]);
@@ -4010,7 +4055,6 @@ export function useBloom() {
     storageRecovery: {
       retry: retryStorage,
       recover: recoverStorage,
-      recoveredBloom: persistedShapeFromState(state),
     },
     completionAlerts: {
       status: completionAlertStatus,

@@ -19,8 +19,8 @@ interface KindRestartProps {
 
 /**
  * Optional 5.3 recovery flow: one user-started breath, one concrete next
- * action, then resume (during a drift) or a two-minute tiny start (after an
- * abandon). The only timed part is ten seconds, so the guided path stays well
+ * action, then save the step (during a drift) or a two-minute tiny start (after an
+ * abandon). The countdown keeps running during drift guidance. The guided path stays well
  * inside the plan's 60-second ceiling without growing into a meditation mode.
  * The breath is paced entirely by the visual orb (PLAN 12.1); the timer-finish
  * chime is Bloom's only remaining audio path.
@@ -71,8 +71,9 @@ export function KindRestart({
         <div className="kind-restart-title">
           {kind === 'abandon'
             ? 'Want one soft reset before a tiny next step?'
-            : 'Want one soft reset before you step back in?'}
+            : 'Want one slow breath and a next step?'}
         </div>
+        {kind === 'drift' && <div className="pop-soft">your timer keeps running during this reset.</div>}
         {tip && <div className="pop-tip kind-restart-tip">{tip}</div>}
         <div className="pop-actions">
           <button className="pop-btn primary" onClick={beginBreath}>
@@ -124,7 +125,7 @@ export function KindRestart({
       />
       <div className="pop-actions">
         <button type="submit" className="pop-btn primary" disabled={!trimmed}>
-          {kind === 'abandon' ? 'tiny-start this step' : 'resume this step'}
+          {kind === 'abandon' ? 'tiny-start this step' : 'save step & close'}
         </button>
         <button type="button" className="pop-btn" onClick={skip}>
           skip

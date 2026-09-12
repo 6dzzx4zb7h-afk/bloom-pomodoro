@@ -34,7 +34,7 @@ describe('ResumeCue actions', () => {
       </div>,
     );
 
-    fireEvent.change(screen.getByLabelText('next concrete action'), {
+    fireEvent.change(screen.getByLabelText('next step (optional)'), {
       target: { value: 'Underline the first result' },
     });
     fireEvent.click(screen.getByRole('button', { name: buttonName }));

@@ -1,6 +1,6 @@
 /** @vitest-environment jsdom */
 
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { StorageRecoveryNotice } from '../components/StorageRecoveryNotice';
 import { appendEvent, loadEvents } from './companion';
@@ -106,6 +106,27 @@ describe('persisted-state recovery', () => {
     });
     expect(storage.getItem(BLOOM_STORAGE_KEY)).toBe(prior);
   });
+
+  it('retries saving the latest state after a write failure without reloading older data', () => {
+    let bloom: ReturnType<typeof useBloom>;
+    function Harness() {
+      bloom = useBloom();
+      return null;
+    }
+    render(<Harness />);
+    const prior = storage.getItem(BLOOM_STORAGE_KEY);
+    storage.failSet = true;
+    act(() => bloom.actions.addTask('Keep this newly added task'));
+    expect(getStorageHealthSnapshot().failures[0]?.kind).toBe('write');
+    expect(storage.getItem(BLOOM_STORAGE_KEY)).toBe(prior);
+
+    storage.failSet = false;
+    act(() => bloom.storageRecovery.retry());
+
+    expect(bloom!.state.tasks.some((task) => task.t === 'Keep this newly added task')).toBe(true);
+    expect(JSON.parse(storage.getItem(BLOOM_STORAGE_KEY)!).tasks).toEqual(bloom!.state.tasks);
+    expect(getStorageHealthSnapshot().failures).toEqual([]);
+  });
 });
 
 describe('Companion storage isolation', () => {
@@ -132,7 +153,7 @@ describe('Companion storage isolation', () => {
 });
 
 describe('accessible recovery notice', () => {
-  it('announces the problem and exposes retry, export, and recovery actions', () => {
+  it('announces the problem and exposes local retry and recovery without file export', () => {
     reportStorageFailure({
       area: 'bloom-state',
       key: BLOOM_STORAGE_KEY,
@@ -140,17 +161,20 @@ describe('accessible recovery notice', () => {
       reason: 'broken JSON',
       raw: '{broken',
     });
+    const onRetry = vi.fn();
+    const onRecover = vi.fn();
     render(
       <StorageRecoveryNotice
-        recoveredBloom={{ version: SCHEMA_VERSION }}
-        onRetry={vi.fn()}
-        onRecover={vi.fn()}
+        onRetry={onRetry}
+        onRecover={onRecover}
       />,
     );
 
     expect(screen.getByRole('alert')).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'download recovery file' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'try storage again' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'keep this recovered copy' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /download|export|backup/i })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'try storage again' }));
+    fireEvent.click(screen.getByRole('button', { name: 'keep this recovered copy' }));
+    expect(onRetry).toHaveBeenCalledOnce();
+    expect(onRecover).toHaveBeenCalledOnce();
   });
 });

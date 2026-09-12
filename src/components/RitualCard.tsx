@@ -6,7 +6,7 @@ import { PixelPal } from './PixelPal';
 /**
  * The optional pre-session environment reset (PLAN 3.4). Each tap is a small
  * physical cue; the final tap starts the chosen timer immediately. Skipping
- * keeps the timer one tap away and never comments on the choice.
+ * also starts the timer, without commenting on the choice.
  */
 export function RitualCard({
   items,
@@ -58,7 +58,7 @@ export function RitualCard({
       </div>
 
       <div className="ritual-note">the last little tap starts the timer · skip anytime</div>
-      <button className="ritual-skip" onClick={onSkip}>skip for now</button>
+      <button className="ritual-skip" onClick={onSkip}>skip & start</button>
     </div>
   );
 }

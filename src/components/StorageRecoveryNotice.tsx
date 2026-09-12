@@ -1,26 +1,13 @@
 import { useSyncExternalStore } from 'react';
 import {
   getStorageHealthSnapshot,
-  storageRecoveryJson,
   subscribeStorageHealth,
 } from '../store/storageHealth';
 
-function downloadRecovery(json: string): void {
-  const blob = new Blob([json], { type: 'application/json' });
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement('a');
-  anchor.href = url;
-  anchor.download = `bloom-storage-recovery-${new Date().toISOString().slice(0, 10)}.json`;
-  anchor.click();
-  URL.revokeObjectURL(url);
-}
-
 export function StorageRecoveryNotice({
-  recoveredBloom,
   onRetry,
   onRecover,
 }: {
-  recoveredBloom: unknown;
   onRetry: () => void;
   onRecover: () => void;
 }) {
@@ -52,9 +39,6 @@ export function StorageRecoveryNotice({
             } stays available.`}
       </p>
       <div className="storage-recovery-actions">
-        <button type="button" onClick={() => downloadRecovery(storageRecoveryJson(recoveredBloom))}>
-          download recovery file
-        </button>
         <button type="button" onClick={onRetry}>
           try storage again
         </button>
@@ -63,7 +47,9 @@ export function StorageRecoveryNotice({
         </button>
       </div>
       <p className="storage-recovery-detail">
-        Nothing is sent anywhere. The recovery file stays on this device unless you move it.
+        {hasWriteFailure
+          ? 'Try storage again to save the latest changes on this device.'
+          : 'Keeping the recovered copy replaces the original with its readable parts on this device.'}
       </p>
     </section>
   );

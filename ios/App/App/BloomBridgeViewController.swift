@@ -63,8 +63,6 @@ private struct BloomNativeControlConfiguration: Decodable {
 final class BloomBridgeViewController: CAPBridgeViewController, UITabBarDelegate {
     private let bloomTabBar = UITabBar()
     private let bloomSegmentedControl = UISegmentedControl()
-    /// PLAN 13.16: the Liquid Glass the rail floats on, on iOS 26 and later.
-    private let bloomSegmentGlass = UIVisualEffectView()
     private let bloomSettingsButton = UIButton(type: .system)
     private let navigationPlugin = BloomNavigationPlugin()
     private let appIconPlugin = BloomAppIconPlugin()
@@ -72,6 +70,7 @@ final class BloomBridgeViewController: CAPBridgeViewController, UITabBarDelegate
     private let liveActivityPlugin = BloomLiveActivityPlugin()
     private let alarmPlugin = BloomAlarmPlugin()
     private let settingsPlugin = BloomSettingsPlugin()
+    private let commandsPlugin = BloomCommandsPlugin()
     private var visibleTabs: [BloomTab] = []
     private var segmentKind: String?
     private var segmentItems: [BloomSegmentItem] = []
@@ -87,6 +86,7 @@ final class BloomBridgeViewController: CAPBridgeViewController, UITabBarDelegate
         bridge?.registerPluginInstance(liveActivityPlugin)
         bridge?.registerPluginInstance(alarmPlugin)
         bridge?.registerPluginInstance(settingsPlugin)
+        bridge?.registerPluginInstance(commandsPlugin)
         installNativeTabBar()
         installNativeSegmentedControl()
         installNativeAuxiliaryControls()
@@ -123,8 +123,9 @@ final class BloomBridgeViewController: CAPBridgeViewController, UITabBarDelegate
     /// draws itself as a floating capsule inset inside its own bounds and
     /// reserves the bottom safe area, so mid-screen it rendered narrower than
     /// its measured slot and cropped its own labels. `UISegmentedControl` fills
-    /// the frame it is handed, and iOS 26 gives it the same Liquid Glass
-    /// sliding selection indicator. Supply no background, effect, or animation.
+    /// the frame it is handed. UIKit owns its track, selected indicator, and
+    /// animation. The extra glass container from PLAN 13.16 is no longer
+    /// needed: use the standard control's appearance on every supported OS.
     private func installNativeSegmentedControl() {
         bloomSegmentedControl.isHidden = true
         bloomSegmentedControl.isMomentary = false
@@ -135,26 +136,7 @@ final class BloomBridgeViewController: CAPBridgeViewController, UITabBarDelegate
             for: .valueChanged
         )
 
-        // PLAN 13.16: a segmented control on its own draws an opaque track, so
-        // next to the system tab bar the rail read as flat plastic. Float it on
-        // a real `UIGlassEffect` and clear its own unselected track, so the sky
-        // refracts through and only the selected segment keeps its own lens.
-        // The system owns the material; Bloom sets no colour, blur, or shadow.
-        guard #available(iOS 26.0, *) else {
-            view.addSubview(bloomSegmentedControl)
-            return
-        }
-        bloomSegmentGlass.effect = UIGlassEffect()
-        bloomSegmentGlass.isHidden = true
-        bloomSegmentGlass.clipsToBounds = true
-        bloomSegmentGlass.layer.cornerCurve = .continuous
-        bloomSegmentGlass.accessibilityIdentifier = "bloom-native-segment-glass"
-        // Only the view's own fill is cleared. Blanking the `.normal`
-        // background image also blanks the selected segment's indicator, which
-        // left every mode looking identically unselected.
-        bloomSegmentedControl.backgroundColor = .clear
-        view.addSubview(bloomSegmentGlass)
-        bloomSegmentGlass.contentView.addSubview(bloomSegmentedControl)
+        view.addSubview(bloomSegmentedControl)
     }
 
     private func installNativeAuxiliaryControls() {
@@ -204,6 +186,8 @@ final class BloomBridgeViewController: CAPBridgeViewController, UITabBarDelegate
         }
 
         overrideUserInterfaceStyle = night ? .dark : .light
+        // The selector overlays WebKit; keep its label contrast tied to Bloom's theme.
+        bloomSegmentedControl.overrideUserInterfaceStyle = overrideUserInterfaceStyle
         let accentColor = night
             ? UIColor(red: 0.80, green: 0.66, blue: 1.00, alpha: 1)
             : UIColor(red: 0.93, green: 0.31, blue: 0.59, alpha: 1)
@@ -213,9 +197,7 @@ final class BloomBridgeViewController: CAPBridgeViewController, UITabBarDelegate
         updateAuxiliaryControlTint(accentColor)
         bloomTabBar.isHidden = !visible
         view.bringSubviewToFront(bloomTabBar)
-        if !bloomSegmentGlass.isHidden {
-            view.bringSubviewToFront(bloomSegmentGlass)
-        } else if !bloomSegmentedControl.isHidden {
+        if !bloomSegmentedControl.isHidden {
             view.bringSubviewToFront(bloomSegmentedControl)
         }
         updateTabBarHeight()
@@ -334,7 +316,6 @@ final class BloomBridgeViewController: CAPBridgeViewController, UITabBarDelegate
             requestedFrame.height >= 32
         else {
             bloomSegmentedControl.isHidden = true
-            bloomSegmentGlass.isHidden = true
             return nil
         }
 
@@ -386,21 +367,10 @@ final class BloomBridgeViewController: CAPBridgeViewController, UITabBarDelegate
             height: controlHeight
         )
         let placed = controlFrame.intersection(view.bounds)
-        if #available(iOS 26.0, *) {
-            bloomSegmentGlass.frame = placed
-            bloomSegmentGlass.layer.cornerRadius = placed.height / 2
-            bloomSegmentedControl.frame = bloomSegmentGlass.bounds
-            bloomSegmentGlass.isHidden = !configuration.visible
-            bloomSegmentedControl.isHidden = false
-            if configuration.visible {
-                view.bringSubviewToFront(bloomSegmentGlass)
-            }
-        } else {
-            bloomSegmentedControl.frame = placed
-            bloomSegmentedControl.isHidden = !configuration.visible
-            if configuration.visible {
-                view.bringSubviewToFront(bloomSegmentedControl)
-            }
+        bloomSegmentedControl.frame = placed
+        bloomSegmentedControl.isHidden = !configuration.visible
+        if configuration.visible {
+            view.bringSubviewToFront(bloomSegmentedControl)
         }
         return controlHeight
     }
@@ -408,7 +378,6 @@ final class BloomBridgeViewController: CAPBridgeViewController, UITabBarDelegate
     func hideSegmentedControl(kind: String) {
         guard kind == segmentKind else { return }
         bloomSegmentedControl.isHidden = true
-        bloomSegmentGlass.isHidden = true
     }
 
     @objc private func nativeSegmentChanged(_ sender: UISegmentedControl) {

@@ -3,116 +3,6 @@ import UserNotifications
 import UIKit
 import Capacitor
 
-enum BloomCompletionAlert {
-    static let requestIdentifier = "dev.bloom.pomodoro.timer-complete"
-    static let soundName = "BloomCompletion.wav"
-    static let deliveryState = BloomCompletionAlertDeliveryState()
-}
-
-/// Process-local delivery handshake between AppDelegate and the Capacitor
-/// plugin. A terminated process never reaches React completion (the boot sweep
-/// records interruption), so persistence here would create a second timer
-/// authority rather than improving delivery.
-final class BloomCompletionAlertDeliveryState {
-    private struct Record {
-        let deadlineMs: Double
-        var systemOwned: Bool
-        var foregroundSuppressed: Bool
-    }
-
-    private let lock = NSLock()
-    private var record: Record?
-
-    func replace(deadlineMs: Double, appIsActive: Bool) {
-        lock.lock()
-        record = Record(
-            deadlineMs: deadlineMs,
-            systemOwned: !appIsActive,
-            foregroundSuppressed: false
-        )
-        lock.unlock()
-    }
-
-    func clear(deadlineMs: Double) {
-        lock.lock()
-        if matches(record, deadlineMs: deadlineMs) {
-            record = nil
-        }
-        lock.unlock()
-    }
-
-    func noteAppBecameNonActive(atMs: Double) {
-        lock.lock()
-        if var current = record, atMs <= current.deadlineMs + 1_000 {
-            current.systemOwned = true
-            record = current
-        }
-        lock.unlock()
-    }
-
-    func notePresentation(deadlineMs: Double, foregroundSuppressed: Bool) {
-        lock.lock()
-        var current = matches(record, deadlineMs: deadlineMs)
-            ? record!
-            : Record(deadlineMs: deadlineMs, systemOwned: false, foregroundSuppressed: false)
-        if foregroundSuppressed {
-            current.foregroundSuppressed = true
-        } else {
-            current.systemOwned = true
-        }
-        record = current
-        lock.unlock()
-    }
-
-    func noteResponse(deadlineMs: Double) {
-        lock.lock()
-        var current = matches(record, deadlineMs: deadlineMs)
-            ? record!
-            : Record(deadlineMs: deadlineMs, systemOwned: true, foregroundSuppressed: false)
-        current.systemOwned = true
-        record = current
-        lock.unlock()
-    }
-
-    /// A due request must remain system-owned while Bloom is not active. This
-    /// closes the short window where WKWebView can tick in the background and
-    /// otherwise cancel the only audible cue before iOS presents it.
-    func shouldRemovePendingForCancellation(nowMs: Double, appIsActive: Bool) -> Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        if var current = record,
-           current.deadlineMs <= nowMs + 1_000,
-           !appIsActive {
-            current.systemOwned = true
-            record = current
-            return false
-        }
-        record = nil
-        return true
-    }
-
-    func consume(deadlineMs: Double) -> String {
-        lock.lock()
-        defer { lock.unlock() }
-        guard let current = record, matches(current, deadlineMs: deadlineMs) else {
-            return "none"
-        }
-        record = nil
-        if current.foregroundSuppressed {
-            return "foreground-suppressed"
-        }
-        if current.systemOwned {
-            return "background-system"
-        }
-        return "none"
-    }
-
-    private func matches(_ value: Record?, deadlineMs: Double) -> Bool {
-        guard let value else { return false }
-        return abs(value.deadlineMs - deadlineMs) < 1
-    }
-}
-
 /// PLAN 13.11 — mirrors the reducer-owned countdown deadline into one local
 /// iOS notification. Delivery is a cue only: this plugin never writes Bloom
 /// state or claims that a session was completed.
@@ -151,107 +41,51 @@ final class BloomCompletionAlertPlugin: CAPPlugin, CAPBridgedPlugin {
 
     @objc func schedule(_ call: CAPPluginCall) {
         guard
-            let deadlineMs = call.getDouble("deadlineMs"),
-            deadlineMs.isFinite,
-            let title = call.getString("title")?.trimmingCharacters(in: .whitespacesAndNewlines),
-            !title.isEmpty,
-            let body = call.getString("body")?.trimmingCharacters(in: .whitespacesAndNewlines),
-            !body.isEmpty
+            let deadlineMs = call.getDouble("deadlineMs"), deadlineMs.isFinite,
+            let title = call.getString("title")?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty,
+            let body = call.getString("body")?.trimmingCharacters(in: .whitespacesAndNewlines), !body.isEmpty
         else {
             call.reject("A finite deadline, title, and body are required")
             return
         }
-
-        BloomCompletionAlert.deliveryState.replace(
-            deadlineMs: deadlineMs,
-            appIsActive: UIApplication.shared.applicationState == .active
-        )
-
-        center.getNotificationSettings { [weak self] settings in
-            guard let self else {
-                call.reject("Notification scheduling did not finish")
-                return
-            }
-            guard self.canSchedule(settings.authorizationStatus) else {
-                self.center.removePendingNotificationRequests(
-                    withIdentifiers: [BloomCompletionAlert.requestIdentifier]
-                )
-                BloomCompletionAlert.deliveryState.clear(deadlineMs: deadlineMs)
-                call.resolve(["scheduled": false, "reason": "permission"])
-                return
-            }
-
-            let deadline = Date(timeIntervalSince1970: deadlineMs / 1_000)
-            let delay = deadline.timeIntervalSinceNow
-            guard delay > 0 else {
-                self.center.removePendingNotificationRequests(
-                    withIdentifiers: [BloomCompletionAlert.requestIdentifier]
-                )
-                BloomCompletionAlert.deliveryState.clear(deadlineMs: deadlineMs)
-                call.resolve(["scheduled": false, "reason": "past"])
-                return
-            }
-
-            let content = UNMutableNotificationContent()
-            content.title = String(title.prefix(80))
-            content.body = String(body.prefix(180))
-            content.sound = UNNotificationSound(
-                named: UNNotificationSoundName(rawValue: BloomCompletionAlert.soundName)
+        let sessionId = validSessionId(call.getString("sessionId"))
+        Task {
+            let appIsActive = await MainActor.run { UIApplication.shared.applicationState == .active }
+            let result = await BloomCompletionAlertTransport.shared.schedule(
+                sessionId: sessionId, deadlineMs: deadlineMs, title: title, body: body, appIsActive: appIsActive
             )
-            content.threadIdentifier = "bloom-timer"
-            content.userInfo = ["deadlineMs": deadlineMs]
-            // Ordinary active delivery: it remains under the person's Silent
-            // Mode and Focus controls. Bloom does not request the Time
-            // Sensitive or Critical Alert capabilities.
-            content.interruptionLevel = .active
-
-            let trigger = UNTimeIntervalNotificationTrigger(
-                timeInterval: max(1, delay),
-                repeats: false
-            )
-            let request = UNNotificationRequest(
-                identifier: BloomCompletionAlert.requestIdentifier,
-                content: content,
-                trigger: trigger
-            )
-
-            // A stable identifier makes every deadline update a replacement,
-            // never a growing queue of stale completion cues.
-            self.center.removePendingNotificationRequests(
-                withIdentifiers: [BloomCompletionAlert.requestIdentifier]
-            )
-            self.center.removeDeliveredNotifications(
-                withIdentifiers: [BloomCompletionAlert.requestIdentifier]
-            )
-            self.center.add(request) { error in
-                if let error {
-                    BloomCompletionAlert.deliveryState.clear(deadlineMs: deadlineMs)
-                    call.reject("Could not schedule the completion alert", nil, error)
-                } else {
-                    call.resolve(["scheduled": true, "deadlineMs": deadlineMs])
-                }
-            }
+            var response: JSObject = ["scheduled": result.scheduled]
+            if result.scheduled { response["deadlineMs"] = deadlineMs }
+            if let reason = result.reason { response["reason"] = reason }
+            call.resolve(response)
         }
     }
 
     @objc func cancel(_ call: CAPPluginCall) {
-        let cancelIfSafe = {
-            let shouldRemove = BloomCompletionAlert.deliveryState.shouldRemovePendingForCancellation(
-                nowMs: Date().timeIntervalSince1970 * 1_000,
-                appIsActive: UIApplication.shared.applicationState == .active
+        var resumeNotice: BloomCompletionResumeNotice?
+        if let raw = call.getObject("resumeNotice"),
+           let sessionId = validSessionId(raw["sessionId"] as? String),
+           let title = raw["title"] as? String, !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+           let body = raw["body"] as? String, !body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+           let remaining = raw["remainingSeconds"] as? NSNumber,
+           remaining.doubleValue.isFinite, remaining.doubleValue > 0,
+           remaining.doubleValue <= 7 * 24 * 60 * 60,
+           remaining.doubleValue.rounded() == remaining.doubleValue {
+            resumeNotice = BloomCompletionResumeNotice(
+                sessionId: sessionId, title: title, body: body, remainingSeconds: remaining.intValue
             )
-            if shouldRemove {
-                self.center.removePendingNotificationRequests(
-                    withIdentifiers: [BloomCompletionAlert.requestIdentifier]
-                )
-            }
+        }
+        let notice = resumeNotice
+        Task {
+            let appIsActive = await MainActor.run { UIApplication.shared.applicationState == .active }
+            _ = await BloomCompletionAlertTransport.shared.cancel(resumeNotice: notice, appIsActive: appIsActive)
             call.resolve()
         }
-        if Thread.isMainThread {
-            cancelIfSafe()
-        } else {
-            DispatchQueue.main.async(execute: cancelIfSafe)
-        }
+    }
+
+    private func validSessionId(_ value: String?) -> String? {
+        guard let value, value.range(of: "^[A-Za-z0-9._-]{1,96}$", options: .regularExpression) != nil else { return nil }
+        return value
     }
 
     @objc func consumeDue(_ call: CAPPluginCall) {
@@ -277,17 +111,6 @@ final class BloomCompletionAlertPlugin: CAPPlugin, CAPBridgedPlugin {
                 result["deadlineMs"] = deadlineMs
             }
             call.resolve(result)
-        }
-    }
-
-    private func canSchedule(_ status: UNAuthorizationStatus) -> Bool {
-        switch status {
-        case .authorized, .provisional, .ephemeral:
-            return true
-        case .notDetermined, .denied:
-            return false
-        @unknown default:
-            return false
         }
     }
 

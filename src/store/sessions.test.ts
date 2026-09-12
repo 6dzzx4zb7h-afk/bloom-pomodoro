@@ -9,7 +9,72 @@ import {
   setSessionTargetOutcome,
   sweepStaleOpenSession,
 } from './sessions';
-import { isTinyFirstRung, tinyResetMinutes, tinyXpFor } from './useBloom';
+import { DEFAULT_STATE, isTinyFirstRung, reducer, tinyResetMinutes, tinyXpFor } from './useBloom';
+
+describe('interrupted countdown precision', () => {
+  const now = new Date(2026, 6, 14, 11, 0, 0).getTime();
+
+  it.each(['focus', 'tiny'] as const)('preserves exact paused seconds through %s interruption and saved-record reload', (mode) => {
+    const plannedMin = mode === 'focus' ? 25 : 5;
+    const remainingSec = plannedMin * 60 - 38;
+    const open = {
+      ...newOpenSession(mode, plannedMin, 2, undefined, now - 38_000),
+      running: false,
+      remainingSec,
+    };
+    const record = JSON.parse(JSON.stringify(sweepStaleOpenSession(open, now)));
+    const resumed = reducer({ ...DEFAULT_STATE, sessionRecords: [record] }, {
+      type: 'resumeInterrupted',
+      sessionId: open.id,
+    });
+
+    expect(resumed.remaining).toBe(remainingSec);
+    expect(resumed.openFocus).toMatchObject({ id: open.id, remainingSec, mode });
+    expect(resumed.sessionRecords).toEqual([]);
+  });
+
+  it('recovers the displayed whole second when swept between timer ticks', () => {
+    const open = {
+      ...newOpenSession('focus', 25, undefined, undefined, now - 38_750),
+      endsAt: now + 1_461_250,
+    };
+    const record = sweepStaleOpenSession(open, now)!;
+    const resumed = reducer({ ...DEFAULT_STATE, sessionRecords: [record] }, {
+      type: 'resumeInterrupted',
+      sessionId: open.id,
+    });
+
+    expect(resumed.remaining).toBe(1462);
+  });
+
+  it('does not offer an interrupted countdown whose deadline has already passed', () => {
+    const open = {
+      ...newOpenSession('focus', 25, undefined, undefined, now - 26 * 60_000),
+      endsAt: now - 60_000,
+    };
+
+    expect(sweepStaleOpenSession(open, now)).toMatchObject({
+      actualMin: 25,
+      outcome: 'interrupted',
+      resumeCuePending: false,
+    });
+  });
+
+  it.each([0, -1])('dismisses an older exhausted resume cue (%s seconds left) without inventing time', (remainingSec) => {
+    const record = {
+      ...finalizeSession(newOpenSession('focus', 25, undefined), 'interrupted', (1500 - remainingSec) / 60),
+      resumeCuePending: true,
+    };
+    const resumed = reducer({ ...DEFAULT_STATE, sessionRecords: [record] }, {
+      type: 'resumeInterrupted',
+      sessionId: record.id,
+    });
+
+    expect(resumed.running).toBe(false);
+    expect(resumed.openFocus).toBeNull();
+    expect(resumed.sessionRecords[0]).toMatchObject({ id: record.id, resumeCuePending: false });
+  });
+});
 
 describe('tiny session lifecycle', () => {
   const now = new Date(2026, 6, 13, 9, 0, 0).getTime();

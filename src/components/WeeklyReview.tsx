@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { PixelPal } from './PixelPal';
 import { loadEvents } from '../store/companion';
 import type { SessionRecord } from '../store/sessions';
@@ -79,11 +79,14 @@ export function WeeklyReview({
   onOpenGuideArticle: (id: GuideArticleId) => void;
 }) {
   const events = useMemo(() => loadEvents(), []);
+  // The store clock can still refer to the start of the study day. Capture
+  // when this review opens so all three analyses include today's later work,
+  // using the same stable instant until a newer store clock arrives.
+  const [openedAt] = useState(() => Date.now());
+  const computedAt = Math.max(now, openedAt);
   const review = useMemo(
-    // The rolling review window needs the fresh computation instant; `now`
-    // is the store-owned day signal that invalidates it at rollover.
-    () => computeWeeklyReview(records, events, Date.now(), undefined, dayStartHour),
-    [records, events, now, dayStartHour],
+    () => computeWeeklyReview(records, events, computedAt, undefined, dayStartHour),
+    [records, events, computedAt, dayStartHour],
   );
   const guideSuggestion = useMemo(
     () => guideSuggestionFor({
@@ -92,8 +95,8 @@ export function WeeklyReview({
       records,
       events,
       workSessionRunning: false,
-    }, guideRead, now, dayStartHour),
-    [dayStartHour, events, guideRead, now, records, studyDay],
+    }, guideRead, computedAt, dayStartHour),
+    [dayStartHour, events, guideRead, computedAt, records, studyDay],
   );
   const foundationLine = useMemo(
     () =>
@@ -117,7 +120,6 @@ export function WeeklyReview({
   const cadenceDecision = useMemo(
     () => {
       // Staleness and recommendation share this exact computation instant.
-      const computedAt = Date.now();
       return {
         cadence: personalCadenceForSurface(
           personalCadence,
@@ -130,7 +132,7 @@ export function WeeklyReview({
         needsRefresh: shouldRecomputePersonalCadence(personalCadence, computedAt),
       };
     },
-    [chronotype, currentCadence, events, now, personalCadence, records],
+    [chronotype, computedAt, currentCadence, events, personalCadence, records],
   );
   const { cadence, needsRefresh: cadenceNeedsRefresh } = cadenceDecision;
   useEffect(() => {

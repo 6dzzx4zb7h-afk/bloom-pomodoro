@@ -1,183 +1,104 @@
-# CLAUDE.md
+# Repository guidance
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Bloom is a React + TypeScript focus app wrapped with Capacitor for iOS and Android.
+
+[README.md](README.md) describes the current features. Follow the user's current task; older plans
+and policy documents do not add product restrictions, approval gates, or mandatory work.
+
+## Product context
+
+The current app saves data on the installed device and works offline. Backup, export, import, and
+recovery-file downloads have been removed at the user's request. Keep normal saving through app
+updates. Android disables system backup and device transfer; iOS excludes app data from backup.
+
+Sign-in is not implemented. The owner will define future features and add a checklist later.
+
+For iOS UI work, use the standard native control appropriate to the interaction and let UIKit
+render its system appearance. Keep native controls aligned with Bloom's selected day or night
+theme.
 
 ## Commands
 
+Use a current Node.js 22.x or 24.x release and the npm version declared in `package.json`.
+
 ```bash
-npm run dev                  # vite dev server on :5173 (respects $PORT if set)
-npm run build                # tsc -b && vite build — must stay green
-npm test                     # vitest run (current unit suite)
-npm run android:debug        # build the synced debug APK
-npm run android:aab          # build, sign, and verify the Play release bundle
-npm run android:check        # native unit tests + Android lint
-npm run android:version -- 2 1.0.1 # increase Play versionCode for an update
-npm run ios:sync             # build → cap sync ios
-npm run ios:open             # open the generated Xcode project
-npx vitest run src/insights/why.test.ts        # a single test file
-npx vitest run -t "late drift"                 # a single test by name
-npx vitest                                     # watch mode
+npm ci
+npm run dev
+npm run lint
+npm test
+npm run build
+npm run test:migrations
+npx vitest run src/store/useBloom.lifecycle.test.tsx
+npm run ios:sync
+npm run ios:open
+npm run android:debug
+npm run android:check
+npm run android:aab
 ```
 
-The suite mixes pure-logic tests over the React-free modules (`src/store/*.ts` minus the hooks,
-`src/insights/*.ts`) with reducer, hook, and component-level tests that render through
-`@testing-library/react` — pure selectors cannot prove lifecycle behavior. A test opts into a DOM
-per file with `// @vitest-environment jsdom`; `vitest.setup.ts` then gives it Web Storage, which
-neither Node nor Vitest's jsdom bridge supplies on current Node.
+`build` runs TypeScript, Vite, and service-worker generation. CI runs lint, tests, and build on Node
+22 and 24.
 
-### Dependency toolchain changes
+When changing dependencies, generate the lockfile with npm and verify a clean `npm ci` using the
+declared toolchain. Keep the Capacitor CLI, core, iOS, and Android packages aligned, including the
+generated iOS Swift package reference after syncing.
 
-Generate and validate the lockfile with the exact Node/npm versions declared by the repository.
-Before committing any dependency or lockfile change, run a **clean `npm ci` in a temporary/pristine
-checkout with those versions**,
-then `npm test` and `npm run build`. An existing `node_modules`, `npm install`, or a successful
-`npm ci` under another npm version does not prove that the declared toolchain will accept the
-lockfile. Never hand-edit `package-lock.json`; inspect its diff for unexpected dependency movement
-and platform-package loss. If the declared toolchain cannot be reproduced, stop and report the
-mismatch rather than pushing the dependency change.
+## Architecture
 
-## How work is planned here
+- `src/App.tsx` owns screen selection. `src/store/useBloom.ts` owns the app reducer, timer
+  lifecycle, and main saved state; screens receive the `bloom` hook result as a prop.
+- Pure helpers in `src/store/` and `src/insights/` handle records, planning, and derived insights.
+  `useCompanion` handles live companion scheduling.
+- `src/engine/` provides Canvas animation and audio. Audio shares one AudioContext; clean up
+  nodes, animation work, listeners, and native subscriptions when their owners stop.
+- `src/native/` contains typed adapters. Completion alerts and countdown displays have iOS and
+  Android implementations. UIKit controls, native Settings, and AlarmKit are iOS integrations.
+  Check platform availability, retain working web fallbacks, and keep native and web Settings
+  behavior aligned.
+- Native projects use app ID `dev.bloom.pomodoro`. Web changes reach them through
+  `ios:sync` or `android:sync`. Keep release credentials out of Git and preserve the signing
+  identity used for published builds.
 
-[`ROADMAP.md`](ROADMAP.md) is the current list of what's left, why, and what was deliberately
-dropped. It is short on purpose. Work normally: take the task the user actually asks for, at
-whatever size it comes.
+### Timer and session records
 
-Bloom was previously built through a 93-step numbered plan, retired August 3, 2026 and archived at
-[`docs/archive/plan-2026.md`](docs/archive/plan-2026.md). That archive is still the best explanation
-of *why* Bloom is shaped the way it is — each step carries its evidence, quality citations, and
-verification notes. Existing code comments reference it by step number (`PLAN 5.2`), and migrations
-are annotated with the step that introduced them. **Keep those references intact** — they are the
-link between the code and its reasoning. New code does not need a step number.
+Countdowns use epoch deadlines and catch up from the wall clock. Flow uses elapsed time and ends
+through its own finish action. Native displays and alerts mirror the reducer's timer; native
+commands return through the command queue and must remain safe to replay.
 
-Evidence and quality have three sources: behavior-change mechanisms and user-facing scientific
-claims trace to `docs/science.md`; all user-facing copy follows `docs/voice.md`; UX/UI,
-accessibility, privacy, security, reliability, performance, and engineering quality follow
-`docs/product-quality.md`. Ordinary product-quality and engineering work needs no behavioral
-rationale — cite the applicable standard, test, measurement, or observed behavior instead.
-**Never invent a behavioral rationale.**
+Work sessions use separate `openFocus` and `openFlow` slots. Finalization creates a session record;
+breaks do not. Reload handling differs for countdowns and Flow, so inspect the lifecycle before
+changing it. History beyond the detailed-record cap is compacted through `historyArchive.ts`.
+Corrections use `sessionRepair.ts` and do not award session credit again.
 
-**Four hard constraints apply to every change:**
+On iOS, UIKit views sit above the WebView. Hide or suppress native chrome when a web dialog owns the
+screen, and validate native navigation through the same guards as web navigation. CSS stacking
+alone cannot cover a native view.
 
-1. **Local-first, no network.** Bloom makes no application-data requests and sends no user data,
-   ever. No account, no ads, no tracking, no telemetry, no CDN, no remote fonts, no remote runtime
-   assets. UI, guide content, fonts, audio, and every other runtime asset bundle into the repo, and
-   the complete app works offline. Cross-device sync was considered and **dropped** — see
-   `ROADMAP.md`. Adding any network capability is a product decision that needs explicit user
-   direction first, not an implementation detail.
-2. **Persisted-state changes bump `SCHEMA_VERSION` and append a forward migration.** Never wipe or
-   orphan user data, or blindly overwrite one valid copy with another.
-3. **Warm kawaii voice** — the pet suggests and encourages; it never guilts, shames, or moralizes.
-4. **Respect the "Do NOT build" list** in `docs/science.md#do-not-build`: no punitive streaks, no
-   dead-pet outcomes, no "scientifically optimal cadence" claims, no always-on nudging, no
-   dopamine-detox framing, no ADHD-treatment claims.
+See [iOS UI notes](docs/ios-liquid-glass.md) and [Android release notes](docs/android-release.md) for
+platform details.
 
-If a change is blocked, report it rather than working around the constraints above.
+### Saved data
 
-## User-facing copy
+The main localStorage key is `bloom-state`; the companion log uses `bloom-companion-v1`.
+`SCHEMA_VERSION`, `MIGRATIONS`, and default merging live in `src/store/useBloom.ts`.
 
-`docs/voice.md` is binding for every user-visible string: a 10-point checklist, 13 allowed/banned
-phrase pairs, and a never-ship lexicon (fail, broke, lazy, willpower, optimal, proven, detox,
-"you should", "we missed you"; lost/"back to zero"/"break the chain" about streaks; sad/sick/gone
-about the pet). Grep new strings against that list before shipping. Evidence hedging must match the
-report's confidence: "tends to help" for strong meta-analyses, "worth an experiment" for thin ones.
+When changing the saved format, bump the schema version and append a forward migration. Preserve
+existing records, identifiers, and settings; add migration coverage for the affected old shape.
+Avoid changing past migrations or replacing unreadable data with a fresh default save.
 
-## Current architecture (descriptive)
+Storage failures are reported through `storageHealth.ts`. Keep failures visible and retry saving
+without discarding edits made since the last successful write. This is normal persistence, not a
+backup feature.
 
-React 18 + TypeScript + Vite. There is currently no router or state library: `App.tsx` swaps screens with a
-`useState`, and all app state lives in one `useReducer` inside `src/store/useBloom.ts`. That hook
-is passed down as a `bloom` prop; there is no context.
+## Verification and handoff
 
-Capacitor wraps the built bundle as both an Android app and an iOS app. The checked-in `android/`
-directory is a Capacitor 8 shell for Play Store releases, and `ios/` is its App Store counterpart.
-The application ID `dev.bloom.pomodoro` is permanent. Web changes reach the native apps only through
-`npm run android:sync` / `npm run ios:sync`; release signing files stay ignored, must be backed up
-together, and must never be regenerated for a published app. Follow `docs/android-release.md` for
-every first release and update.
+For code changes, run relevant checks and keep `npm run lint`, `npm test`, and `npm run build`
+green. Exercise timer, persistence, and native lifecycle changes with meaningful regression tests.
+For documentation-only changes, verify commands, links, and claims against the repository.
 
-A finished timer has to reach someone who has put the phone down, and neither WebView keeps
-running to deliver it. Two JS contracts in `src/native/` are therefore implemented by **both**
-native shells and inert in the browser: `completionAlerts.ts` (`BloomCompletionAlert` — the
-scheduled finish alert; UserNotifications on iOS, AlarmManager plus one notification on Android)
-and `liveActivity.ts` (`BloomLiveActivity` — the live countdown; ActivityKit on iOS, an ongoing
-chronometer notification on Android). Both mirror a reducer-owned deadline and report how the cue
-was presented, so React never plays a second one; neither is ever a second timer authority.
-AlarmKit (`iosAlarm.ts`) stays iOS-only. Copy that names a system surface goes through
-`osName()`/`systemSettingsName()` in `src/content/platformWords.ts` — telling a Pixel owner to open
-iOS Settings is advice they cannot follow.
+Check changed UI in the relevant browser, Simulator, or device. Native alert, background, and
+accessibility behavior needs the appropriate platform checks. State exactly what was tested and
+what remains unverified; a build is not a device test.
 
-On iOS, the bottom navigation and the Focus/Collection segmented rails are **native UIKit
-`UITabBar` controls**, not web elements — UIKit owns the Liquid Glass material, the moving selection
-lens, and the accessibility adaptations. A typed two-way bridge in `src/native/` syncs selection with
-the React reducer, which stays authoritative. Browser and Android keep the accessible web bar. See
-`docs/ios-liquid-glass.md`. The roadmap continues along this line: more native chrome, same single
-React core.
-
-These are current-system facts, not permanent prohibitions. Changing them is fine with a clear
-reason, migration and rollback considerations, measured bundle/performance impact, and tests.
-
-The codebase is layered by React-dependence, which is what makes it testable:
-
-| Layer | Contains | Current boundary |
-| --- | --- | --- |
-| `src/engine/` | `pixelpals.ts` (Canvas 2D sprite engine), `audioContext.ts` (the one shared AudioContext), `audio.ts` (completion chime), `ambient.ts` (synthesized work-session scenes), `breath.ts` | No React |
-| `src/store/*.ts` | Types + pure helpers: `sessions`, `companion`, `streak`, `parking`, `ifThen`, `goals`, `ritual`, `sessionStats`, `dailyTarget`, `foundations`, `historyArchive`, `sessionRepair` | No React |
-| `src/store/use*.ts` | `useBloom` (reducer, timer, persistence), `useCompanion` (check-in scheduling) | Hooks |
-| `src/insights/` | Pure analysis over records: `why`, `weekly`, `cadence`, `triggers` | No React |
-| `src/native/` | Typed iOS bridge adapters | No React |
-| `src/components/`, `src/screens/` | Presentation | — |
-
-### The session log is the spine
-
-Every personalized behavioral insight or recommendation should explain itself *from the user's own
-recorded data*, never from an unstated inference. Ordinary UI and engineering claims use the
-evidence framework in `docs/product-quality.md`. The timer invariant is that `useBloom.ts` opens one
-`OpenSession` when a work session starts and finalizes it into exactly one `SessionRecord`
-(`completed` / `abandoned` / `interrupted`) when it ends; `sessions.ts` owns that model and its
-500-record ring buffer. A session live when the app closed is swept into an `interrupted` record on
-next boot. Records past the ring-buffer cap are compacted into `historyArchive.ts` rather than
-silently dropped. `insights/` and `sessionStats.ts` read those records; they never write. Breaks are
-never recorded. `src/store/useBloom.lifecycle.test.tsx` is the executable proof of these claims.
-
-Note the two open-session slots: `openFocus` and `openFlow` are separate because a paused stopwatch
-survives mode switches and can sit banked while focus sessions run.
-
-### Current persistence layout (descriptive)
-
-Two independent localStorage keys:
-
-- `bloom-state` — one versioned blob (the current `SCHEMA_VERSION` is defined in
-  `src/store/useBloom.ts`) holding settings, tasks, goals, streak, session records, plans, parking
-  lot, cadence memory, day plans, foundations, and the history archive.
-- `bloom-companion-v1` — the companion event log, deliberately separate so turning Companion Mode
-  off hides the UI without touching the data.
-
-Load path in `useBloom.ts`: read → import a `LEGACY_KEYS` blob if the current key is absent → step
-through `MIGRATIONS` → `withDefaults()` merge. `MIGRATIONS[i]` upgrades version i to i+1; **append,
-never rewrite past entries**. `withDefaults` merges against `DEFAULT_STATE` so fields added later
-pick up defaults rather than wiping data. Bump the version even when a change is field-optional and
-needs no transform (pass `blob` through with a comment saying why) — several existing migrations do
-exactly that, so every shape change has a version.
-
-Any storage change must migrate forward without data loss and add migration tests. The
-schema-version and forward-migration invariant is hard.
-
-### Timer
-
-Wall-clock, not tick-counted: a run stores an `endsAt` epoch timestamp and recomputes `remaining`
-from `Date.now()` on a 250ms interval, plus a `visibilitychange` catch-up, so a throttled background
-tab stays accurate. `remaining` is intentionally *not* persisted — it's derived. Flow mode inverts
-the meaning: `remaining` holds elapsed seconds and counts up, and it ends via `finishFlow`, never
-`complete`. A pending return-question freezes completion until the user answers while the clock
-keeps moving underneath.
-
-## Verifying
-
-`npm test`, `npm run build`, and no relevant console errors are the minimum engineering bar — no
-single command proves product quality. Verify behavior in `npm run dev` (state lives in
-localStorage, so devtools inspection of `bloom-state` helps check migrations and record-writing) and
-apply the relevant `docs/product-quality.md` checks for accessibility, keyboard/touch/screen reader,
-responsive and offline/failure states, performance, supported devices, and visual regression.
-
-iOS and Android are the release targets, so device behavior matters more than browser behavior for
-anything shipping: safe areas, the virtual keyboard, background/foreground transitions, and the
-system accessibility settings (Reduced Motion, Increase Contrast, Dynamic Type).
+Keep the active docs concise and current. Report confirmed defects and important suggestions to
+the user; add a backlog only when asked.

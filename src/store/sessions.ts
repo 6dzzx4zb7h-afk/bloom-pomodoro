@@ -359,7 +359,9 @@ export function finalizeSession(
     endedAt,
     mode: open.mode,
     plannedMin: open.plannedMin,
-    actualMin: Math.max(0, Math.round(actualMin * 10) / 10),
+    // Interrupted records can become the live timer again. Six-second display
+    // rounding here would give time back (or remove it) on every reload/resume.
+    actualMin: Math.max(0, outcome === 'interrupted' ? actualMin : Math.round(actualMin * 10) / 10),
     outcome,
     startHour: open.startHour,
     taskId: open.taskId,
@@ -369,7 +371,9 @@ export function finalizeSession(
     ifThenPlanId: open.ifThenPlanId,
     nextActionText: open.nextActionText,
     returnSnapshot: open.returnSnapshot,
-    resumeCuePending: outcome === 'interrupted' ? true : undefined,
+    resumeCuePending: outcome === 'interrupted'
+      ? (open.returnSnapshot?.remainingSec ?? ((open.plannedMin ?? 0) - actualMin) * 60) > 0
+      : undefined,
   };
 }
 
@@ -387,7 +391,7 @@ export function sweepStaleOpenSession(open: OpenSession, now = Date.now()): Sess
   // the app closed, so a run whose end time already passed counts as its
   // full length, and one caught mid-countdown counts wall-clock time so far.
   const remainingSec =
-    open.running && open.endsAt != null ? Math.max(0, (open.endsAt - now) / 1000) : open.remainingSec;
+    open.running && open.endsAt != null ? Math.max(0, Math.ceil((open.endsAt - now) / 1000)) : open.remainingSec;
   const actualMin = Math.max(0, Math.min(plannedSec, plannedSec - remainingSec)) / 60;
   const endedAt = open.running && open.endsAt != null ? Math.min(now, open.endsAt) : now;
   return finalizeSession(open, 'interrupted', actualMin, endedAt);

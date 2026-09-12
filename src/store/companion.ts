@@ -132,7 +132,7 @@ function finite(value: unknown, min = 0): value is number {
   return typeof value === 'number' && Number.isFinite(value) && value >= min;
 }
 
-/** Complete persisted-row guard shared by ordinary boot recovery and backups. */
+/** Complete persisted-row guard for ordinary boot recovery. */
 export function isValidCompanionEvent(value: unknown): value is CompanionEvent {
   if (!value || typeof value !== 'object') return false;
   const event = value as Record<string, unknown>;

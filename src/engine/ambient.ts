@@ -98,7 +98,6 @@ class AmbientAudio {
   private buffers = new Map<'brown' | 'white', AudioBuffer>();
   /** An AudioBuffer belongs to the context that made it, so the cache does too. */
   private bufferContext: AudioContext | null = null;
-  private stopTimer: ReturnType<typeof setTimeout> | null = null;
 
   /** Which scene is sounding right now, or null. Used by tests and the UI. */
   current(): AmbientScene | null {
@@ -187,10 +186,6 @@ class AmbientAudio {
 
   /** Fade out and release the graph. Safe to call when nothing is playing. */
   stop(): void {
-    if (this.stopTimer) {
-      clearTimeout(this.stopTimer);
-      this.stopTimer = null;
-    }
     const { source, gain, lfo } = this;
     this.source = null;
     this.gain = null;
@@ -220,7 +215,9 @@ class AmbientAudio {
         gain.gain.cancelScheduledValues(ctx.currentTime);
         gain.gain.setValueAtTime(Math.max(0.0001, gain.gain.value), ctx.currentTime);
         gain.gain.linearRampToValueAtTime(0.0001, ctx.currentTime + 0.6);
-        this.stopTimer = setTimeout(release, 700);
+        // This graph owns its release. Another stop or scene change must not
+        // cancel cleanup after these nodes have left the active scene refs.
+        setTimeout(release, 700);
         return;
       } catch {
         /* fall through to an immediate release */

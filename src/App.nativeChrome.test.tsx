@@ -9,6 +9,9 @@ const nativeBridge = vi.hoisted(() => ({
   hideSegment: vi.fn(async () => undefined),
   configureControl: vi.fn(async () => ({ active: true })),
   hideControl: vi.fn(async () => undefined),
+  tabListener: undefined as
+    | ((event: { screen: 'focus' | 'tasks' | 'history' | 'goals' | 'collection' }) => void)
+    | undefined,
   controlListener: undefined as
     | ((event: { id: string; value?: boolean }) => void)
     | undefined,
@@ -45,7 +48,12 @@ vi.mock('./native/iosTabs', async (importOriginal) => {
     hideNativeIOSSegment: nativeBridge.hideSegment,
     configureNativeIOSAuxiliaryControl: nativeBridge.configureControl,
     hideNativeIOSAuxiliaryControl: nativeBridge.hideControl,
-    listenForNativeIOSTabSelection: async () => ({ remove: vi.fn() }),
+    listenForNativeIOSTabSelection: async (
+      listener: typeof nativeBridge.tabListener,
+    ) => {
+      nativeBridge.tabListener = listener;
+      return { remove: vi.fn() };
+    },
     listenForNativeIOSSegmentSelection: async () => ({ remove: vi.fn() }),
     listenForNativeIOSAuxiliaryControlActivation: async (
       listener: (event: { id: string; value?: boolean }) => void,
@@ -98,6 +106,7 @@ describe('native iOS chrome visibility', () => {
     nativeBridge.configureControl.mockClear();
     nativeBridge.hideControl.mockClear();
     nativeBridge.controlListener = undefined;
+    nativeBridge.tabListener = undefined;
     nativeCompletionAlerts.readStatus.mockReset().mockResolvedValue({
       permission: 'prompt',
       alertsEnabled: false,
@@ -165,6 +174,49 @@ describe('native iOS chrome visibility', () => {
       );
     });
   });
+
+  it.each(['goals', 'history'] as const)(
+    'hides native tabs and rejects navigation while a %s dialog is open',
+    async (destination) => {
+      const now = Date.now();
+      localStorage.setItem('bloom-state', JSON.stringify({
+        version: 31,
+        settings: { name: 'Mira', planner: true },
+        ritual: { enabled: false, suggestionSeen: true },
+        goals: [{ id: 4, title: 'Read chapter', due: '2026-12-31', target: 8, done: 2, createdAt: now }],
+        goalLedger: [{ id: 'manual-credit', goalId: 4, delta: 2, source: 'manual', dayKey: '2026-09-12', at: now }],
+        sessionRecords: [{
+          id: 'repair-me', startedAt: now - 10 * 60_000, endedAt: now - 60_000,
+          mode: 'focus', plannedMin: 25, actualMin: 9, outcome: 'interrupted',
+          startHour: new Date(now).getHours(), driftEventIds: [],
+        }],
+      }));
+      render(<App />);
+      await waitFor(() => expect(nativeBridge.tabListener).toBeTypeOf('function'));
+      act(() => nativeBridge.tabListener?.({ screen: destination }));
+      fireEvent.click(destination === 'goals'
+        ? screen.getByRole('button', { name: 'Delete Read chapter' })
+        : screen.getByRole('button', { name: /Repair Focus session ending/ }));
+      expect(screen.getByRole('dialog')).toBeTruthy();
+
+      // A queued UIKit selection may arrive before the observer has hidden
+      // the tab bar. The open dialog must protect its screen immediately.
+      act(() => nativeBridge.tabListener?.({ screen: 'tasks' }));
+      expect(screen.getByRole('dialog')).toBeTruthy();
+      await waitFor(() => expect(nativeBridge.configureTabs).toHaveBeenLastCalledWith(
+        expect.objectContaining({ selected: destination, visible: false }),
+      ));
+
+      fireEvent.click(screen.getByRole('button', {
+        name: destination === 'goals' ? 'keep it' : 'keep original',
+      }));
+      await waitFor(() => expect(nativeBridge.configureTabs).toHaveBeenLastCalledWith(
+        expect.objectContaining({ selected: destination, visible: true }),
+      ));
+      act(() => nativeBridge.tabListener?.({ screen: 'tasks' }));
+      expect(screen.getByRole('main', { name: 'Tasks' })).toBeTruthy();
+    },
+  );
 
   it('removes both native rails while the foundations picker owns the Focus surface', async () => {
     localStorage.setItem('bloom-state', JSON.stringify({

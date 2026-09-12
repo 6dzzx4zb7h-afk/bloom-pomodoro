@@ -4,7 +4,6 @@ import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
-import android.os.SystemClock;
 import android.service.notification.StatusBarNotification;
 
 import androidx.core.app.NotificationCompat;
@@ -153,11 +152,12 @@ public class BloomLiveActivityPlugin extends Plugin {
         if (running) {
             // The system draws and ticks this countdown, so it stays true while
             // the WebView is frozen — which is the whole reason it exists.
-            long millisUntil = deadlineMs.longValue() - System.currentTimeMillis();
             builder
                 .setUsesChronometer(true)
                 .setChronometerCountDown(true)
-                .setWhen(SystemClock.elapsedRealtime() + millisUntil)
+                // Notification.when takes epoch milliseconds. Android converts
+                // that timestamp to the chronometer's elapsed-realtime base.
+                .setWhen(deadlineMs.longValue())
                 .setShowWhen(true)
                 .setContentText("Counting down. Bloom is keeping time.");
         } else {

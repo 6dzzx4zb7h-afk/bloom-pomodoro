@@ -80,19 +80,6 @@ export function subscribeStorageHealth(listener: () => void): () => void {
   return () => listeners.delete(listener);
 }
 
-export function storageRecoveryJson(currentBloom?: unknown): string {
-  return JSON.stringify(
-    {
-      kind: 'bloom-storage-recovery',
-      exportedAt: new Date().toISOString(),
-      failures: snapshot.failures,
-      recoveredBloom: currentBloom,
-    },
-    null,
-    2,
-  );
-}
-
 /** Test-only reset, exported to keep module state isolated across Vitest files. */
 export function resetStorageHealthForTests(): void {
   publish(EMPTY);

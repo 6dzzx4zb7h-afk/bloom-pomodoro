@@ -144,7 +144,7 @@ describe('FoundationsCard', () => {
     );
   });
 
-  it('reuses the if-then flow with the foundation action prefilled and cue focused', () => {
+  it('reuses the if-then flow with the foundation action prefilled and heading focused', () => {
     const onCreatePlan = vi.fn();
     render(
       <FoundationsCard
@@ -167,7 +167,7 @@ describe('FoundationsCard', () => {
     fireEvent.click(screen.getByRole('button', { name: 'tend' }));
     fireEvent.click(screen.getAllByRole('button', { name: 'anchor it' })[0]);
     const cue = screen.getByLabelText('If — the cue');
-    expect(document.activeElement).toBe(cue);
+    expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'If–then plan' }));
     expect((screen.getByLabelText('Then — the first action') as HTMLInputElement).value)
       .toBe('phone in another room before the first session');
     fireEvent.change(cue, { target: { value: 'after coffee' } });

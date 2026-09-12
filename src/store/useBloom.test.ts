@@ -107,6 +107,60 @@ describe('timer lifecycle invariants', () => {
 
   afterEach(() => vi.useRealTimers());
 
+  it.each([
+    ['focus', true],
+    ['focus', false],
+    ['tiny', true],
+    ['tiny', false],
+    ['flow', true],
+    ['flow', false],
+  ] as const)('preserves a newer %s session (running=%s) when an old resume action arrives', (mode, running) => {
+    const interrupted = {
+      ...finalizeSession(
+        newOpenSession('focus', 25, undefined, undefined, Date.now() - 10 * 60_000),
+        'interrupted',
+        5,
+        Date.now() - 5 * 60_000,
+      ),
+      resumeCuePending: true,
+    };
+    let state = makeState({ sessionRecords: [interrupted] });
+    state = reducer(state, { type: 'pick', mode });
+    state = reducer(state, { type: 'toggle' });
+    if (!running) state = reducer(state, { type: 'toggle' });
+
+    const resumed = reducer(state, { type: 'resumeInterrupted', sessionId: interrupted.id });
+
+    expect(resumed).toBe(state);
+  });
+
+  it.each(['short', 'long'] as const)('does not interrupt a running %s break with an old resume action', (mode) => {
+    const interrupted = {
+      ...finalizeSession(newOpenSession('focus', 25, undefined), 'interrupted', 5),
+      resumeCuePending: true,
+    };
+    let state = makeState({ sessionRecords: [interrupted] });
+    state = reducer(state, { type: 'pick', mode });
+    state = reducer(state, { type: 'toggle' });
+
+    expect(reducer(state, { type: 'resumeInterrupted', sessionId: interrupted.id })).toBe(state);
+  });
+
+  it('still resumes an interrupted session when no newer session or break is running', () => {
+    const interrupted = {
+      ...finalizeSession(newOpenSession('focus', 25, undefined), 'interrupted', 5),
+      resumeCuePending: true,
+    };
+    const state = makeState({ sessionRecords: [interrupted] });
+
+    const resumed = reducer(state, { type: 'resumeInterrupted', sessionId: interrupted.id });
+
+    expect(resumed.openFocus?.id).toBe(interrupted.id);
+    expect(resumed.running).toBe(true);
+    expect(resumed.remaining).toBe(20 * 60);
+    expect(resumed.sessionRecords).toEqual([]);
+  });
+
   it('atomically archives the oldest record when a finalized session crosses the live cap', () => {
     const endedAt = Date.now() - 60_000;
     const records = Array.from({ length: SESSION_LOG_CAP }, (_, index) =>

@@ -16,10 +16,9 @@ in the Play Console.
   `android/app/upload-keystore.jks` and `android/keystore.properties` together in an encrypted vault.
 - Every Play update has a strictly higher integer `VERSION_CODE`. `VERSION_NAME` is the user-visible
   release label.
-- Ship updates as new signed AABs. Do not add live-update code, remote runtime assets, analytics,
-  advertising, or runtime network access under this release step.
-- The app remains local-first and offline-capable. Android cloud backup and device-transfer backup
-  are disabled so local focus data is not silently copied outside the app's explicit export flow.
+- Updates ship as signed AABs containing the app code and runtime assets.
+- The current app saves locally and works offline. Android cloud backup and device-transfer backup
+  are disabled. Bloom has no backup, export, or import flow.
 - Bloom declares three runtime-visible permissions and no others: `POST_NOTIFICATIONS`,
   `USE_EXACT_ALARM`, and `SCHEDULE_EXACT_ALARM` (API 31–32 only). None of them touch the network.
   `USE_EXACT_ALARM` is install-time granted and restricted by Play policy to apps whose core
@@ -28,7 +27,7 @@ in the Play Console.
   the justification.
   `scripts/android-verify.mjs` holds that list and fails the release build in both directions: on a
   permission nobody declared (a plugin's manifest merge is the usual way one appears) and on a
-  declared one that went missing. Change the list only alongside a decision recorded here.
+  declared one that went missing. Update that validation when the app's permissions change.
 
 ## Prerequisites
 
@@ -94,7 +93,7 @@ changing the application ID or creating a replacement listing.
 
 4. Install the debug APK on representative API 24 and API 36 devices. Exercise onboarding, timer
    completion, background/foreground recovery, notification permission and completion cue,
-   persistence after process restart, export/import, rotation, system Back, TalkBack, large text,
+   persistence after process restart, local data controls, rotation, system Back, TalkBack, large text,
    and airplane mode. Confirm that no application-data requests occur.
 5. Host `public/privacy.html` at a stable HTTPS URL controlled by the Play-account owner. Put that
    exact URL in both the store listing and App content privacy-policy field.
@@ -102,7 +101,7 @@ changing the application ID or creating a replacement listing.
    Signing, upload the AAB to Internal testing first, and complete the listing, content rating,
    target audience, ads declaration, app access, and Data safety form.
 7. The current implementation collects and shares no user data: focus data remains on-device,
-   Android backup is disabled, and export/import happens only at the user's direction. Record those
+   Android backup is disabled, and the app has no export/import feature. Record those
    facts accurately in Data safety. Re-audit the form before every release; adding any SDK or
    optional network feature changes this answer.
 8. Review the automated device catalog and Play pre-launch report, then promote through a closed or

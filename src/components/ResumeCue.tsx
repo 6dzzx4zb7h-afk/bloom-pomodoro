@@ -20,7 +20,6 @@ interface ResumeCueProps {
 
 /**
  * A small, persisted thread-restorer for tab returns and interrupted reloads.
- * PLACEHOLDER_COPY — final recovery wording lands in the designated copy pass.
  */
 export function ResumeCue({
   palSprite,
@@ -48,7 +47,9 @@ export function ResumeCue({
     <>
       <PixelPal sprite={palSprite} mode="idle" scale={3} size={64} className="pop-pal" />
       <div className="pop-body">
-        <div className="pop-text">welcome back — here’s the thread 🌱</div>
+        <div className="pop-text">
+          {isReturnQuestion ? 'welcome back to your session 🌱' : 'your last session was interrupted 🌱'}
+        </div>
         <div className="resume-context">
           {parkedText && (
             <div className="resume-context-row">
@@ -64,7 +65,7 @@ export function ResumeCue({
           )}
         </div>
         <label className="resume-next-label" htmlFor={`resume-next-${session.id}`}>
-          next concrete action
+          next step (optional)
         </label>
         <input
           id={`resume-next-${session.id}`}
@@ -72,7 +73,7 @@ export function ResumeCue({
           value={nextAction}
           maxLength={SESSION_TARGET_MAX}
           onChange={(event) => setNextAction(event.target.value)}
-          placeholder="one small physical step…"
+          placeholder="e.g. open page 4 and read the first paragraph"
         />
 
         {isReturnQuestion ? (
@@ -92,7 +93,9 @@ export function ResumeCue({
           </>
         ) : (
           <>
-            <div className="pop-soft resume-soft">that session paused here — want to step back in?</div>
+            <div className="pop-soft resume-soft">
+              resume the remaining time, or keep the interrupted record and dismiss this reminder.
+            </div>
             <div className="pop-actions resume-actions">
               <button className="pop-btn primary" onClick={() => saveThen(onResumeInterrupted)}>
                 resume from here
@@ -111,7 +114,7 @@ export function ResumeCue({
     return (
       <Dialog
         title="Return to your session"
-        description="The timer is waiting for an honest update about the time away."
+        description="Should the time away count as focus, or go back on the timer?"
         closeOnEscape={false}
         className="resume-cue resume-dialog"
       >

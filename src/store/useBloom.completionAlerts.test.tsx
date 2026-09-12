@@ -101,6 +101,8 @@ describe('useBloom native completion-alert reconciliation', () => {
           running: true,
           mode: 'focus',
           deadlineMs: expect.any(Number),
+          sessionId: bloom.state.openFocus?.id,
+          remainingSeconds: null,
         }),
       ),
     );
@@ -113,6 +115,8 @@ describe('useBloom native completion-alert reconciliation', () => {
         running: false,
         mode: 'focus',
         deadlineMs: null,
+        sessionId: bloom.state.openFocus?.id,
+        remainingSeconds: bloom.state.remaining,
       }),
     );
 
@@ -128,8 +132,25 @@ describe('useBloom native completion-alert reconciliation', () => {
         running: false,
         mode: 'focus',
         deadlineMs: null,
+        sessionId: null,
+        remainingSeconds: bloom.state.remaining,
       }),
     );
+  });
+
+  it('does not resend native notification metadata on countdown display ticks', async () => {
+    vi.useFakeTimers();
+    try {
+      render(<Harness />);
+      await act(async () => bloom.actions.toggle());
+      const initialRemaining = bloom.state.remaining;
+      reconcileCompletionAlert.mockClear();
+      await act(async () => vi.advanceTimersByTime(3000));
+      expect(bloom.state.remaining).toBe(initialRemaining - 3);
+      expect(reconcileCompletionAlert).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('cancels the mirror when Ring when done is switched off', async () => {
@@ -238,6 +259,31 @@ describe('useBloom native completion-alert reconciliation', () => {
 
       expect(playRing).toHaveBeenCalledTimes(1);
       expect(notify).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('plays one cue for each consecutive Flow finish and does not replay it on record edits', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-08-03T12:00:00Z'));
+    try {
+      render(<Harness />);
+      act(() => bloom.actions.patchSettings({ flow: true }));
+      act(() => bloom.actions.pick('flow'));
+
+      for (let run = 1; run <= 2; run++) {
+        act(() => bloom.actions.toggle(undefined, 'Read a few pages'));
+        vi.setSystemTime(Date.now() + 13 * 60_000);
+        await act(async () => bloom.actions.finishFlow());
+        expect(bloom.state.justDone).toBe(true);
+        expect(playRing).toHaveBeenCalledTimes(run);
+
+        const record = bloom.state.sessionRecords[bloom.state.sessionRecords.length - 1];
+        act(() => bloom.actions.setTargetOutcome(record.id, 'done'));
+        expect(playRing).toHaveBeenCalledTimes(run);
+        act(() => vi.advanceTimersByTime(3600));
+      }
     } finally {
       vi.useRealTimers();
     }

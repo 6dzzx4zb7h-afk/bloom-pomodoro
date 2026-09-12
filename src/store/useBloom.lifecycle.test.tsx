@@ -230,16 +230,9 @@ describe('timer lifecycle controls at the hook/component boundary', () => {
     render(<FocusHarness />);
 
     const before = screen.getByRole('region', { name: 'Before this session' });
-    // PLAN 13.17: the task and the target stay on the screen; the rest of the
-    // preparation is one tap away so the transport is never pushed off a phone.
-    const fold = within(before).getByRole('button', { name: /a little more prep/i });
-    expect(fold.getAttribute('aria-expanded')).toBe('false');
-    expect(within(before).queryByRole('button', { name: /opening move/i })).toBeNull();
-    fireEvent.click(fold);
-
     const task = within(before).getByText('Draft the opening');
-    const target = within(before).getByRole('textbox', { name: 'Session target' });
-    const openingMove = within(before).getByRole('button', { name: /opening move/i });
+    const target = within(before).getByRole('textbox', { name: 'What will you work on?' });
+    const openingMove = within(before).getByRole('button', { name: /Plan for distractions/i });
     const reset = within(before).getByRole('button', { name: /tiny environment reset/i });
     const start = screen.getByRole('button', { name: 'Start' });
 
@@ -252,9 +245,32 @@ describe('timer lifecycle controls at the hook/component boundary', () => {
 
     fireEvent.click(start);
     const ritual = screen.getByRole('region', { name: 'Environment reset' });
-    expect(within(ritual).getByRole('button', { name: 'skip for now' })).toBeTruthy();
-    fireEvent.click(within(ritual).getByRole('button', { name: 'skip for now' }));
+    expect(within(ritual).getByRole('button', { name: 'skip & start' })).toBeTruthy();
+    fireEvent.click(within(ritual).getByRole('button', { name: 'skip & start' }));
     expect(screen.getByRole('button', { name: 'Pause' })).toBeTruthy();
+  });
+
+  it('offers one-tap optional planning and starts without a task, target, or plan', () => {
+    seedState({ tasks: [], activeTaskId: null, ritual: { ...DEFAULT_RITUAL, suggestionSeen: true } });
+    render(<FocusHarness />);
+
+    const before = screen.getByRole('region', { name: 'Before this session' });
+    expect(within(before).queryByText('No task selected')).toBeNull();
+    expect(within(before).queryByText('Now focusing on')).toBeNull();
+    expect(within(before).getByPlaceholderText('e.g. answer 5 questions')).toBeTruthy();
+    fireEvent.click(within(before).getByRole('button', { name: /Plan for distractions/i }));
+    const planner = within(before).getByRole('group', { name: 'Plan for distractions' });
+    expect(within(planner).getByRole('textbox', { name: 'If — the cue' })).toBeTruthy();
+    expect(within(planner).getByRole('button', { name: 'a detour' }).getAttribute('aria-pressed')).toBe('true');
+
+    // Even an expanded, unfilled planner must not become a gate to starting.
+    fireEvent.click(screen.getByRole('button', { name: 'Start' }));
+    expect(screen.getByRole('button', { name: 'Pause' })).toBeTruthy();
+    expect(stateProbe().openFocus?.taskId).toBeUndefined();
+    expect(stateProbe().openFocus?.targetText).toBeUndefined();
+    expect(stateProbe().openFocus?.ifThenPlanId).toBeUndefined();
+    expect(screen.queryByRole('region', { name: 'Before this session' })).toBeNull();
+    expect(document.querySelector('.prep-open')).toBeNull();
   });
 
   it('opens the weekly experiment on demand from the discoverable Settings entry', () => {
@@ -283,7 +299,7 @@ describe('timer lifecycle controls at the hook/component boundary', () => {
     seedState();
     render(<FocusHarness />);
 
-    fireEvent.change(screen.getByRole('textbox', { name: 'Session target' }), {
+    fireEvent.change(screen.getByRole('textbox', { name: 'What will you work on?' }), {
       target: { value: 'Draft the first paragraph' },
     });
     fireEvent.click(screen.getByRole('button', { name: 'Start' }));
@@ -960,6 +976,32 @@ describe('Companion drift decisions at the hook boundary', () => {
     expect(hook.result.current.bloom.state.openFlow?.returnSnapshot).toBeUndefined();
     expect(hook.result.current.bloom.state.openFocus).toBeNull();
     expect(hook.result.current.bloom.state.sessionRecords).toHaveLength(0);
+  });
+
+  it('dismisses a check-in once and leaves the next scheduled interval quiet', () => {
+    vi.spyOn(document, 'hidden', 'get').mockReturnValue(false);
+    seedState({ settings: { companion: { ...DEFAULT_COMPANION, on: true, checkinMins: 3 } } });
+    const hook = renderHook(() => {
+      const bloom = useBloom();
+      return { bloom, companion: useCompanion(bloom) };
+    });
+    act(() => hook.result.current.bloom.actions.toggle());
+    act(() => vi.advanceTimersByTime(180_000));
+    act(() => vi.advanceTimersByTime(1_000));
+    expect(hook.result.current.companion.prompt?.type).toBe('checkin');
+    act(() => {
+      hook.result.current.companion.actions.skipCheckin();
+      hook.result.current.companion.actions.skipCheckin();
+    });
+    expect(hook.result.current.companion.prompt).toBeNull();
+    expect(loadEvents()).toEqual([expect.objectContaining({ kind: 'skip', src: 'checkin' })]);
+    expect(hook.result.current.bloom.state.running).toBe(true);
+    act(() => vi.advanceTimersByTime(180_000));
+    act(() => vi.advanceTimersByTime(1_000));
+    expect(hook.result.current.companion.prompt).toBeNull();
+    act(() => vi.advanceTimersByTime(180_000));
+    act(() => vi.advanceTimersByTime(1_000));
+    expect(hook.result.current.companion.prompt?.type).toBe('checkin');
   });
 
   it.each([

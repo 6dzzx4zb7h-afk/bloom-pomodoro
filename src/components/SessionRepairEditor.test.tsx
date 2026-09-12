@@ -28,6 +28,55 @@ function record(id: string, startedAt: number, endedAt: number): SessionRecord {
 afterEach(cleanup);
 
 describe('SessionRepairEditor', () => {
+  it('preserves the original end instant when only the outcome is changed', () => {
+    const source = record('target', at(9, 0) + 45_123, at(9, 10) + 45_123);
+    const onSave = vi.fn();
+    render(
+      <div className="phone">
+        <SessionRepairEditor
+          record={source}
+          records={[source]}
+          wallClockEndAt={at(9, 30)}
+          onSave={onSave}
+          onCancel={vi.fn()}
+        />
+      </div>,
+    );
+
+    fireEvent.change(screen.getByLabelText('How the session ended'), {
+      target: { value: 'completed' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'save repair' }));
+
+    expect(onSave).toHaveBeenCalledWith(expect.objectContaining({
+      record: expect.objectContaining({ endedAt: source.endedAt, actualMin: 10 }),
+    }));
+  });
+
+  it('keeps the default wander start inside a session that started between minutes', () => {
+    const source = record('target', at(9, 0) + 45_123, at(9, 10) + 45_123);
+    const onSave = vi.fn();
+    render(
+      <div className="phone">
+        <SessionRepairEditor
+          record={source}
+          records={[source]}
+          wallClockEndAt={at(9, 30)}
+          onSave={onSave}
+          onCancel={vi.fn()}
+        />
+      </div>,
+    );
+
+    fireEvent.click(screen.getByLabelText('Add an estimated wander'));
+    fireEvent.click(screen.getByRole('button', { name: 'save repair' }));
+
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(onSave).toHaveBeenCalledWith(expect.objectContaining({
+      retroactiveDrift: { onsetAt: source.startedAt, durationMin: 5 },
+    }));
+  });
+
   it('is labeled, clamps overlap, and emits only a repair proposal', () => {
     const source = record('target', at(9, 0), at(9, 10));
     const next = record('next', at(9, 18), at(9, 35));

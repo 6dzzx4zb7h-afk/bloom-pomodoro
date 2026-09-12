@@ -15,6 +15,12 @@ function localInputValue(at: number): string {
   return local.toISOString().slice(0, 16);
 }
 
+function inputTimestamp(value: string, original: number): number {
+  // The picker displays minutes. Keeping that display untouched must not
+  // round away recorded seconds when only the outcome or wander is edited.
+  return value === localInputValue(original) ? original : new Date(value).getTime();
+}
+
 const ERROR_COPY: Record<SessionRepairError, string> = {
   'invalid-window': 'This record does not have a safe editable time window.',
   'invalid-end': 'Choose a valid end time.',
@@ -51,12 +57,12 @@ export function SessionRepairEditor({
       record,
       records,
       wallClockEndAt,
-      endedAt: new Date(endedAt).getTime(),
+      endedAt: inputTimestamp(endedAt, record.endedAt),
       outcome,
       ...(includeDrift
         ? {
             retroactiveDrift: {
-              onsetAt: new Date(driftAt).getTime(),
+              onsetAt: inputTimestamp(driftAt, record.startedAt),
               durationMin: Number(driftMinutes),
             },
           }

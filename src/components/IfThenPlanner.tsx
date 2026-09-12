@@ -32,6 +32,9 @@ export function IfThenPlanner({
   initialOpen = false,
   initialCueType = 'time',
   initialActionText = '',
+  title = 'If–then plan',
+  triggerLabel = 'Add an if–then plan',
+  onOpenChange,
   onSelect,
   onClear,
   onCreate,
@@ -45,6 +48,11 @@ export function IfThenPlanner({
   /** Foundation anchors reuse this flow with their action already supplied. */
   initialCueType?: CueType;
   initialActionText?: string;
+  /** Callers can name the plan for its context without changing saved data. */
+  title?: string;
+  triggerLabel?: string;
+  /** Reports initial visibility and changes from the planner's own controls. */
+  onOpenChange?: (open: boolean) => void;
   onSelect: (id: string) => void;
   onClear: () => void;
   onCreate: (cueType: CueType, cueText: string, actionText: string) => void;
@@ -54,7 +62,7 @@ export function IfThenPlanner({
   const [cueType, setCueType] = useState<CueType>(initialCueType);
   const [cueText, setCueText] = useState('');
   const [actionText, setActionText] = useState(initialActionText);
-  const cueRef = useRef<HTMLInputElement>(null);
+  const headingRef = useRef<HTMLDivElement>(null);
   // Creating a plan is a dispatch, so the new id arrives via the plans prop:
   // remember the length at save time and select whatever got appended.
   const wantSelect = useRef<number | null>(null);
@@ -71,8 +79,14 @@ export function IfThenPlanner({
   }, [plans, onSelect]);
 
   useEffect(() => {
-    if (open) cueRef.current?.focus();
+    // Announce the newly opened planner without raising a mobile keyboard
+    // before the user can read its explanation or choose a saved plan.
+    if (open) headingRef.current?.focus({ preventScroll: true });
   }, [open]);
+
+  useEffect(() => {
+    onOpenChange?.(open);
+  }, [open, onOpenChange]);
 
   const selected = plans.find((p) => p.id === selectedId);
   const tpl = IF_THEN_TEMPLATES.find((t) => t.cueType === cueType) ?? IF_THEN_TEMPLATES[0];
@@ -86,32 +100,40 @@ export function IfThenPlanner({
           <button
             className="ifthen-current"
             onClick={() => setOpen(true)}
-            title="change the opening move"
+            title={`Change ${title.toLowerCase()}`}
+            aria-expanded={false}
           >
             ✦ if {selected.cueText}, then {selected.actionText}
           </button>
-          <button className="ifthen-clear" onClick={onClear} aria-label="Skip the opening move">
+          <button className="ifthen-clear" onClick={onClear} aria-label="Skip this plan">
             ×
           </button>
         </div>
       );
     }
     return (
-      <button className="ifthen-ask" onClick={() => setOpen(true)}>
-        ✦ what’s our opening move? <span className="ifthen-opt">optional</span>
+      <button className="ifthen-ask" onClick={() => setOpen(true)} aria-expanded={false}>
+        {triggerLabel} <span className="ifthen-opt">optional</span>
       </button>
     );
   }
 
   return (
-    <div className="ifthen-panel" role="group" aria-label="Opening move planner">
+    <div className="ifthen-panel" role="group" aria-label={title}>
       <div className="ifthen-head">
-        <div className="ifthen-title">our opening move</div>
+        <div ref={headingRef} className="ifthen-title" role="heading" aria-level={3} tabIndex={-1}>
+          {title}
+        </div>
         <button className="ifthen-close" onClick={() => setOpen(false)} aria-label="Close planner">
           ×
         </button>
       </div>
-      <div className="ifthen-sub">pre-deciding the first step tends to make starting lighter. skip anytime.</div>
+      <div className="ifthen-sub">
+        Save an if–then response to use yourself.
+        {initialCueType === 'obstacle'
+          ? ' For example: if I check my phone, then I return to this paragraph.'
+          : ' Choose a cue and the action you’ll take when it happens.'}
+      </div>
 
       {plans.length > 0 && (
         <div className="ifthen-list">
@@ -153,7 +175,6 @@ export function IfThenPlanner({
           ))}
         </div>
         <input
-          ref={cueRef}
           className="pop-jot-input"
           value={cueText}
           maxLength={120}

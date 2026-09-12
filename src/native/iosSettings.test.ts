@@ -76,7 +76,7 @@ describe('native iOS settings snapshot validation', () => {
         selected: 'h3',
       },
       { kind: 'note', id: 'note.streak', title: 'Gentle streak', body: 'A months game.' },
-      { kind: 'disclosure', id: 'detail.data', title: 'Backup, import, and history' },
+      { kind: 'disclosure', id: 'detail.data', title: 'Local data and history' },
     ]);
 
     await expect(presentNativeIOSSettings(snapshot)).resolves.toEqual({ active: true });

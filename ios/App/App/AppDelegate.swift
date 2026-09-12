@@ -8,6 +8,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
     var window: UIWindow?
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
+        BloomBackupPolicy.excludeLocalDataFromBackup()
         // PLAN 13.11: the system owns background/Lock Screen delivery. Bloom's
         // existing Web Audio cue remains the sole foreground sound, so the
         // delegate suppresses only Bloom's mirrored timer notification there.
@@ -59,6 +60,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
     }
 
     func applicationDidEnterBackground(_ application: UIApplication) {
+        BloomBackupPolicy.excludeLocalDataFromBackup()
         BloomCompletionAlert.deliveryState.noteAppBecameNonActive(
             atMs: Date().timeIntervalSince1970 * 1_000
         )
@@ -71,6 +73,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
     }
 
     func applicationDidBecomeActive(_ application: UIApplication) {
+        BloomCompletionAlert.deliveryState.noteAppBecameActive()
         // Restart any tasks that were paused (or not yet started) while the application was inactive. If the application was previously in the background, optionally refresh the user interface.
     }
 
@@ -91,4 +94,35 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
         return ApplicationDelegateProxy.shared.application(application, continue: userActivity, restorationHandler: restorationHandler)
     }
 
+}
+
+/// Keep durable app data in its normal container, with Apple's backup-exclusion
+/// resource value on the parent directories. Library covers WKWebView storage
+/// and UserDefaults, including files created after launch. Do not move this data
+/// into Caches: the OS may purge caches while the app is still installed.
+enum BloomBackupPolicy {
+    static func excludeLocalDataFromBackup() {
+        for directory in [FileManager.SearchPathDirectory.documentDirectory, .libraryDirectory] {
+            do {
+                let url = try FileManager.default.url(
+                    for: directory,
+                    in: .userDomainMask,
+                    appropriateFor: nil,
+                    create: true
+                )
+                try excludeDirectory(url)
+            } catch {
+                // This is an OS backup preference, not a reason to stop local
+                // saving. Retry on backgrounding without logging user content.
+                NSLog("Bloom could not apply a local backup exclusion.")
+            }
+        }
+    }
+
+    static func excludeDirectory(_ directory: URL) throws {
+        var url = directory
+        var values = URLResourceValues()
+        values.isExcludedFromBackup = true
+        try url.setResourceValues(values)
+    }
 }

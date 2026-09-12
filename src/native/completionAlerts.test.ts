@@ -180,6 +180,28 @@ describe('native iOS completion-alert bridge', () => {
     expect(schedule).not.toHaveBeenCalled();
   });
 
+  it('addresses the running iOS notice and paused resume metadata to one session', async () => {
+    const deadlineMs = Date.now() + 60_000;
+    await reconcileCompletionAlert({ enabled: true, running: true, mode: 'focus', deadlineMs, sessionId: 'focus-1' });
+    expect(schedule).toHaveBeenLastCalledWith(expect.objectContaining({ sessionId: 'focus-1', deadlineMs }));
+
+    await reconcileCompletionAlert({ enabled: true, running: false, mode: 'focus', deadlineMs: null, sessionId: 'focus-1', remainingSeconds: 42 });
+    expect(cancel).toHaveBeenLastCalledWith({ resumeNotice: {
+      sessionId: 'focus-1', remainingSeconds: 42,
+      title: 'Focus timer finished', body: 'Bloom is ready when you are.',
+    } });
+  });
+
+  it.each([
+    { enabled: false, mode: 'focus' as const, sessionId: 'focus-1', remainingSeconds: 42 },
+    { enabled: true, mode: 'short' as const, sessionId: null, remainingSeconds: 42 },
+    { enabled: true, mode: 'focus' as const, sessionId: null, remainingSeconds: 42 },
+    { enabled: true, mode: 'focus' as const, sessionId: 'focus-1', remainingSeconds: 0 },
+  ])('discards native resume permission for an ineligible paused snapshot: %o', async (snapshot) => {
+    await reconcileCompletionAlert({ ...snapshot, running: false, deadlineMs: null });
+    expect(cancel).toHaveBeenLastCalledWith();
+  });
+
   it.each([
     { enabled: false, running: true, mode: 'focus' as const, deadlineMs: 123_000 },
     { enabled: true, running: false, mode: 'focus' as const, deadlineMs: null },

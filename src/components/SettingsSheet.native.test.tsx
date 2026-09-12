@@ -1,11 +1,11 @@
 // @vitest-environment jsdom
 
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CompletionAlertStatus } from '../native/completionAlerts';
 import { EMPTY_PERSONAL_CADENCE } from '../insights/cadence';
 import { DEFAULT_RITUAL } from '../store/ritual';
-import { DEFAULT_STATE, persistedShapeFromState } from '../store/useBloom';
+import { DEFAULT_STATE } from '../store/useBloom';
 import type {
   NativeSettingsAction,
   NativeSettingsRow,
@@ -80,12 +80,10 @@ function renderSettings(overrides: Partial<Parameters<typeof SettingsSheet>[0]> 
       now={state.now}
       running={false}
       hasOpenSession={false}
-      persistedState={persistedShapeFromState(state)}
       onCacheCadence={vi.fn()}
       onApplyCadence={vi.fn()}
       ritual={DEFAULT_RITUAL}
       onClearFocusData={vi.fn()}
-      onDataImported={vi.fn()}
       completionAlertStatus={unsupported}
       onRequestCompletionAlertPermission={vi.fn(async () => unsupported)}
       {...handlers}
@@ -126,6 +124,12 @@ describe('Settings on iOS (PLAN 13.4b)', () => {
       'appearance',
       'data',
     ]);
+    expect(rowsOf('data')).toEqual([{
+      kind: 'disclosure',
+      id: 'detail.data',
+      title: 'Local data and history',
+      subtitle: 'privacy, weekly review, and clearing reflection history',
+    }]);
   });
 
   it('routes a native switch back through the reducer exactly once', async () => {
@@ -135,6 +139,58 @@ describe('Settings on iOS (PLAN 13.4b)', () => {
     native.action?.({ id: 'settings.night', value: true });
 
     expect(onPatch).toHaveBeenCalledExactlyOnceWith({ night: true });
+  });
+
+  it('keeps the native session intention switch usable with Companion off', async () => {
+    const { onPatch } = renderSettings();
+    await waitFor(() => expect(native.present).toHaveBeenCalled());
+
+    expect(rowsOf('companion')).toContainEqual(expect.objectContaining({
+      id: 'settings.companion.intention', kind: 'switch', value: true,
+    }));
+    expect(rowsOf('companion')).toContainEqual(expect.objectContaining({
+      id: 'note.preSlump',
+      body: expect.stringContaining('Requires Companion mode on and Quiet mode off.'),
+    }));
+    native.action?.({ id: 'settings.companion.intention', value: false });
+
+    expect(onPatch).toHaveBeenCalledExactlyOnceWith({
+      companion: { ...DEFAULT_STATE.settings.companion, intention: false },
+    });
+  });
+
+  it('keeps the web session intention switch usable with Companion off', () => {
+    native.nativeIOS = false;
+    const { onPatch } = renderSettings();
+    fireEvent.click(screen.getByText('Companion', { selector: 'summary' }));
+    fireEvent.click(screen.getByRole('switch', { name: 'Session intention' }));
+
+    expect(onPatch).toHaveBeenCalledExactlyOnceWith({
+      companion: { ...DEFAULT_STATE.settings.companion, intention: false },
+    });
+    expect(screen.getByText(/Requires Companion mode on and Quiet mode off\./)).toBeTruthy();
+  });
+
+  it.each([30, 60])('explains the actual %s-second away setting equally on native and web', async (awaySecs) => {
+    const settings = {
+      ...DEFAULT_STATE.settings,
+      companion: { ...DEFAULT_STATE.settings.companion, on: true, awaySecs },
+    };
+    renderSettings({ settings });
+    await waitFor(() => expect(native.present).toHaveBeenCalled());
+    const threshold = rowsOf('companion').find((row) => row.id === 'companion.awaySecs');
+    expect(threshold?.kind).toBe('stepper');
+    if (threshold?.kind !== 'stepper') throw new Error('Missing away threshold stepper');
+    expect(threshold.subtitle).toBe(
+      `Return questions wait ${Math.max(45, awaySecs)} seconds (at least 45). Quiet mode logs silently after ${awaySecs} seconds.`,
+    );
+    expect(threshold.valueLabel).toBe(`${awaySecs} s`);
+
+    cleanup();
+    native.nativeIOS = false;
+    renderSettings({ settings });
+    fireEvent.click(screen.getByText('Companion', { selector: 'summary' }));
+    expect(screen.getByText(threshold.subtitle!)).toBeTruthy();
   });
 
   it('maps a prefixed hour option back to a real clock hour', async () => {

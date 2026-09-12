@@ -129,6 +129,39 @@ describe('WeeklyReview clock roles', () => {
     expect(onApplyCadence).toHaveBeenNthCalledWith(2, { focusMin: 20, breakMin: 5 });
   });
 
+  it('uses current sessions for guide suggestions after the day-refresh signal', () => {
+    vi.useFakeTimers();
+    const currentTime = new Date('2026-07-16T18:00:00').getTime();
+    const dayRefreshAt = new Date('2026-07-16T09:00:00').getTime();
+    vi.setSystemTime(currentTime);
+    const onGuideSuggested = vi.fn();
+
+    render(
+      <WeeklyReview
+        records={Array.from({ length: 3 }, (_, index) => ({
+          ...record(`abandoned-${index}`, currentTime - (3 - index) * 60 * 60_000),
+          outcome: 'abandoned' as const,
+        }))}
+        now={dayRefreshAt}
+        studyDay="2026-07-16"
+        dayStartHour={0}
+        palSprite="cat"
+        onDismiss={vi.fn()}
+        onApplyCadence={vi.fn()}
+        onCacheCadence={vi.fn()}
+        currentCadence={DEFAULT_CADENCE}
+        personalCadence={EMPTY_PERSONAL_CADENCE}
+        chronotype="notSure"
+        guideRead={EMPTY_GUIDE_READ_STATE}
+        onGuideSuggested={onGuideSuggested}
+        onOpenGuideArticle={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText('A few starts ended early. Want one small next-step note?')).toBeTruthy();
+    expect(onGuideSuggested).toHaveBeenCalledWith('first-pebble', 'weekly:2026-07-13');
+  });
+
   it('adds at most one guarded foundations sentence to the weekly surface', () => {
     vi.useFakeTimers();
     const currentTime = new Date('2026-07-16T18:00:00').getTime();

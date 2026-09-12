@@ -29,6 +29,7 @@ export default function App() {
   const [guideArticleId, setGuideArticleId] = useState<GuideArticleId | null>(null);
   const [nativeTabsReady, setNativeTabsReady] = useState(false);
   const [focusOverlayOpen, setFocusOverlayOpen] = useState(false);
+  const [webDialogOpen, setWebDialogOpen] = useState(false);
   const navigationRef = useRef<(next: ScreenName) => ScreenName>(() => 'focus');
   const nativeTabConfigurationRef = useRef({
     selected: screen,
@@ -59,10 +60,13 @@ export default function App() {
     selected: screen,
     showGoals,
     night,
-    visible: !needsName && !focusOverlayOpen,
+    visible: !needsName && !focusOverlayOpen && !webDialogOpen,
   };
 
   const requestNavigation = (next: ScreenName) => {
+    // UIKit can deliver a queued tap before the dialog observer hides its
+    // bar. Consult the committed DOM so an unresolved dialog keeps its owner.
+    if (document.querySelector('.dialog-layer')) return screen;
     const decision = timerTransitionPolicy(bloom.state, 'navigation');
     const acceptedScreen =
       appSurface.blocksNavigation || decision.kind === 'confirm' ? 'focus' : next;
@@ -98,6 +102,18 @@ export default function App() {
   useEffect(() => {
     if (appSurface.blocksNavigation) setScreen('focus');
   }, [appSurface.blocksNavigation]);
+
+  // Native views composite above the WebView. Watch every screen's portal
+  // host so Goals, History, and locally-owned pickers also clear the chrome.
+  useEffect(() => {
+    if (!isNativeIOSTabsPlatform()) return;
+    const root = document.body;
+    const update = () => setWebDialogOpen(Boolean(root.querySelector('.dialog-layer')));
+    const observer = new MutationObserver(update);
+    observer.observe(root, { childList: true, subtree: true });
+    update();
+    return () => observer.disconnect();
+  }, []);
 
   // PLAN 13.2: iOS owns primary navigation through a real UITabBar. Its
   // selected lens/material/motion remain entirely system-rendered; React only
@@ -144,7 +160,7 @@ export default function App() {
       selected: screen,
       showGoals,
       night,
-      visible: !needsName && !focusOverlayOpen,
+      visible: !needsName && !focusOverlayOpen && !webDialogOpen,
     })
       .then(({ active }) => {
         if (!disposed) setNativeTabsReady(active);
@@ -158,7 +174,7 @@ export default function App() {
     return () => {
       disposed = true;
     };
-  }, [focusOverlayOpen, needsName, night, screen, showGoals]);
+  }, [focusOverlayOpen, needsName, night, screen, showGoals, webDialogOpen]);
 
   // PLAN 13.9/13.18: the iOS and Android home-screen icon shows whoever is on
   // duty. The store stays the authority; this only mirrors its choice onto the
@@ -192,7 +208,6 @@ export default function App() {
         className={`phone${night ? ' night' : ''} mode-${skyMode}${nativeTabsReady ? ' native-ios-tabs' : ''}`}
       >
         <StorageRecoveryNotice
-          recoveredBloom={bloom.storageRecovery.recoveredBloom}
           onRetry={bloom.storageRecovery.retry}
           onRecover={bloom.storageRecovery.recover}
         />
@@ -215,6 +230,7 @@ export default function App() {
                 onOpenGuideArticle={openGuideArticle}
                 onOpenGoals={() => setScreen('goals')}
                 onNativeOverlayChange={setFocusOverlayOpen}
+                nativeWebOverlayOpen={webDialogOpen}
               />
             )}
             {screen === 'tasks' && (

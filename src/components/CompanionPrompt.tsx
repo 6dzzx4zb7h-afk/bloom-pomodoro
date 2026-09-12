@@ -68,6 +68,9 @@ export function CompanionPrompt({ companion, palSprite, focusLabel }: CompanionP
               <button className="pop-btn" onClick={actions.drifted}>
                 i drifted
               </button>
+              <button className="pop-btn" onClick={actions.skipCheckin}>
+                not now
+              </button>
             </div>
           </>
         )}

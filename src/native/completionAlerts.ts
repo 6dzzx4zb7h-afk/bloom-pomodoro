@@ -29,8 +29,14 @@ interface BloomCompletionAlertPlugin {
     deadlineMs: number;
     title: string;
     body: string;
+    sessionId?: string;
   }): Promise<{ scheduled: boolean; deadlineMs?: number; reason?: string }>;
-  cancel(): Promise<void>;
+  cancel(options?: { resumeNotice: {
+    sessionId: string;
+    title: string;
+    body: string;
+    remainingSeconds: number;
+  } }): Promise<void>;
   consumeDue(options: {
     deadlineMs: number;
   }): Promise<{ presentation: CompletionAlertPresentation }>;
@@ -141,6 +147,10 @@ export interface CompletionAlertSnapshot {
   running: boolean;
   mode: TimerMode;
   deadlineMs: number | null;
+  /** Opaque work-session identity; breaks have no system transport controls. */
+  sessionId?: string | null;
+  /** Only populated while paused, so countdown ticks do not re-cross the bridge. */
+  remainingSeconds?: number | null;
 }
 
 export interface CompletionAlertReconcileResult {
@@ -182,7 +192,25 @@ export function reconcileCompletionAlert(
 
     if (!shouldSchedule) {
       try {
-        await completionAlertPlugin.cancel();
+        const canResumeFromSystem =
+          Capacitor.getPlatform() === 'ios' &&
+          snapshot.enabled && !snapshot.running &&
+          (snapshot.mode === 'focus' || snapshot.mode === 'tiny') &&
+          typeof snapshot.sessionId === 'string' &&
+          /^[A-Za-z0-9._-]{1,96}$/.test(snapshot.sessionId) &&
+          Number.isInteger(snapshot.remainingSeconds) &&
+          snapshot.remainingSeconds! > 0 && snapshot.remainingSeconds! <= 7 * 24 * 60 * 60;
+        if (canResumeFromSystem && notice) {
+          // Keep only notification transport metadata for a native Resume.
+          // Native still re-reads permission and uses the Activity's deadline.
+          await completionAlertPlugin.cancel({ resumeNotice: {
+            sessionId: snapshot.sessionId!,
+            ...notice,
+            remainingSeconds: snapshot.remainingSeconds!,
+          } });
+        } else {
+          await completionAlertPlugin.cancel();
+        }
       } catch {
         // The timer remains complete and usable if native cancellation fails.
       }
@@ -205,6 +233,11 @@ export function reconcileCompletionAlert(
         deadlineMs: snapshot.deadlineMs!,
         title: notice.title,
         body: notice.body,
+        ...(Capacitor.getPlatform() === 'ios' &&
+          typeof snapshot.sessionId === 'string' &&
+          /^[A-Za-z0-9._-]{1,96}$/.test(snapshot.sessionId)
+          ? { sessionId: snapshot.sessionId }
+          : {}),
       });
       // If this command became stale while the native add was in flight, the
       // newer queued command runs next and replaces or cancels the stable ID.

@@ -225,7 +225,7 @@ export function DebriefCard({
         ) : (
           <div className="pop-actions">
             <button className="pop-btn primary" onClick={onDismiss}>
-              ok ♡
+              {record.goalCredit === 'pending' ? 'close without goal credit' : 'ok ♡'}
             </button>
           </div>
         )}

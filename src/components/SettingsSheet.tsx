@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import type { DurationMode, PersistedShape, Settings } from '../store/useBloom';
+import type { DurationMode, Settings } from '../store/useBloom';
 import { audioEngine, requestNotifyPermission } from '../engine/audio';
 import {
   AMBIENT_CHOICES,
@@ -27,7 +27,7 @@ import {
   type PersonalCadenceMemory,
   type PersonalCadenceRecommendation,
 } from '../insights/cadence';
-import type { SessionRecord } from '../store/sessions';
+import { RETURN_GAP_MIN_SEC, type SessionRecord } from '../store/sessions';
 import type { CompletionAlertStatus } from '../native/completionAlerts';
 import type { LiveActivityStatus } from '../native/liveActivity';
 import type { IOSAlarmStatus } from '../native/iosAlarm';
@@ -50,18 +50,9 @@ import {
   type NativeSettingsRow,
   type NativeSettingsSection,
 } from '../native/iosSettings';
-import {
-  BackupError,
-  IMPORT_RECOVERY_KEY,
-  commitPreparedImport,
-  createBackupEnvelope,
-  parseBackup,
-  prepareImport,
-  readBackupFile,
-  serializeBackup,
-  sessionRecordsCsv,
-  type PreparedImport,
-} from '../store/exportImport';
+
+const SESSION_INTENTION_COPY = 'show the optional session target, even with Companion mode off';
+const PRE_SLUMP_COPY = 'Requires Companion mode on and Quiet mode off. With enough focus history, Bloom may offer a breath or stretch just before your usual first drift — once per session, twice per day at most. You can silence it for the day from the cue.';
 
 /**
  * The two system surfaces this sheet names — the scheduled finish alert and
@@ -125,11 +116,10 @@ interface SettingsSheetProps {
   personalCadence: PersonalCadenceMemory;
   /** Store-owned day signal; cadence computation captures its own instant. */
   now: number;
-  /** Whether a session is currently running (data import waits until it ends). */
+  /** Whether a timer is running; history clearing and review have separate guards. */
   running: boolean;
   /** Includes paused work records whose history still belongs to the timer. */
   hasOpenSession: boolean;
-  persistedState: PersistedShape;
   onPatch: (patch: Partial<Settings>) => void;
   onCacheCadence: (recommendation: PersonalCadenceRecommendation) => void;
   onApplyCadence: (pair: CadencePair) => void;
@@ -137,7 +127,6 @@ interface SettingsSheetProps {
   onPatchRitual: (patch: Partial<Pick<RitualSettings, 'enabled' | 'suggestionSeen'>>) => void;
   onUpdateRitualItem: (id: string, text: string) => void;
   onClearFocusData: () => void;
-  onDataImported: () => void;
   onClose: () => void;
   completionAlertStatus: CompletionAlertStatus;
   onRequestCompletionAlertPermission: () => Promise<CompletionAlertStatus>;
@@ -289,14 +278,12 @@ export function SettingsSheet({
   ritual,
   running,
   hasOpenSession,
-  persistedState,
   onPatch,
   onCacheCadence,
   onApplyCadence,
   onPatchRitual,
   onUpdateRitualItem,
   onClearFocusData,
-  onDataImported,
   onClose,
   completionAlertStatus,
   onRequestCompletionAlertPermission,
@@ -351,6 +338,7 @@ export function SettingsSheet({
       : null;
   const [nameDraft, setNameDraft] = useState(settings.name);
   const companion = settings.companion;
+  const awayThresholdCopy = `Return questions wait ${Math.max(RETURN_GAP_MIN_SEC, companion.awaySecs)} seconds (at least ${RETURN_GAP_MIN_SEC}). Quiet mode logs silently after ${companion.awaySecs} seconds.`;
   // The pal gives a happy little wave when Companion Mode turns on.
   const [waving, setWaving] = useState(false);
   const waveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -359,20 +347,6 @@ export function SettingsSheet({
   const [clearedNote, setClearedNote] = useState(false);
   const [showClearScope, setShowClearScope] = useState(false);
   const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
-  const [importState, setImportState] = useState<
-    | { kind: 'idle' }
-    | { kind: 'reading'; percent: number; fileName: string }
-    | { kind: 'ready'; prepared: PreparedImport; fileName: string }
-    | { kind: 'saving'; prepared: PreparedImport; fileName: string }
-    | { kind: 'success'; safetyBackup: string | null }
-    | {
-        kind: 'error';
-        message: string;
-        recoveryRequired: boolean;
-        recoveryBackup: string | null;
-      }
-  >({ kind: 'idle' });
-  const importController = useRef<AbortController | null>(null);
   const currentCadence = useMemo(
     () => ({
       focusMin: Math.round(settings.durations.focus / 60),
@@ -406,7 +380,6 @@ export function SettingsSheet({
   useEffect(
     () => () => {
       if (waveTimer.current) clearTimeout(waveTimer.current);
-      importController.current?.abort();
     },
     [],
   );
@@ -480,106 +453,6 @@ export function SettingsSheet({
     setShowClearScope(false);
     setClearConfirmOpen(false);
     setClearedNote(true);
-  }
-
-  function downloadText(contents: string, fileName: string, mime: string) {
-    const url = URL.createObjectURL(new Blob([contents], { type: mime }));
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = fileName;
-    link.click();
-    window.setTimeout(() => URL.revokeObjectURL(url), 0);
-  }
-
-  function currentBackup() {
-    return createBackupEnvelope(persistedState, loadEvents());
-  }
-
-  function exportJson() {
-    const day = new Date().toISOString().slice(0, 10);
-    downloadText(
-      serializeBackup(currentBackup()),
-      `bloom-backup-${day}.json`,
-      'application/json',
-    );
-  }
-
-  function exportCsv() {
-    const day = new Date().toISOString().slice(0, 10);
-    downloadText(
-      sessionRecordsCsv(records),
-      `bloom-sessions-${day}.csv`,
-      'text/csv;charset=utf-8',
-    );
-  }
-
-  async function chooseImport(file: File | undefined) {
-    if (!file) return;
-    importController.current?.abort();
-    const controller = new AbortController();
-    importController.current = controller;
-    setImportState({ kind: 'reading', percent: 0, fileName: file.name });
-    try {
-      const text = await readBackupFile(file, controller.signal, (percent) => {
-        setImportState((state) =>
-          state.kind === 'reading' ? { ...state, percent } : state,
-        );
-      });
-      const incoming = parseBackup(text, controller.signal);
-      const prepared = prepareImport(incoming, currentBackup());
-      setImportState({ kind: 'ready', prepared, fileName: file.name });
-    } catch (error) {
-      if (error instanceof BackupError && error.code === 'canceled') {
-        setImportState({ kind: 'idle' });
-      } else {
-        setImportState({
-          kind: 'error',
-          message:
-            error instanceof BackupError
-              ? error.message
-              : 'That file could not be read. Your current data is unchanged.',
-          recoveryRequired: false,
-          recoveryBackup: null,
-        });
-      }
-    } finally {
-      if (importController.current === controller) importController.current = null;
-    }
-  }
-
-  function cancelImport() {
-    importController.current?.abort();
-    importController.current = null;
-    setImportState({ kind: 'idle' });
-  }
-
-  function saveImport(prepared: PreparedImport, fileName: string) {
-    setImportState({ kind: 'saving', prepared, fileName });
-    try {
-      commitPreparedImport(prepared, localStorage);
-      const safetyBackup = prepared.safetyBackup
-        ? serializeBackup(prepared.safetyBackup)
-        : null;
-      onDataImported();
-      const nextEvents = prepared.merged.companion.events;
-      setCadenceEvents(nextEvents);
-      setEventCount(nextEvents.length);
-      setClearedNote(false);
-      setImportState({ kind: 'success', safetyBackup });
-    } catch (error) {
-      setImportState({
-        kind: 'error',
-        message:
-          error instanceof BackupError
-            ? error.message
-            : 'The import could not be saved. Your current data is unchanged.',
-        recoveryRequired: error instanceof BackupError && error.recoveryRequired,
-        recoveryBackup:
-          error instanceof BackupError && error.code === 'storage'
-            ? localStorage.getItem(IMPORT_RECOVERY_KEY)
-            : null,
-      });
-    }
   }
 
   // ---------- PLAN 13.4b: the native iOS form ----------
@@ -842,6 +715,13 @@ export function SettingsSheet({
       },
       {
         kind: 'switch',
+        id: 'settings.companion.intention',
+        title: 'Session intention',
+        subtitle: SESSION_INTENTION_COPY,
+        value: companion.intention,
+      },
+      {
+        kind: 'switch',
         id: 'settings.preSlumpCheck',
         title: 'Gentle pre-slump check',
         subtitle: 'an optional breath or stretch hello during focus',
@@ -850,7 +730,7 @@ export function SettingsSheet({
       {
         kind: 'note',
         id: 'note.preSlump',
-        body: 'Based on when your drifts usually start. Once Bloom has enough of your focus history, your pet may offer one soft cue shortly beforehand — never more than once a session or twice a day. You can silence it for the day from the cue.',
+        body: PRE_SLUMP_COPY,
       },
     ];
     if (!companion.on) return rows;
@@ -874,7 +754,8 @@ export function SettingsSheet({
       rows.push({
         kind: 'stepper',
         id: 'companion.awaySecs',
-        title: 'Away counts after',
+        title: 'Away threshold',
+        subtitle: awayThresholdCopy,
         valueLabel: `${companion.awaySecs} s`,
         canDecrease: companion.awaySecs > AWAY_CHOICES[0],
         canIncrease: companion.awaySecs < AWAY_CHOICES[AWAY_CHOICES.length - 1],
@@ -887,13 +768,6 @@ export function SettingsSheet({
         title: 'Quiet mode',
         subtitle: 'log patterns silently, never ask',
         value: companion.quiet,
-      },
-      {
-        kind: 'switch',
-        id: 'settings.companion.intention',
-        title: 'Session intention',
-        subtitle: 'one small “what will you do?” before you start',
-        value: companion.intention,
       },
     );
     return rows;
@@ -1008,8 +882,8 @@ export function SettingsSheet({
         {
           kind: 'disclosure',
           id: 'detail.data',
-          title: 'Backup, import, and history',
-          subtitle: 'export or import a local backup, or review your focus history',
+          title: 'Local data and history',
+          subtitle: 'privacy, weekly review, and clearing reflection history',
         },
       ],
     },
@@ -1663,6 +1537,19 @@ export function SettingsSheet({
           />
         </div>
 
+        <div className="set-row">
+          <span className="set-label">
+            Session intention
+            <span className="set-sub">{SESSION_INTENTION_COPY}</span>
+          </span>
+          <SystemSwitch
+            nativeId="settings.companion.intention"
+            checked={companion.intention}
+            label="Session intention"
+            onChange={(intention) => onPatch({ companion: { ...companion, intention } })}
+          />
+        </div>
+
         <div className="set-block">
           <div className="set-row">
             <span className="set-label">
@@ -1677,9 +1564,7 @@ export function SettingsSheet({
             />
           </div>
           <div className="set-note">
-            Based on when your drifts usually start. Once Bloom has enough of your focus history,
-            your pet may offer one soft cue shortly beforehand — never more than once a session or
-            twice a day. You can silence it for the day from the cue.
+            {PRE_SLUMP_COPY}
           </div>
         </div>
 
@@ -1737,7 +1622,10 @@ export function SettingsSheet({
 
             {companion.tabDetect && (
               <div className="set-row">
-                <span className="set-label">Away counts after</span>
+                <span className="set-label">
+                  Away threshold
+                  <span className="set-sub">{awayThresholdCopy}</span>
+                </span>
                 <div className="stepper">
                   <button
                     className="step-btn"
@@ -1787,20 +1675,6 @@ export function SettingsSheet({
               />
             </div>
 
-            <div className="set-row">
-              <span className="set-label">
-                Session intention
-                <span className="set-sub">one small “what will you do?” before you start</span>
-              </span>
-              <SystemSwitch
-                nativeId="settings.companion.intention"
-                checked={companion.intention}
-                label="Session intention"
-                onChange={(intention) =>
-                  onPatch({ companion: { ...companion, intention } })
-                }
-              />
-            </div>
           </div>
         )}
         </SettingSection>
@@ -1821,153 +1695,15 @@ export function SettingsSheet({
         </SettingSection>
 
         <SettingSection title="Your data" defaultOpen={detail === 'data'} hidden={!showSection('data')}>
-        <div className="set-block data-transfer">
-          <span className="set-label">
-            Backup &amp; transfer
-            <span className="set-sub">
-              download a complete local backup, or a spreadsheet of session records
-            </span>
-          </span>
-          <div className="data-export-actions">
-            <button className="mini-btn" type="button" onClick={exportJson}>
-              export JSON backup
-            </button>
-            <button className="mini-btn" type="button" onClick={exportCsv}>
-              export sessions CSV
-            </button>
-          </div>
-          <label className={`data-import-picker${running || hasOpenSession ? ' disabled' : ''}`}>
-            <span>choose a JSON backup to import</span>
-            <input
-              type="file"
-              accept="application/json,.json"
-              disabled={
-                running ||
-                hasOpenSession ||
-                importState.kind === 'reading' ||
-                importState.kind === 'saving'
-              }
-              onChange={(event) => {
-                void chooseImport(event.target.files?.[0]);
-                event.currentTarget.value = '';
-              }}
-            />
-          </label>
-          {(running || hasOpenSession) && (
-            <span className="set-sub">finish or reset the open timer before importing</span>
-          )}
-
-          <div className="data-import-status" role="status" aria-live="polite">
-            {importState.kind === 'reading' && (
-              <>
-                <span>
-                  reading {importState.fileName} · {importState.percent}%
-                </span>
-                <progress value={importState.percent} max={100}>
-                  {importState.percent}%
-                </progress>
-                <button className="mini-btn" type="button" onClick={cancelImport}>
-                  cancel
-                </button>
-              </>
-            )}
-            {importState.kind === 'ready' && (
-              <>
-                <strong>Ready to review</strong>
-                <span>
-                  This backup has {importState.prepared.preview.sessions} sessions,{' '}
-                  {importState.prepared.preview.tasks} tasks,{' '}
-                  {importState.prepared.preview.goals} goals, and{' '}
-                  {importState.prepared.preview.companionMoments} Companion moments.
-                </span>
-                <span className="set-sub">
-                  Bloom will merge stable records, keep current device preferences, and save a
-                  safety backup first.
-                </span>
-                <div className="data-import-actions">
-                  <button
-                    className="mini-btn"
-                    type="button"
-                    onClick={() => saveImport(importState.prepared, importState.fileName)}
-                  >
-                    merge this backup
-                  </button>
-                  <button className="mini-btn focus-clear-keep" type="button" onClick={cancelImport}>
-                    keep current data
-                  </button>
-                </div>
-              </>
-            )}
-            {importState.kind === 'saving' && (
-              <span>saving the safety backup and imported records…</span>
-            )}
-            {importState.kind === 'success' && (
-              <>
-                <strong>Backup merged ♡</strong>
-                <span>Your sessions, tasks, goals, and Companion moments are ready.</span>
-                {importState.safetyBackup && (
-                  <button
-                    className="mini-btn"
-                    type="button"
-                    onClick={() =>
-                      downloadText(
-                        importState.safetyBackup!,
-                        'bloom-before-import.json',
-                        'application/json',
-                      )
-                    }
-                  >
-                    download safety backup
-                  </button>
-                )}
-              </>
-            )}
-            {importState.kind === 'error' && (
-              <>
-                <strong>
-                  {importState.recoveryRequired ? 'Recovery backup ready' : 'Nothing changed'}
-                </strong>
-                <span>{importState.message}</span>
-                <div className="data-import-actions">
-                  {importState.recoveryBackup ? (
-                    <button
-                      className="mini-btn"
-                      type="button"
-                      onClick={() =>
-                        downloadText(
-                          importState.recoveryBackup!,
-                          'bloom-import-recovery.json',
-                          'application/json',
-                        )
-                      }
-                    >
-                      download recovery backup
-                    </button>
-                  ) : (
-                    <button className="mini-btn" type="button" onClick={exportJson}>
-                      export current data
-                    </button>
-                  )}
-                  <button className="mini-btn focus-clear-keep" type="button" onClick={cancelImport}>
-                    choose another file
-                  </button>
-                </div>
-              </>
-            )}
-          </div>
-        </div>
-
         <div className="set-note privacy-note" role="note" aria-labelledby="privacy-note-title">
           <strong id="privacy-note-title">Privacy &amp; local data</strong>
           <p>
             Bloom keeps your name, settings, tasks, goals, timer records, plans, and Companion
-            moments on this device. The Android app has no ads, analytics, account, cloud sync, or
-            runtime network permission, and Android backup is disabled.
+            moments on this device. There are no ads, analytics, accounts, or cloud sync.
           </p>
           <p>
-            Bloom does not collect, sell, or share this data. Export only creates a file when you
-            choose it; import only reads the file you select. You can export a copy above before
-            clearing Bloom’s local data or uninstalling the app.
+            Bloom does not collect, sell, or share your data. Deleting the app removes its local
+            data. In a browser, clear Bloom’s site data to remove it.
           </p>
         </div>
 

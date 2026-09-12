@@ -60,7 +60,30 @@ enum BloomTimerCommand {
                     pausedRemainingSeconds: nil
                 )
             }
-            await activity.update(ActivityContent(state: next, staleDate: nil))
+            // Move the already-enabled ordinary notification with this same
+            // published clock while JavaScript is suspended. The shared
+            // transport rejects stale session/deadline/paused-time snapshots.
+            if paused {
+                await BloomCompletionAlertTransport.shared.pause(
+                    sessionId: sessionId,
+                    deadlineMs: state.timerEnd.timeIntervalSince1970 * 1_000,
+                    remainingSeconds: next.pausedRemainingSeconds ?? 0,
+                    at: at
+                )
+            } else {
+                await BloomCompletionAlertTransport.shared.resume(
+                    sessionId: sessionId,
+                    remainingSeconds: state.pausedRemainingSeconds ?? 0,
+                    deadline: next.timerEnd
+                )
+            }
+            // A resumed timer can reach zero before the WebView wakes again.
+            // Keep the same deadline-based stale state as reducer snapshots,
+            // so the system withdraws transport controls when time runs out.
+            await activity.update(ActivityContent(
+                state: next,
+                staleDate: paused ? nil : next.timerEnd
+            ))
         }
     }
 }

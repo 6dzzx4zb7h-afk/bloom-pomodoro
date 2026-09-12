@@ -218,6 +218,44 @@ describe('the running scene', () => {
     expect(source.stop).toHaveBeenCalled();
   });
 
+  it('still releases an outgoing scene when stop is requested twice during its fade', () => {
+    vi.useFakeTimers();
+    ambientEngine.set('rain');
+    const source = created.sources[0];
+    const lfo = created.oscillators[0];
+
+    ambientEngine.stop();
+    vi.advanceTimersByTime(100);
+    ambientEngine.stop();
+    vi.advanceTimersByTime(1000);
+
+    expect(source.stop).toHaveBeenCalledTimes(1);
+    expect(source.disconnect).toHaveBeenCalledTimes(1);
+    expect(lfo.stop).toHaveBeenCalledTimes(1);
+    expect(lfo.disconnect).toHaveBeenCalledTimes(1);
+  });
+
+  it('releases every outgoing graph when scenes change before their fades finish', () => {
+    vi.useFakeTimers();
+    ambientEngine.set('rain');
+    vi.advanceTimersByTime(100);
+    ambientEngine.set('waves');
+    vi.advanceTimersByTime(100);
+    ambientEngine.set('hush');
+    vi.advanceTimersByTime(1000);
+
+    expect(ambientEngine.current()).toBe('hush');
+    for (const source of created.sources.slice(0, 2)) {
+      expect(source.stop).toHaveBeenCalledTimes(1);
+      expect(source.disconnect).toHaveBeenCalledTimes(1);
+    }
+    for (const lfo of created.oscillators) {
+      expect(lfo.stop).toHaveBeenCalledTimes(1);
+      expect(lfo.disconnect).toHaveBeenCalledTimes(1);
+    }
+    expect(created.sources[2].stop).not.toHaveBeenCalled();
+  });
+
   it('resumes a context the system suspended while Bloom was away', () => {
     ambientEngine.set('rain');
     resume.mockClear();

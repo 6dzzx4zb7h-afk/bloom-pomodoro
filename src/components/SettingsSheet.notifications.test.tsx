@@ -7,10 +7,7 @@ import type { LiveActivityStatus } from '../native/liveActivity';
 import type { IOSAlarmStatus } from '../native/iosAlarm';
 import { EMPTY_PERSONAL_CADENCE } from '../insights/cadence';
 import { DEFAULT_RITUAL } from '../store/ritual';
-import {
-  DEFAULT_STATE,
-  persistedShapeFromState,
-} from '../store/useBloom';
+import { DEFAULT_STATE } from '../store/useBloom';
 import { SettingsSheet } from './SettingsSheet';
 
 /**
@@ -71,7 +68,6 @@ function renderSettings({
       now={state.now}
       running={false}
       hasOpenSession={false}
-      persistedState={persistedShapeFromState(state)}
       onPatch={onPatch}
       onCacheCadence={vi.fn()}
       onApplyCadence={vi.fn()}
@@ -79,7 +75,6 @@ function renderSettings({
       onPatchRitual={vi.fn()}
       onUpdateRitualItem={vi.fn()}
       onClearFocusData={vi.fn()}
-      onDataImported={vi.fn()}
       onClose={vi.fn()}
       completionAlertStatus={status}
       onRequestCompletionAlertPermission={requested}
